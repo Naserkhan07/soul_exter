@@ -532,8 +532,206 @@ def _wrap(text: str, width: int) -> str:
 # --------------------------------------------------------------------------
 # Registry
 # --------------------------------------------------------------------------
+# Free / self-hosted image sources, animated into clips
+# --------------------------------------------------------------------------
+
+class StillMotionProvider(VideoProvider):
+    """Base for providers that make a still image, then animate it.
+
+    True text-to-video models need a big GPU or a paid API. Text-to-*image*
+    is cheap, and several sources are free and unlimited. Generating a still
+    per scene and moving a virtual camera over it produces a watchable
+    cinematic sequence at zero cost — the animatic technique used in real
+    storyboarding.
+    """
+
+    #: Subclasses set this to fetch/produce a still for a prompt.
+    def make_image(self, prompt: str, dest: Path, *, seed: int) -> Path:
+        raise NotImplementedError
+
+    #: Images generated per clip. >1 dissolves between them for extra motion.
+    images_per_clip = 1
+
+    def generate(self, prompt, dest, *, duration=10, on_status=None):
+        from soulclip.motion import MotionStyle, animate_still, crossblend_stills
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        seed = int(self.options.get("seed", 0))
+        stills_dir = dest.parent / "stills"
+        stills_dir.mkdir(parents=True, exist_ok=True)
+
+        count = max(1, int(self.options.get("images_per_clip",
+                                            self.images_per_clip)))
+        images: list[Path] = []
+        for n in range(count):
+            img = stills_dir / f"{dest.stem}_{n}.jpg"
+            if not img.exists() or img.stat().st_size < 512:
+                if on_status:
+                    on_status(f"image {n + 1}/{count}")
+                self.make_image(prompt, img, seed=seed * 100 + n)
+            images.append(img)
+
+        if on_status:
+            on_status("animating")
+
+        style = MotionStyle(
+            intensity=float(self.options.get("motion", 0.12)),
+            grain=float(self.options.get("grain", 8.0)),
+            vignette=bool(self.options.get("vignette", True)),
+            letterbox=float(self.options.get("letterbox", 0.0)),
+            grade=str(self.options.get("grade", "neutral")),
+        )
+
+        size = str(self.options.get("size", "1280x720"))
+        w, h = (int(v) for v in size.split("x"))
+
+        if len(images) > 1:
+            crossblend_stills(images, dest, duration=duration, width=w,
+                              height=h, style=style, seed=seed)
+        else:
+            animate_still(images[0], dest, duration=duration, width=w,
+                          height=h, style=style, seed=seed)
+
+        return GenerationResult(dest, self.name, self.model, None, None)
+
+
+class PollinationsProvider(StillMotionProvider):
+    """Free text-to-image via pollinations.ai, animated into a clip.
+
+    No account, no API key, no credit card. Rate limited but not capped,
+    so a full film costs nothing. Quality is good and it handles anime
+    styling well when the style is named in the prompt.
+    """
+
+    name = "pollinations"
+    default_model = "flux"
+    endpoint = "https://image.pollinations.ai/prompt/"
+
+    def make_image(self, prompt, dest, *, seed):
+        import urllib.parse
+
+        style = self.options.get(
+            "style",
+            "anime cinematic still, detailed background art, dramatic "
+            "lighting, film grain, wide establishing shot, studio quality",
+        )
+        full = f"{prompt}. {style}" if style else prompt
+
+        size = str(self.options.get("image_size", "1280x720"))
+        w, h = (int(v) for v in size.split("x"))
+
+        url = (
+            self.endpoint
+            + urllib.parse.quote(full[:1500], safe="")
+            + f"?width={w}&height={h}&seed={seed}&nologo=true"
+            + f"&model={self.model}"
+        )
+
+        last: Exception | None = None
+        for _ in range(3):
+            try:
+                download(url, dest, timeout=180)
+                if dest.stat().st_size > 2048:
+                    return dest
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                time.sleep(4)
+        raise ProviderError(
+            f"pollinations.ai did not return an image: {last}. "
+            "The host may be unreachable from this network."
+        )
+
+
+class LocalImageProvider(StillMotionProvider):
+    """Animate stills produced by a local command (ComfyUI, SD, your own).
+
+    Set ``SOULCLIP_IMAGE_COMMAND`` with ``{prompt}``, ``{output}`` and
+    ``{seed}``::
+
+        export SOULCLIP_IMAGE_COMMAND='python sd.py --prompt {prompt} --out {output} --seed {seed}'
+
+    This is the fully offline, genuinely unlimited route: a local Stable
+    Diffusion runs on far less VRAM than any video model, and the camera
+    motion is added here for free.
+    """
+
+    name = "localimage"
+    default_model = "local-sd"
+
+    def make_image(self, prompt, dest, *, seed):
+        import shlex
+
+        template = (self.options.get("image_command")
+                    or os.environ.get("SOULCLIP_IMAGE_COMMAND"))
+        if not template:
+            raise PermanentError(
+                "Set SOULCLIP_IMAGE_COMMAND to a command template using "
+                "{prompt}, {output} and {seed}."
+            )
+
+        style = self.options.get("style", "")
+        full = f"{prompt}. {style}" if style else prompt
+
+        argv = [
+            piece.format(prompt=full, output=str(dest), seed=seed)
+            for piece in shlex.split(template)
+        ]
+        proc = subprocess.run(argv, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise ProviderError(
+                f"Image command failed ({proc.returncode}): "
+                f"{proc.stderr.strip()[:400]}"
+            )
+        if not dest.exists():
+            raise ProviderError(f"Image command did not create {dest}")
+        return dest
+
+
+class FolderProvider(StillMotionProvider):
+    """Animate images you already have, matched to scenes in order.
+
+    Point it at a folder of stills — drawn, downloaded, or made in any free
+    web tool — and it turns them into a moving film. Completely offline.
+
+        soulclip render script.txt --provider folder --model ./my_art
+    """
+
+    name = "folder"
+    default_model = "./stills"
+
+    def make_image(self, prompt, dest, *, seed):
+        import shutil as _shutil
+
+        folder = Path(self.options.get("folder", self.model)).expanduser()
+        if not folder.is_dir():
+            raise PermanentError(
+                f"Image folder not found: {folder}. Pass it with "
+                "--model ./path/to/images"
+            )
+
+        exts = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+        images = sorted(p for p in folder.iterdir()
+                        if p.suffix.lower() in exts)
+        if not images:
+            raise PermanentError(f"No images in {folder}")
+
+        # seed encodes the scene index; wrap so a short folder still fills
+        # a long film.
+        chosen = images[(seed // 100) % len(images)]
+        _shutil.copyfile(chosen, dest)
+        return dest
+
+
+# --------------------------------------------------------------------------
+# Registry
+# --------------------------------------------------------------------------
 
 PROVIDERS: dict[str, type[VideoProvider]] = {
+    # Free, no API key
+    "pollinations": PollinationsProvider,
+    "localimage": LocalImageProvider,
+    "folder": FolderProvider,
+    # Paid / hosted
     "replicate": ReplicateProvider,
     "fal": FalProvider,
     "xai": XaiProvider,

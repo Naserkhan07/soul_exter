@@ -70,6 +70,22 @@ examples:
     r.add_argument("--crossfade", type=float, default=0.0, metavar="SECONDS",
                    help="cross-dissolve between clips, e.g. 0.5")
     r.add_argument("--music", help="audio track to lay over the finished cut")
+    # Look controls for the free still-motion providers
+    r.add_argument("--motion", type=float, default=0.12, metavar="AMOUNT",
+                   help="camera travel per shot for image-based providers, "
+                        "e.g. 0.18 for a stronger push (default: 0.12)")
+    r.add_argument("--grain", type=float, default=8.0,
+                   help="film grain strength, 0 to disable (default: 8)")
+    r.add_argument("--letterbox", type=float, default=0.0, metavar="FRAC",
+                   help="cinematic black bars, e.g. 0.12 for a scope look")
+    r.add_argument("--grade", choices=["neutral", "warm", "cool"],
+                   default="neutral", help="colour grade")
+    r.add_argument("--style", help="style text appended to every image prompt "
+                                   "(anime, noir, watercolour, ...)")
+    r.add_argument("--images-per-clip", type=int, default=1, metavar="N",
+                   help="stills per clip; 2-3 dissolves between them for "
+                        "more movement inside a shot")
+
     r.add_argument("--fast-concat", action="store_true",
                    help="stream-copy instead of re-encoding (only safe when "
                         "every clip already matches)")
@@ -177,8 +193,20 @@ def cmd_render(args) -> int:
         print("\n  dry run — nothing generated.\n")
         return 0
 
+    look = {
+        "motion": args.motion,
+        "grain": args.grain,
+        "letterbox": args.letterbox,
+        "grade": args.grade,
+        "images_per_clip": args.images_per_clip,
+        "size": f"{args.width}x{args.height}",
+        "image_size": f"{args.width}x{args.height}",
+    }
+    if args.style:
+        look["style"] = args.style
+
     try:
-        provider = get_provider(args.provider, args.model)
+        provider = get_provider(args.provider, args.model, **look)
     except ProviderError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
