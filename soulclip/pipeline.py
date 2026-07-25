@@ -21,6 +21,7 @@ from soulclip import ffmpeg
 from soulclip.providers import (
     AuthError, PermanentError, ProviderError, VideoProvider,
 )
+from soulclip.quality import check_clip, plan_retry
 from soulclip.script_parser import Scene
 
 Reporter = Callable[[str], None]
@@ -42,6 +43,7 @@ class ClipRecord:
     model: str | None = None
     remote_id: str | None = None
     error: str | None = None
+    failure_kind: str | None = None
     attempts: int = 0
     seconds: float | None = None
     updated_at: str = field(default_factory=_now)
@@ -192,6 +194,7 @@ class Pipeline:
         retry_backoff: float = 5.0,
         concurrency: int = 1,
         abort_after: int = 3,
+        check_black: bool = True,
     ) -> None:
         self.provider = provider
         self.workdir = Path(workdir)
@@ -201,6 +204,12 @@ class Pipeline:
         self.concurrency = max(1, concurrency)
         #: Consecutive failures tolerated before giving up on the whole run.
         self.abort_after = max(1, abort_after)
+        #: Black-frame detection costs an extra ffmpeg pass per clip.
+        self.check_black = check_black
+        #: Swappable so tests can stub inspection without real video files.
+        self.checker = check_clip
+        #: Set by tests to skip the real back-off waits.
+        self._fast_retry = False
 
     # -- one clip ----------------------------------------------------------
 
@@ -230,8 +239,17 @@ class Pipeline:
                     on_status=lambda s: self.report(f"{prefix} {rec.label}: {s}"),
                 )
 
-                if not ffmpeg.is_valid_video(dest):
-                    raise ProviderError("Downloaded clip is empty or unplayable")
+                report = self.checker(
+                    dest, expect_seconds=scene.duration,
+                    check_black=self.check_black,
+                )
+                for warning in report.warnings:
+                    self.report(f"{prefix} {rec.label}: {warning}")
+                if not report.ok:
+                    raise ProviderError(
+                        "clip failed quality check: "
+                        + "; ".join(report.problems)
+                    )
 
                 rec.status = "done"
                 rec.path = str(dest)
@@ -257,16 +275,26 @@ class Pipeline:
             except Exception as exc:  # noqa: BLE001 - recorded on the clip
                 rec.error = str(exc)[:500]
                 rec.updated_at = _now()
-                if attempt <= self.max_retries:
-                    wait = self.retry_backoff * attempt
+
+                # Different failures deserve different treatment: a rate
+                # limit wants a long back-off, a rejected prompt should not
+                # be retried at all.
+                plan = plan_retry(exc, attempt, max_retries=self.max_retries)
+                rec.failure_kind = plan.kind.value
+
+                if plan.should_retry:
                     self.report(
-                        f"{prefix} {rec.label}: {exc.__class__.__name__} — "
-                        f"retry {attempt}/{self.max_retries} in {wait:.0f}s"
+                        f"{prefix} {rec.label}: {plan.describe()}"
                     )
-                    time.sleep(wait)
+                    time.sleep(plan.wait_seconds if not self._fast_retry else 0)
                 else:
                     rec.status = "failed"
-                    self.report(f"{prefix} {rec.label}: FAILED — {rec.error}")
+                    detail = f" ({plan.reason})" if plan.reason else ""
+                    self.report(
+                        f"{prefix} {rec.label}: FAILED [{plan.kind.value}]"
+                        f"{detail} — {rec.error}"
+                    )
+                    return rec
         return rec
 
     def _report_eta(self, job, total: int) -> None:

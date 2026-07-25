@@ -44,6 +44,45 @@ Check your setup at any time:
 .venv/bin/python -m soulclip.cli doctor
 ```
 
+## Characters that stay consistent
+
+A video model has no memory between clips, so the same person renders
+differently in every shot. Define them once:
+
+```bash
+soulclip characters add --name Father --age 42 --gender male \
+    --appearance "medium-length black hair, trimmed beard" \
+    --clothes "white kurta with brown waistcoat" --seed 345234
+```
+
+That writes `characters/father/profile.json`. From then on, any scene
+mentioning Father automatically gets the full description injected, plus
+that fixed seed:
+
+```
+cinematic shot, Father: 42-year-old male, medium-length black hair,
+trimmed beard, wearing white kurta with brown waistcoat, ...
+```
+
+Drop a `reference.png` in the same folder and providers that support image
+conditioning will use it.
+
+Already have a story? Draft profiles from it:
+
+```bash
+soulclip characters detect --from-story story.txt
+soulclip characters list
+```
+
+## Provider capabilities
+
+```bash
+soulclip providers
+```
+
+Shows which backends accept reference images, seeds, negative prompts and
+so on. Unsupported parameters are dropped rather than sent and rejected.
+
 ## Give it a story instead of a script
 
 You don't have to write `Scene 1:`, `Scene 2:` yourself. Pass prose and let

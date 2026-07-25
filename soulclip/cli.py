@@ -107,6 +107,22 @@ examples:
                    default="neutral", help="colour grade")
     r.add_argument("--style", help="style text appended to every image prompt "
                                    "(anime, noir, watercolour, ...)")
+    r.add_argument("--characters", metavar="DIR",
+                   help="directory of character profiles to inject into "
+                        "prompts automatically (default: characters/ if it "
+                        "exists)")
+    r.add_argument("--no-characters", action="store_true",
+                   help="ignore character profiles even if present")
+    r.add_argument("--seed", type=int,
+                   help="base seed; each shot uses seed+index")
+    r.add_argument("--negative", default="",
+                   help="extra negative prompt for every shot")
+    r.add_argument("--no-enrich", action="store_true",
+                   help="send scene text verbatim instead of building a "
+                        "structured prompt")
+    r.add_argument("--no-quality-check", action="store_true",
+                   help="skip black-frame detection (one less ffmpeg pass "
+                        "per clip)")
     # Wan (local GPU video model, e.g. on Colab)
     r.add_argument("--fast", action="store_true",
                    help="load the CausVid step-distilled LoRA: 4 steps and no "
@@ -153,6 +169,21 @@ examples:
     s.add_argument("--max-scenes", type=int)
 
     sub.add_parser("doctor", help="check ffmpeg and provider credentials")
+    sub.add_parser("providers", help="show what each provider supports")
+
+    c = sub.add_parser("characters", help="manage persistent characters")
+    c.add_argument("action", choices=["list", "add", "detect"])
+    c.add_argument("--dir", default="characters",
+                   help="where profiles live (default: characters/)")
+    c.add_argument("--name")
+    c.add_argument("--age", type=int)
+    c.add_argument("--gender", default="")
+    c.add_argument("--appearance", default="")
+    c.add_argument("--clothes", default="")
+    c.add_argument("--voice", default="")
+    c.add_argument("--seed", type=int)
+    c.add_argument("--from-story", metavar="FILE",
+                   help="for `detect`: draft profiles from a prose file")
     return p
 
 
@@ -176,6 +207,76 @@ def cmd_scenes(args) -> int:
         text = scene.text if len(scene.text) <= 88 else scene.text[:85] + "..."
         print(f"  {scene.index:>3}. [{scene.duration:>2}s] {scene.label:<24} {text}")
     print()
+    return 0
+
+
+def cmd_providers(args) -> int:
+    from soulclip.capabilities import table
+
+    print(BANNER)
+    print(table())
+    print("\n  image = accepts a reference still   chain = frame-to-frame "
+          "continuity")
+    print("  neg   = negative prompt             paid  = costs money\n")
+    return 0
+
+
+def cmd_characters(args) -> int:
+    from soulclip.characters import Character, CharacterBook, from_detected
+
+    book = CharacterBook(args.dir)
+
+    if args.action == "list":
+        if not len(book):
+            print(f"\n  No characters in {args.dir}/\n"
+                  f"  Add one:  soulclip characters add --name Father "
+                  f"--appearance 'black hair, beard'\n")
+            return 0
+        print(f"\n  {len(book)} character(s) in {args.dir}/\n")
+        for char in book:
+            ref = " [reference image]" if char.reference else ""
+            print(f"  {char.name}{ref}")
+            print(f"      {char.describe(include_name=False) or '(no description)'}")
+            if char.seed is not None:
+                print(f"      seed {char.seed}")
+        print()
+        return 0
+
+    if args.action == "add":
+        if not args.name:
+            print("error: --name is required", file=sys.stderr)
+            return 2
+        char = Character(
+            name=args.name, age=args.age, gender=args.gender,
+            appearance=args.appearance, clothes=args.clothes,
+            voice=args.voice, seed=args.seed,
+        )
+        book.add(char)
+        print(f"\n  Saved {char.name} to "
+              f"{char.directory / 'profile.json' if char.directory else args.dir}")
+        print(f"  Drop a reference.png beside it to enable image "
+              f"conditioning.\n")
+        return 0
+
+    if args.action == "detect":
+        if not args.from_story:
+            print("error: --from-story FILE is required", file=sys.stderr)
+            return 2
+        from soulclip.storyboard import find_characters
+
+        story = _read_script(args.from_story)
+        detected = find_characters(story)
+        if not detected:
+            print("\n  No recurring characters found.\n")
+            return 0
+        print(f"\n  Found {len(detected)} recurring character(s):\n")
+        for char in from_detected(detected, args.dir):
+            book.add(char)
+            print(f"  {char.name:<12} {char.appearance or '(no description)'}")
+        print(f"\n  Drafts written to {args.dir}/. Edit the profile.json "
+              f"files to refine them.\n")
+        return 0
+
     return 0
 
 
@@ -284,6 +385,40 @@ def cmd_render(args) -> int:
         if not args.allow_partial:
             args.no_stitch = True
 
+    # Character profiles: default to characters/ when it exists, so users
+    # who set one up never have to remember the flag.
+    book = None
+    if not args.no_characters:
+        from pathlib import Path as _P
+
+        from soulclip.characters import CharacterBook
+
+        char_dir = _P(args.characters) if args.characters else _P("characters")
+        if char_dir.is_dir():
+            book = CharacterBook(char_dir)
+            if len(book) and not args.quiet:
+                print(f"  cast     : {book.summary()}")
+        elif args.characters:
+            print(f"error: no such directory: {char_dir}", file=sys.stderr)
+            return 2
+
+    if not args.no_enrich:
+        from soulclip.capabilities import for_provider
+        from soulclip.prompts import PromptBuilder
+
+        builder = PromptBuilder(
+            book, style=args.style or "", negative=args.negative,
+            base_seed=args.seed,
+        )
+        caps = for_provider(args.provider)
+        for scene in scenes:
+            parts = builder.build(scene, capabilities=caps)
+            scene.text = parts.text()
+            scene.meta["negative"] = parts.negative
+            scene.meta["seed"] = parts.seed
+            if parts.reference_image:
+                scene.meta["reference_image"] = parts.reference_image
+
     if args.dry_run:
         for scene in scenes:
             text = scene.text if len(scene.text) <= 88 else scene.text[:85] + "..."
@@ -342,6 +477,7 @@ def cmd_render(args) -> int:
         reporter=reporter,
         max_retries=args.retries,
         concurrency=args.concurrency,
+        check_black=not args.no_quality_check,
     )
 
     try:
@@ -387,6 +523,8 @@ def main(argv: list[str] | None = None) -> int:
         "render": cmd_render,
         "scenes": cmd_scenes,
         "doctor": cmd_doctor,
+        "providers": cmd_providers,
+        "characters": cmd_characters,
     }[args.command](args)
 
 

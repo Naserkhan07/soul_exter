@@ -37,6 +37,27 @@ class FakeProvider(VideoProvider):
         return GenerationResult(dest, self.name, self.model, f"id-{seed}")
 
 
+def _make_pipeline(*args, **kwargs):
+    """Pipeline with the quality checker stubbed and back-offs disabled."""
+    from soulclip.pipeline import Pipeline as _P
+
+    pipeline = _P(*args, **kwargs)
+    pipeline.checker = _stub_checker
+    pipeline._fast_retry = True
+    return pipeline
+
+
+def _stub_checker(path, **kwargs):
+    """Accept any non-empty file, so tests need no real video."""
+    from soulclip.quality import ClipReport
+
+    path = Path(path)
+    report = ClipReport(path=path)
+    if not path.exists() or path.stat().st_size == 0:
+        report.fail("file does not exist")
+    return report
+
+
 class PipelineTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -57,7 +78,13 @@ class PipelineTestCase(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _pipeline(self, provider, **kw):
-        return Pipeline(provider, self.tmp / "work", reporter=lambda m: None, **kw)
+        pipeline = Pipeline(provider, self.tmp / "work",
+                            reporter=lambda m: None, **kw)
+        # Tests write tiny placeholder files, not real video, and must not
+        # sit through the real retry back-offs.
+        pipeline.checker = _stub_checker
+        pipeline._fast_retry = True
+        return pipeline
 
 
 class TestGeneration(PipelineTestCase):
@@ -322,7 +349,7 @@ class TestETA(PipelineTestCase):
 
     def test_eta_is_reported_once_enough_clips_are_timed(self):
         lines = []
-        p = Pipeline(self._timed_provider(0.05), self.tmp / "w",
+        p = _make_pipeline(self._timed_provider(0.05), self.tmp / "w",
                      reporter=lines.append)
         p.render(self.scenes, self.tmp / "o.mp4", stitch=False)
         self.assertTrue(any("to go" in l for l in lines))
@@ -331,13 +358,13 @@ class TestETA(PipelineTestCase):
         """One sample is not enough to extrapolate from."""
         lines = []
         one = parse_script("Scene 1: A single wide shot of an empty road.")
-        p = Pipeline(FakeProvider(), self.tmp / "w", reporter=lines.append)
+        p = _make_pipeline(FakeProvider(), self.tmp / "w", reporter=lines.append)
         p.render(one, self.tmp / "o.mp4", stitch=False)
         self.assertFalse(any("to go" in l for l in lines))
 
     def test_eta_reflects_the_measured_rate(self):
         lines = []
-        p = Pipeline(self._timed_provider(0.2), self.tmp / "w",
+        p = _make_pipeline(self._timed_provider(0.2), self.tmp / "w",
                      reporter=lines.append)
         p.render(self.scenes, self.tmp / "o.mp4", stitch=False)
         etas = [l for l in lines if "to go" in l]
@@ -347,7 +374,7 @@ class TestETA(PipelineTestCase):
 
     def test_sub_second_times_are_not_shown_as_zero(self):
         lines = []
-        p = Pipeline(self._timed_provider(0.05), self.tmp / "w",
+        p = _make_pipeline(self._timed_provider(0.05), self.tmp / "w",
                      reporter=lines.append)
         p.render(self.scenes, self.tmp / "o.mp4", stitch=False)
         for line in [l for l in lines if "to go" in l]:
@@ -355,7 +382,7 @@ class TestETA(PipelineTestCase):
 
     def test_remaining_count_decreases(self):
         lines = []
-        p = Pipeline(self._timed_provider(0.05), self.tmp / "w",
+        p = _make_pipeline(self._timed_provider(0.05), self.tmp / "w",
                      reporter=lines.append)
         p.render(self.scenes, self.tmp / "o.mp4", stitch=False)
         lefts = [int(l.split("·")[1].split("left")[0].strip())
@@ -371,10 +398,10 @@ class TestSharedWorkdir(PipelineTestCase):
 
     def test_second_worker_keeps_first_workers_clips(self):
         first, second = self._halves()
-        Pipeline(FakeProvider(), self.tmp / "w",
+        _make_pipeline(FakeProvider(), self.tmp / "w",
                  reporter=lambda m: None).render(
             first, self.tmp / "o.mp4", stitch=False)
-        Pipeline(FakeProvider(), self.tmp / "w",
+        _make_pipeline(FakeProvider(), self.tmp / "w",
                  reporter=lambda m: None).render(
             second, self.tmp / "o.mp4", stitch=False)
 
@@ -384,12 +411,12 @@ class TestSharedWorkdir(PipelineTestCase):
     def test_final_pass_reuses_everything(self):
         first, second = self._halves()
         for part in (first, second):
-            Pipeline(FakeProvider(), self.tmp / "w",
+            _make_pipeline(FakeProvider(), self.tmp / "w",
                      reporter=lambda m: None).render(
                 part, self.tmp / "o.mp4", stitch=False)
 
         provider = FakeProvider()
-        result = Pipeline(provider, self.tmp / "w",
+        result = _make_pipeline(provider, self.tmp / "w",
                           reporter=lambda m: None).render(
             self.scenes, self.tmp / "o.mp4", stitch=False)
         self.assertEqual(provider.calls, [], "re-generated work another worker did")
@@ -397,7 +424,7 @@ class TestSharedWorkdir(PipelineTestCase):
 
     def test_genuinely_stale_records_are_still_dropped(self):
         """Keeping other workers' clips must not break prompt invalidation."""
-        Pipeline(FakeProvider(), self.tmp / "w",
+        _make_pipeline(FakeProvider(), self.tmp / "w",
                  reporter=lambda m: None).render(
             self.scenes, self.tmp / "o.mp4", stitch=False)
 
@@ -406,7 +433,7 @@ class TestSharedWorkdir(PipelineTestCase):
         Path(victim.path).unlink()          # file gone -> truly stale
 
         provider = FakeProvider()
-        Pipeline(provider, self.tmp / "w",
+        _make_pipeline(provider, self.tmp / "w",
                  reporter=lambda m: None).render(
             self.scenes, self.tmp / "o.mp4", stitch=False)
         self.assertEqual(len(provider.calls), 1)
@@ -438,7 +465,7 @@ class TestConcurrentWorkers(PipelineTestCase):
 
     def test_merge_does_not_resurrect_a_vanished_clip(self):
         """A 'done' record whose file is gone must still be regenerated."""
-        Pipeline(FakeProvider(), self.tmp / "w",
+        _make_pipeline(FakeProvider(), self.tmp / "w",
                  reporter=lambda m: None).render(
             self.scenes, self.tmp / "o.mp4", stitch=False)
 
@@ -446,7 +473,7 @@ class TestConcurrentWorkers(PipelineTestCase):
         Path(job.records[1].path).unlink()
 
         provider = FakeProvider()
-        result = Pipeline(provider, self.tmp / "w",
+        result = _make_pipeline(provider, self.tmp / "w",
                           reporter=lambda m: None).render(
             self.scenes, self.tmp / "o.mp4", stitch=False)
         self.assertEqual(len(provider.calls), 1)
