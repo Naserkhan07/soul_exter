@@ -122,7 +122,13 @@ class LtxProvider(VideoProvider):
         errors = []
         for cls in candidates:
             try:
-                pipe = cls.from_pretrained(repo, torch_dtype=dtype)
+                # low_cpu_mem_usage streams shards straight to their final
+                # home instead of materialising the whole checkpoint in RAM
+                # first. On a 13 GB Kaggle box that is the difference
+                # between loading and being OOM-killed.
+                pipe = cls.from_pretrained(
+                    repo, torch_dtype=dtype, low_cpu_mem_usage=True,
+                )
                 break
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{cls.__name__}: {str(exc)[:200]}")
