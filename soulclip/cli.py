@@ -1,0 +1,236 @@
+"""Command line entry point for soulclip."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from soulclip import __version__
+from soulclip.ffmpeg import FFmpegError, ffmpeg_path
+from soulclip.pipeline import Pipeline
+from soulclip.providers import AuthError, PROVIDERS, ProviderError, get_provider
+from soulclip.script_parser import ScriptError, load_script, parse_script, summarize
+
+BANNER = r"""
+  soulclip — script in, film out
+"""
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="soulclip",
+        description="Turn a scene-by-scene script into one long video.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  # See how a script will be cut up, without generating anything
+  soulclip render script.txt --dry-run
+
+  # Offline demo: renders placeholder clips and stitches them
+  soulclip render script.txt --provider mock -o demo.mp4
+
+  # Real render on Replicate, padded out to 5 minutes
+  export REPLICATE_API_TOKEN=r8_...
+  soulclip render script.txt --provider replicate --target 300 -o film.mp4
+
+  # Three clips in flight at once, with crossfades
+  soulclip render script.txt --provider fal --concurrency 3 --crossfade 0.5
+""",
+    )
+    p.add_argument("--version", action="version", version=f"soulclip {__version__}")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    r = sub.add_parser("render", help="generate clips and stitch the final video")
+    r.add_argument("script", help="path to the script file, or - for stdin")
+    r.add_argument("-o", "--output", default="output/final.mp4",
+                   help="final video path (default: output/final.mp4)")
+    r.add_argument("--provider", default="mock", choices=sorted(PROVIDERS),
+                   help="video generation backend (default: mock)")
+    r.add_argument("--model", help="model id to use with the provider")
+
+    r.add_argument("--clip-seconds", type=int, default=10,
+                   help="length of each generated clip (default: 10)")
+    r.add_argument("--target", type=int, metavar="SECONDS",
+                   help="pad/split scenes until the film is at least this long, "
+                        "e.g. 300 for 5 minutes")
+    r.add_argument("--max-scenes", type=int,
+                   help="hard cap on clip count, to limit spend")
+
+    r.add_argument("--workdir", help="where clips and job.json live "
+                                     "(default: alongside the output)")
+    r.add_argument("--concurrency", type=int, default=1,
+                   help="clips to generate in parallel (default: 1)")
+    r.add_argument("--retries", type=int, default=2,
+                   help="retries per clip before giving up (default: 2)")
+
+    r.add_argument("--width", type=int, default=1280)
+    r.add_argument("--height", type=int, default=720)
+    r.add_argument("--fps", type=int, default=24)
+    r.add_argument("--crossfade", type=float, default=0.0, metavar="SECONDS",
+                   help="cross-dissolve between clips, e.g. 0.5")
+    r.add_argument("--music", help="audio track to lay over the finished cut")
+    r.add_argument("--fast-concat", action="store_true",
+                   help="stream-copy instead of re-encoding (only safe when "
+                        "every clip already matches)")
+
+    r.add_argument("--dry-run", action="store_true",
+                   help="show the scene breakdown and exit")
+    r.add_argument("--no-stitch", action="store_true",
+                   help="generate the clips but skip the final join")
+    r.add_argument("--allow-partial", action="store_true",
+                   help="stitch whatever succeeded even if some clips failed")
+    r.add_argument("-q", "--quiet", action="store_true")
+
+    s = sub.add_parser("scenes", help="preview how a script splits into clips")
+    s.add_argument("script")
+    s.add_argument("--clip-seconds", type=int, default=10)
+    s.add_argument("--target", type=int)
+    s.add_argument("--max-scenes", type=int)
+
+    sub.add_parser("doctor", help="check ffmpeg and provider credentials")
+    return p
+
+
+def _read_script(path: str) -> str:
+    if path == "-":
+        return sys.stdin.read()
+    if not Path(path).exists():
+        raise SystemExit(f"Script not found: {path}")
+    return load_script(path)
+
+
+def cmd_scenes(args) -> int:
+    scenes = parse_script(
+        _read_script(args.script),
+        clip_seconds=args.clip_seconds,
+        target_seconds=args.target,
+        max_scenes=args.max_scenes,
+    )
+    print(f"\n{summarize(scenes)}\n")
+    for scene in scenes:
+        text = scene.text if len(scene.text) <= 88 else scene.text[:85] + "..."
+        print(f"  {scene.index:>3}. [{scene.duration:>2}s] {scene.label:<24} {text}")
+    print()
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    import os
+
+    print(BANNER)
+    try:
+        print(f"  ffmpeg   : {ffmpeg_path()}")
+    except FFmpegError as exc:
+        print(f"  ffmpeg   : NOT FOUND\n             {exc}")
+
+    from soulclip.ffmpeg import ffprobe_path
+    print(f"  ffprobe  : {ffprobe_path() or 'not found (durations estimated)'}")
+
+    print("\n  credentials:")
+    checks = {
+        "replicate": ("REPLICATE_API_TOKEN", "REPLICATE_API_KEY"),
+        "fal": ("FAL_KEY", "FAL_API_KEY"),
+        "xai": ("XAI_API_KEY",),
+        "command": ("SOULCLIP_COMMAND",),
+    }
+    for provider, names in checks.items():
+        found = next((n for n in names if os.environ.get(n)), None)
+        mark = "ok " if found else "-  "
+        detail = f"{found} is set" if found else f"set {' or '.join(names)}"
+        print(f"    [{mark}] {provider:<10} {detail}")
+    print("    [ok ] mock       always available (no key needed)")
+    print()
+    return 0
+
+
+def cmd_render(args) -> int:
+    output = Path(args.output).expanduser()
+    workdir = Path(args.workdir).expanduser() if args.workdir else \
+        output.parent / f".{output.stem}_work"
+
+    try:
+        scenes = parse_script(
+            _read_script(args.script),
+            clip_seconds=args.clip_seconds,
+            target_seconds=args.target,
+            max_scenes=args.max_scenes,
+        )
+    except ScriptError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if not args.quiet:
+        print(BANNER)
+        print(f"  script   : {args.script}")
+        print(f"  provider : {args.provider}"
+              + (f" ({args.model})" if args.model else ""))
+        print(f"  plan     : {summarize(scenes)}")
+        print(f"  output   : {output}")
+        print(f"  workdir  : {workdir}\n")
+
+    if args.dry_run:
+        for scene in scenes:
+            text = scene.text if len(scene.text) <= 88 else scene.text[:85] + "..."
+            print(f"  {scene.index:>3}. [{scene.duration:>2}s] "
+                  f"{scene.label:<24} {text}")
+        print("\n  dry run — nothing generated.\n")
+        return 0
+
+    try:
+        provider = get_provider(args.provider, args.model)
+    except ProviderError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    reporter = (lambda m: None) if args.quiet else print
+    pipeline = Pipeline(
+        provider, workdir,
+        reporter=reporter,
+        max_retries=args.retries,
+        concurrency=args.concurrency,
+    )
+
+    try:
+        result = pipeline.render(
+            scenes, output,
+            width=args.width, height=args.height, fps=args.fps,
+            crossfade=args.crossfade,
+            music=Path(args.music) if args.music else None,
+            fast_concat=args.fast_concat,
+            allow_partial=args.allow_partial,
+            stitch=not args.no_stitch,
+        )
+    except AuthError as exc:
+        print(f"\nauth error: {exc}", file=sys.stderr)
+        print("Run `soulclip doctor` to see which variables are set.",
+              file=sys.stderr)
+        return 3
+    except (ProviderError, FFmpegError) as exc:
+        print(f"\nerror: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nInterrupted. Progress is saved — re-run to pick up where "
+              "you left off.", file=sys.stderr)
+        return 130
+
+    if not args.quiet:
+        print(f"\n  generated {result.generated}, reused {result.reused}, "
+              f"failed {len(result.failed)} in {result.elapsed:.0f}s")
+
+    if args.no_stitch:
+        return 0
+    return 0 if result.ok else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return {
+        "render": cmd_render,
+        "scenes": cmd_scenes,
+        "doctor": cmd_doctor,
+    }[args.command](args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
