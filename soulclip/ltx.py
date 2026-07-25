@@ -29,15 +29,21 @@ from soulclip.providers import (
 #: LTX renders at 24fps.
 LTX_FPS = 24
 
+#: Verified against the Hugging Face Hub. The 0.9.6-distilled repo that an
+#: earlier version referenced does not exist; loading it fails immediately
+#: with "model is not cached locally".
 KNOWN_MODELS = {
-    # Distilled: 8 steps, no CFG. The one to use on a free T4.
-    "ltx2b": "Lightricks/LTX-Video-0.9.6-distilled",
-    "ltx2bfast": "Lightricks/LTX-Video-0.9.6-distilled",
-    # Non-distilled 2B: better quality, ~20 steps with CFG.
-    "ltx2bdev": "Lightricks/LTX-Video-0.9.6",
-    # 13B distilled: much better, needs far more VRAM than a T4.
+    # Base 2B. Works with the plain LTXPipeline and fits a free T4.
+    "ltx2b": "Lightricks/LTX-Video",
+    "ltx": "Lightricks/LTX-Video",
+    # 0.9.7 distilled — faster, but needs LTXConditionPipeline.
+    "ltx097": "Lightricks/LTX-Video-0.9.7-distilled",
+    "ltxdistilled": "Lightricks/LTX-Video-0.9.7-distilled",
     "ltx13b": "Lightricks/LTX-Video-0.9.7-distilled",
 }
+
+#: Repos whose pipeline class is LTXConditionPipeline rather than LTXPipeline.
+_CONDITION_PIPELINE = ("0.9.7", "0.9.8", "distilled")
 
 #: Defaults for the distilled checkpoints, which are trained for these.
 DISTILLED_DEFAULTS = {"steps": 8, "guidance": 1.0}
@@ -81,7 +87,7 @@ class LtxProvider(VideoProvider):
 
         try:
             import torch
-            from diffusers import LTXPipeline
+            import diffusers
         except ImportError as exc:
             raise PermanentError(
                 "The ltx provider needs torch and diffusers:\n"
@@ -104,7 +110,29 @@ class LtxProvider(VideoProvider):
         if on_status:
             on_status(f"loading {repo} (first run downloads several GB)")
 
-        pipe = LTXPipeline.from_pretrained(repo, torch_dtype=dtype)
+        # The distilled checkpoints ship a different pipeline class, and
+        # loading them with LTXPipeline fails on a config mismatch.
+        wants_condition = any(tag in repo for tag in _CONDITION_PIPELINE)
+        candidates = []
+        if wants_condition and hasattr(diffusers, "LTXConditionPipeline"):
+            candidates.append(diffusers.LTXConditionPipeline)
+        candidates.append(diffusers.LTXPipeline)
+
+        pipe = None
+        errors = []
+        for cls in candidates:
+            try:
+                pipe = cls.from_pretrained(repo, torch_dtype=dtype)
+                break
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{cls.__name__}: {str(exc)[:200]}")
+
+        if pipe is None:
+            raise PermanentError(
+                f"Could not load {repo}.\n  " + "\n  ".join(errors) +
+                "\n\nCheck the model name against "
+                "https://huggingface.co/Lightricks"
+            )
 
         if self.options.get("offload", True):
             pipe.enable_model_cpu_offload()
