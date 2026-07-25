@@ -726,6 +726,13 @@ class FolderProvider(StillMotionProvider):
 # Registry
 # --------------------------------------------------------------------------
 
+def _wan_provider():
+    """Imported lazily: it needs torch, which soulclip does not require."""
+    from soulclip.wan import WanProvider
+
+    return WanProvider
+
+
 PROVIDERS: dict[str, type[VideoProvider]] = {
     # Free, no API key
     "pollinations": PollinationsProvider,
@@ -741,10 +748,13 @@ PROVIDERS: dict[str, type[VideoProvider]] = {
 
 
 def get_provider(name: str, model: str | None = None, **options: Any) -> VideoProvider:
+    if name.lower() == "wan":
+        return _wan_provider()(model=model, **options)
     try:
         cls = PROVIDERS[name.lower()]
     except KeyError:
         raise ProviderError(
-            f"Unknown provider {name!r}. Choose from: {', '.join(sorted(PROVIDERS))}"
+            f"Unknown provider {name!r}. Choose from: "
+            f"{', '.join(sorted(list(PROVIDERS) + ['wan']))}"
         ) from None
     return cls(model=model, **options)

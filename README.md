@@ -75,7 +75,35 @@ the action carries forward instead of restarting. Very short beats like
 *"Wide shot."* get the surrounding scene attached as setting.
 
 
-## Free, unlimited generation (no API key, no credit card)
+## Real AI video, free, on Colab's GPU
+
+If you have no GPU, this is the way to get genuine AI-generated motion at
+no cost: **[notebooks/soulclip_colab.ipynb](notebooks/soulclip_colab.ipynb)**
+runs **Wan 2.1 T2V 1.3B** on Colab's free T4 and drives the whole pipeline.
+
+Open it in Colab, set `Runtime > T4 GPU`, and run the cells.
+
+| Clips | Film length | Time on a free T4 |
+|---|---|---|
+| 6 | 30 s | ~15-25 min |
+| 12 | 1 min | ~30-50 min |
+| 60 | 5 min | ~3-4 hours, across sessions |
+
+Colab drops free sessions after about 90 minutes. The notebook mounts
+Google Drive and soulclip resumes from `job.json`, so a disconnect costs
+you only the clip in flight — re-run the cell and it continues.
+
+Locally, if you do have a CUDA GPU:
+
+```bash
+pip install -U diffusers transformers accelerate ftfy
+python -m soulclip.cli render script.txt --provider wan \
+    --clip-seconds 5 --target 300 --wan-steps 20 -o film.mp4
+```
+
+Wan is capped at ~5 s per clip (81 frames), so a 5-minute film is 60 shots.
+
+## Free generation without any GPU (no API key, no credit card)
 
 True text-to-video models either need a 12-24 GB GPU or a paid API. There is
 no free unlimited hosted text-to-video service — that claim is always either

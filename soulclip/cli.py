@@ -45,7 +45,8 @@ examples:
     r.add_argument("script", help="path to the script file, or - for stdin")
     r.add_argument("-o", "--output", default="output/final.mp4",
                    help="final video path (default: output/final.mp4)")
-    r.add_argument("--provider", default="mock", choices=sorted(PROVIDERS),
+    r.add_argument("--provider", default="mock",
+                   choices=sorted(list(PROVIDERS) + ["wan"]),
                    help="video generation backend (default: mock)")
     r.add_argument("--model", help="model id to use with the provider")
 
@@ -82,6 +83,16 @@ examples:
                    default="neutral", help="colour grade")
     r.add_argument("--style", help="style text appended to every image prompt "
                                    "(anime, noir, watercolour, ...)")
+    # Wan (local GPU video model, e.g. on Colab)
+    r.add_argument("--wan-steps", type=int, default=20, metavar="N",
+                   help="denoising steps for --provider wan (default 20; "
+                        "10 is ~2x faster and softer)")
+    r.add_argument("--wan-frames", type=int, metavar="N",
+                   help="frames per clip for wan; snapped to 4k+1 "
+                        "(33=2s, 49=3s, 65=4s, 81=5s at 16fps)")
+    r.add_argument("--wan-guidance", type=float, default=5.0,
+                   help="guidance scale for wan (default 5.0)")
+
     r.add_argument("--images-per-clip", type=int, default=1, metavar="N",
                    help="stills per clip; 2-3 dissolves between them for "
                         "more movement inside a shot")
@@ -204,6 +215,16 @@ def cmd_render(args) -> int:
     }
     if args.style:
         look["style"] = args.style
+
+    if args.provider == "wan":
+        look.update({
+            "steps": args.wan_steps,
+            "guidance": args.wan_guidance,
+            "height": args.height,
+            "width": args.width,
+        })
+        if args.wan_frames:
+            look["frames"] = args.wan_frames
 
     try:
         provider = get_provider(args.provider, args.model, **look)
