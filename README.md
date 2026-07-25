@@ -153,7 +153,9 @@ at 512x320.
 
 ### Free GPU options
 
-Nothing is free *and* unlimited, but the quotas are large. **Kaggle is the
+Nothing is free *and* unlimited, but the quotas are large and cost **Rs 0**
+(see **[docs/COSTS_INR.md](docs/COSTS_INR.md)** for rupee pricing of every
+route). **Kaggle is the
 best free tier** — 30 h/week guaranteed and **2x T4**, versus Colab's variable
 15-30 h on a single T4. See **[docs/FREE_TIERS.md](docs/FREE_TIERS.md)**.
 

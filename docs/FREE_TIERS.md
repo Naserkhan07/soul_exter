@@ -60,9 +60,12 @@ Renting is cheap for this workload. A 5-minute film is 1-2 GPU-hours:
 
 | Provider | Rate | Per film |
 |---|---|---|
-| Vast.ai | from ~$0.07/h | pennies |
-| RunPod | from ~$0.17/h | ~$0.20-0.35 |
-| Lightning AI | ~$0.29/h (T4) | ~$0.30-0.60 |
+| Vast.ai | from ~$0.07/h | ~$0.07-0.40 (Rs 7-39) |
+| RunPod | from ~$0.17/h | ~$0.17-0.88 (Rs 16-85) |
+| Lightning AI | ~$0.29/h (T4) | ~$0.29-0.58 (Rs 28-56) |
 
 A rented RTX 4090 finishes a 5-minute film in roughly 20 minutes for under
-50 cents — cheaper than the time spent working around free-tier limits.
+50 cents (about Rs 20) — cheaper than the time spent working around
+free-tier limits.
+
+Full rupee breakdown, including the paid APIs: **[COSTS_INR.md](COSTS_INR.md)**.
