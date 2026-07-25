@@ -151,6 +151,15 @@ Lightricks publish **121 frames at 720x480 in under a minute on an RTX 4060
 **~1.5-2.5 h** for 60 clips at LTX's default resolution, or **~45-60 min**
 at 512x320.
 
+### Free GPU options
+
+Nothing is free *and* unlimited, but the quotas are large. **Kaggle is the
+best free tier** — 30 h/week guaranteed and **2x T4**, versus Colab's variable
+15-30 h on a single T4. See **[docs/FREE_TIERS.md](docs/FREE_TIERS.md)**.
+
+- `notebooks/soulclip_kaggle.ipynb` — 2 GPUs in parallel (recommended)
+- `notebooks/soulclip_colab.ipynb` — single GPU
+
 ### Splitting a film across two machines
 
 Colab allows two concurrent notebooks. Point both at the same workdir and

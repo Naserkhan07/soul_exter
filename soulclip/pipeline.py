@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import os
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -103,13 +104,42 @@ class Job:
 
     def save(self) -> None:
         self.workdir.mkdir(parents=True, exist_ok=True)
+
+        records = {i: asdict(r) for i, r in self.records.items()}
+
+        # Another worker may share this workdir (two GPUs, two notebooks).
+        # Re-read the manifest and keep any clip it finished that this
+        # process does not know about, otherwise the last writer silently
+        # reverts the other's progress and those clips get regenerated.
+        if self.manifest_path.exists():
+            try:
+                on_disk = json.loads(
+                    self.manifest_path.read_text(encoding="utf-8")
+                )
+            except (json.JSONDecodeError, OSError):
+                on_disk = {}
+            for raw in on_disk.get("clips", []):
+                index = raw.get("index")
+                if index is None:
+                    continue
+                mine = records.get(index)
+                theirs_done = (
+                    raw.get("status") == "done"
+                    and raw.get("path")
+                    and Path(raw["path"]).exists()
+                )
+                if theirs_done and (mine is None or mine["status"] != "done"):
+                    records[index] = raw
+
         payload = {
             "created_at": self.created_at,
             "updated_at": _now(),
             "output": self.output,
-            "clips": [asdict(r) for r in self.ordered()],
+            "clips": [records[i] for i in sorted(records)],
         }
-        tmp = self.manifest_path.with_suffix(".json.tmp")
+        # Write to a per-process temp file so two workers cannot clobber
+        # each other's partial writes before the atomic rename.
+        tmp = self.manifest_path.with_suffix(f".json.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         tmp.replace(self.manifest_path)
 

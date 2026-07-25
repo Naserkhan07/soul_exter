@@ -410,3 +410,55 @@ class TestSharedWorkdir(PipelineTestCase):
                  reporter=lambda m: None).render(
             self.scenes, self.tmp / "o.mp4", stitch=False)
         self.assertEqual(len(provider.calls), 1)
+
+
+class TestConcurrentWorkers(PipelineTestCase):
+    """Two processes sharing a workdir (e.g. Kaggle's 2x T4)."""
+
+    def test_save_merges_another_workers_finished_clips(self):
+        """Last writer must not revert progress it never saw."""
+        first, second = self.scenes[:2], self.scenes[2:]
+
+        job_a = Job(self.tmp / "w", first)
+        job_b = Job(self.tmp / "w", second)      # both loaded before either saves
+
+        for job, part in ((job_a, first), (job_b, second)):
+            for scene in part:
+                clip = self.tmp / "w" / "clips" / f"{scene.slug}.mp4"
+                clip.parent.mkdir(parents=True, exist_ok=True)
+                clip.write_bytes(b"\0" * 2048)
+                rec = job.records[scene.index]
+                rec.status, rec.path = "done", str(clip)
+
+        job_a.save()
+        job_b.save()                              # would clobber A without the merge
+
+        merged = Job(self.tmp / "w")
+        self.assertEqual(len(merged.done()), len(self.scenes))
+
+    def test_merge_does_not_resurrect_a_vanished_clip(self):
+        """A 'done' record whose file is gone must still be regenerated."""
+        Pipeline(FakeProvider(), self.tmp / "w",
+                 reporter=lambda m: None).render(
+            self.scenes, self.tmp / "o.mp4", stitch=False)
+
+        job = Job(self.tmp / "w")
+        Path(job.records[1].path).unlink()
+
+        provider = FakeProvider()
+        result = Pipeline(provider, self.tmp / "w",
+                          reporter=lambda m: None).render(
+            self.scenes, self.tmp / "o.mp4", stitch=False)
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(result.reused, len(self.scenes) - 1)
+
+    def test_temp_file_is_process_specific(self):
+        """Shared temp names let one worker truncate another's write."""
+        import os
+
+        job = Job(self.tmp / "w", self.scenes)
+        job.save()
+        self.assertIn(str(os.getpid()),
+                      str(job.manifest_path.with_suffix(f".json.{os.getpid()}.tmp")))
+        leftovers = list((self.tmp / "w").glob("*.tmp"))
+        self.assertEqual(leftovers, [], "temp manifest left behind")
