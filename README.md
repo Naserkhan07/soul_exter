@@ -91,9 +91,14 @@ Open it in Colab, set `Runtime > T4 GPU`, and run the cells.
 
 Generation dominates; the final stitch of 60 clips is ~3 minutes (measured).
 
-Colab drops free sessions after about 90 minutes. The notebook mounts
-Google Drive and soulclip resumes from `job.json`, so a disconnect costs
-you only the clip in flight — re-run the cell and it continues.
+Colab free sessions run up to **12 hours** while actively computing (the
+~90 minute limit is an *idle* timeout, which generating avoids). Heavy GPU
+use is often pre-empted after 4-6 hours, and the weekly quota is roughly
+15-30 GPU-hours. The notebook mounts Google Drive and soulclip resumes from
+`job.json`, so a disconnect costs only the clip in flight.
+
+Wan caps at **81 frames (~5 s) per clip** on a T4 — a 10-second shot is two
+clips stitched together.
 
 Locally, if you do have a CUDA GPU:
 
