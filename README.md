@@ -97,8 +97,13 @@ use is often pre-empted after 4-6 hours, and the weekly quota is roughly
 15-30 GPU-hours. The notebook mounts Google Drive and soulclip resumes from
 `job.json`, so a disconnect costs only the clip in flight.
 
-Wan caps at **81 frames (~5 s) per clip** on a T4 — a 10-second shot is two
+Wan caps at **81 frames = 5.06 s per clip** on a T4 — a 10-second shot is two
 clips stitched together.
+
+A 5-minute film is **60 clips** with hard cuts (5m05s), or **65 clips** with
+0.4 s crossfades (5m03s, since the overlaps eat ~26 s). Total time is ~4.2 h
+at 10 steps or ~8.2 h at 20 — generation is ~97% of it; stitching 60 clips
+takes about a minute (measured).
 
 Locally, if you do have a CUDA GPU:
 
