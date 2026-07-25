@@ -121,6 +121,13 @@ video model — which is why this route is reachable on ordinary hardware.
 Verified: a 10-scene script rendered to a **5m00s, 1280x720 film with camera
 motion confirmed in every sampled shot**, entirely offline, at zero cost.
 
+### Will it run on your machine?
+
+See **[docs/HARDWARE.md](docs/HARDWARE.md)** for measured estimates. Short
+version: a local *video* model needs 8-24 GB VRAM, but a fast *image* model
+(SD-Turbo, LCM) runs on CPU-only laptops in seconds per image. Budget
+~12-15 GB disk and ~4 GB RAM for the model.
+
 ### Honest limits
 
 - No in-frame animation. Characters don't walk or lip-sync; the camera moves
