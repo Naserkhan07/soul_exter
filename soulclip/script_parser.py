@@ -281,9 +281,12 @@ def parse_script(
                 )
             elif len(piece) < _MIN_PROMPT_CHARS and piece != text:
                 # A terse beat like "Wide shot." on its own gives the model
-                # nothing to work with — carry the surrounding scene in as
+                # nothing to work with — carry the rest of the scene in as
                 # setting so the look stays consistent across the cut.
-                prompt = f"{piece} Setting: {text}"
+                # Only the *surrounding* text is added; repeating the piece
+                # itself would just pad the prompt with a duplicate sentence.
+                context = " ".join(p for p in pieces if p != piece).strip()
+                prompt = f"{piece} Setting: {context}" if context else piece
 
             scenes.append(
                 Scene(

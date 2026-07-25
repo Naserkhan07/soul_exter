@@ -138,6 +138,23 @@ class TestTargetLength(unittest.TestCase):
         if len(short.text) < 60 or short.text.startswith("Wide shot."):
             self.assertIn("Setting:", short.text)
 
+    def test_context_never_duplicates_the_piece(self):
+        """A 'Setting:' block must add surrounding text, not repeat itself."""
+        scenes = parse_script(
+            "Scene 1: Dawn. The storm has passed and the sea lies flat and "
+            "pale. Two figures sit wrapped in blankets on the steps.",
+            clip_seconds=10, target_seconds=30,
+        )
+        for scene in scenes:
+            if "Setting:" not in scene.text:
+                continue
+            beat, context = scene.text.split("Setting:", 1)
+            beat = beat.strip()
+            self.assertNotIn(
+                beat, context,
+                f"prompt {scene.index} repeats its own beat: {scene.text!r}",
+            )
+
     def test_ordering_is_preserved(self):
         scenes = parse_script(self.LONG, clip_seconds=10, target_seconds=120)
         self.assertEqual([s.index for s in scenes], list(range(1, len(scenes) + 1)))
