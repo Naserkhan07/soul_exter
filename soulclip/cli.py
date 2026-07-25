@@ -46,7 +46,7 @@ examples:
     r.add_argument("-o", "--output", default="output/final.mp4",
                    help="final video path (default: output/final.mp4)")
     r.add_argument("--provider", default="mock",
-                   choices=sorted(list(PROVIDERS) + ["wan"]),
+                   choices=sorted(list(PROVIDERS) + ["wan", "ltx"]),
                    help="video generation backend (default: mock)")
     r.add_argument("--model", help="model id to use with the provider")
 
@@ -57,6 +57,10 @@ examples:
                         "e.g. 300 for 5 minutes")
     r.add_argument("--max-scenes", type=int,
                    help="hard cap on clip count, to limit spend")
+    r.add_argument("--scenes", metavar="A-B",
+                   help="only generate scenes A to B, e.g. 1-30. Lets two "
+                        "machines split one film into the same workdir; the "
+                        "last one to finish stitches everything.")
 
     r.add_argument("--workdir", help="where clips and job.json live "
                                      "(default: alongside the output)")
@@ -99,6 +103,12 @@ examples:
                         "--fast; >1 doubles the cost per step)")
     r.add_argument("--lora-strength", type=float, metavar="N",
                    help="strength of the --fast LoRA (default 0.8)")
+
+    r.add_argument("--ltx-frames", type=int, metavar="N",
+                   help="frames per clip for --provider ltx; snapped to 8k+1 "
+                        "(121 = 5s at 24fps)")
+    r.add_argument("--ltx-steps", type=int, metavar="N",
+                   help="denoising steps for ltx (default 8 for distilled)")
 
     r.add_argument("--images-per-clip", type=int, default=1, metavar="N",
                    help="stills per clip; 2-3 dissolves between them for "
@@ -203,6 +213,28 @@ def cmd_render(args) -> int:
         print(f"  output   : {output}")
         print(f"  workdir  : {workdir}\n")
 
+    if args.scenes:
+        try:
+            lo_s, _, hi_s = args.scenes.partition("-")
+            lo, hi = int(lo_s), int(hi_s or lo_s)
+        except ValueError:
+            print(f"error: --scenes wants a range like 1-30, got {args.scenes!r}",
+                  file=sys.stderr)
+            return 2
+        subset = [s for s in scenes if lo <= s.index <= hi]
+        if not subset:
+            print(f"error: no scenes in range {lo}-{hi} (have 1-{len(scenes)})",
+                  file=sys.stderr)
+            return 2
+        if not args.quiet:
+            print(f"  range    : scenes {lo}-{hi} ({len(subset)} of "
+                  f"{len(scenes)} clips)\n")
+        scenes = subset
+        # Other workers still owe the remaining clips, so do not stitch a
+        # partial film unless the user explicitly asks for one.
+        if not args.allow_partial:
+            args.no_stitch = True
+
     if args.dry_run:
         for scene in scenes:
             text = scene.text if len(scene.text) <= 88 else scene.text[:85] + "..."
@@ -222,6 +254,13 @@ def cmd_render(args) -> int:
     }
     if args.style:
         look["style"] = args.style
+
+    if args.provider == "ltx":
+        look.update({"height": args.height, "width": args.width})
+        if args.ltx_steps is not None:
+            look["steps"] = args.ltx_steps
+        if args.ltx_frames:
+            look["frames"] = args.ltx_frames
 
     if args.provider == "wan":
         look.update({"height": args.height, "width": args.width})

@@ -134,12 +134,47 @@ python -m soulclip.cli render script.txt --provider wan --fast \
 Stitching 60 clips takes about a minute (measured), so generation dominates.
 4-step output is softer than 20-step — worth comparing on a few clips first.
 
+### Choosing a model
+
+| Provider | Model | Passes/clip | Notes |
+|---|---|---|---|
+| `ltx` | LTX-Video 2B distilled | 8, no CFG | **Fastest.** 32x32x8 VAE means ~22x fewer tokens per clip than Wan |
+| `wan --fast` | Wan 1.3B + CausVid | 4, no CFG | Fewer passes but each is far heavier |
+| `wan` | Wan 1.3B | 40 | Best quality of the three, slowest |
+
+LTX's advantage is architectural: its VAE compresses 32x32x8 per token
+against Wan's 8x8x4, so a 5-second clip is ~6k tokens instead of ~126k, and
+attention cost scales roughly with the square of that.
+
+Lightricks publish **121 frames at 720x480 in under a minute on an RTX 4060
+(8 GB)**. A free T4 is roughly 1.8-2.5x slower than a 4060, so expect
+**~1.5-2.5 h** for 60 clips at LTX's default resolution, or **~45-60 min**
+at 512x320.
+
+### Splitting a film across two machines
+
+Colab allows two concurrent notebooks. Point both at the same workdir and
+give each half the scenes:
+
+```bash
+# notebook A
+python -m soulclip.cli render script.txt --provider ltx --scenes 1-30 \
+    --workdir /content/drive/MyDrive/film/work -o film.mp4
+# notebook B
+python -m soulclip.cli render script.txt --provider ltx --scenes 31-60 \
+    --workdir /content/drive/MyDrive/film/work -o film.mp4
+# then, in either, omit --scenes to stitch
+```
+
+Workers with `--scenes` do not stitch, so a partial film is never produced;
+the final run without it reuses all 60 clips and joins them.
+
 Locally, if you do have a CUDA GPU:
 
 ```bash
 pip install -U diffusers transformers accelerate ftfy
-python -m soulclip.cli render script.txt --provider wan \
-    --clip-seconds 5 --target 300 --wan-steps 20 -o film.mp4
+python -m soulclip.cli render script.txt --provider ltx \
+    --clip-seconds 5 --target 300 -o film.mp4
 ```
 
 Wan is capped at ~5 s per clip (81 frames), so a 5-minute film is 60 shots.

@@ -91,6 +91,13 @@ class Job:
             )
         wanted = {s.index for s in scenes}
         for stale in [i for i in self.records if i not in wanted]:
+            rec = self.records[stale]
+            # When several workers share a workdir each one only knows about
+            # its own slice of the film, so an index missing from *this*
+            # scene list is not necessarily stale. Keep any finished clip
+            # whose file is still present; drop only genuine leftovers.
+            if rec.status == "done" and rec.path and Path(rec.path).exists():
+                continue
             del self.records[stale]
         self.save()
 

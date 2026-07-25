@@ -361,3 +361,52 @@ class TestETA(PipelineTestCase):
         lefts = [int(l.split("·")[1].split("left")[0].strip())
                  for l in lines if "to go" in l]
         self.assertEqual(lefts, sorted(lefts, reverse=True))
+
+
+class TestSharedWorkdir(PipelineTestCase):
+    """Two workers splitting one film must not destroy each other's clips."""
+
+    def _halves(self):
+        return self.scenes[:2], self.scenes[2:]
+
+    def test_second_worker_keeps_first_workers_clips(self):
+        first, second = self._halves()
+        Pipeline(FakeProvider(), self.tmp / "w",
+                 reporter=lambda m: None).render(
+            first, self.tmp / "o.mp4", stitch=False)
+        Pipeline(FakeProvider(), self.tmp / "w",
+                 reporter=lambda m: None).render(
+            second, self.tmp / "o.mp4", stitch=False)
+
+        job = Job(self.tmp / "w")
+        self.assertEqual(len(job.done()), len(self.scenes))
+
+    def test_final_pass_reuses_everything(self):
+        first, second = self._halves()
+        for part in (first, second):
+            Pipeline(FakeProvider(), self.tmp / "w",
+                     reporter=lambda m: None).render(
+                part, self.tmp / "o.mp4", stitch=False)
+
+        provider = FakeProvider()
+        result = Pipeline(provider, self.tmp / "w",
+                          reporter=lambda m: None).render(
+            self.scenes, self.tmp / "o.mp4", stitch=False)
+        self.assertEqual(provider.calls, [], "re-generated work another worker did")
+        self.assertEqual(result.reused, len(self.scenes))
+
+    def test_genuinely_stale_records_are_still_dropped(self):
+        """Keeping other workers' clips must not break prompt invalidation."""
+        Pipeline(FakeProvider(), self.tmp / "w",
+                 reporter=lambda m: None).render(
+            self.scenes, self.tmp / "o.mp4", stitch=False)
+
+        job = Job(self.tmp / "w")
+        victim = job.records[2]
+        Path(victim.path).unlink()          # file gone -> truly stale
+
+        provider = FakeProvider()
+        Pipeline(provider, self.tmp / "w",
+                 reporter=lambda m: None).render(
+            self.scenes, self.tmp / "o.mp4", stitch=False)
+        self.assertEqual(len(provider.calls), 1)

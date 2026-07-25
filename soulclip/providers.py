@@ -726,6 +726,13 @@ class FolderProvider(StillMotionProvider):
 # Registry
 # --------------------------------------------------------------------------
 
+def _ltx_provider():
+    """Imported lazily: needs torch, which soulclip does not require."""
+    from soulclip.ltx import LtxProvider
+
+    return LtxProvider
+
+
 def _wan_provider():
     """Imported lazily: it needs torch, which soulclip does not require."""
     from soulclip.wan import WanProvider
@@ -750,11 +757,13 @@ PROVIDERS: dict[str, type[VideoProvider]] = {
 def get_provider(name: str, model: str | None = None, **options: Any) -> VideoProvider:
     if name.lower() == "wan":
         return _wan_provider()(model=model, **options)
+    if name.lower() == "ltx":
+        return _ltx_provider()(model=model, **options)
     try:
         cls = PROVIDERS[name.lower()]
     except KeyError:
         raise ProviderError(
             f"Unknown provider {name!r}. Choose from: "
-            f"{', '.join(sorted(list(PROVIDERS) + ['wan']))}"
+            f"{', '.join(sorted(list(PROVIDERS) + ['wan', 'ltx']))}"
         ) from None
     return cls(model=model, **options)
