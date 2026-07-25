@@ -159,7 +159,8 @@ route). **Kaggle is the
 best free tier** — 30 h/week guaranteed and **2x T4**, versus Colab's variable
 15-30 h on a single T4. See **[docs/FREE_TIERS.md](docs/FREE_TIERS.md)**.
 
-- `notebooks/soulclip_kaggle.ipynb` — 2 GPUs in parallel (recommended)
+- `notebooks/soulclip_kaggle.ipynb` — 2 GPUs in parallel (recommended).
+  Step-by-step guide: **[docs/KAGGLE_SETUP.md](docs/KAGGLE_SETUP.md)**
 - `notebooks/soulclip_colab.ipynb` — single GPU
 
 ### Splitting a film across two machines

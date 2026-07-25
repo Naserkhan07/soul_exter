@@ -206,7 +206,10 @@ class Pipeline:
 
     def _generate_one(self, rec: ClipRecord, scene: Scene, total: int) -> ClipRecord:
         dest = self.workdir / "clips" / f"{scene.slug}.mp4"
-        prefix = f"[{rec.index}/{total}]"
+        # `total` is this worker's slice, which may be a subset of the film
+        # when several machines share a workdir. Showing the scene's real
+        # index against a subset count reads as "[4/3]", so widen it.
+        prefix = f"[{rec.index}/{max(total, rec.index)}]"
 
         for attempt in range(1, self.max_retries + 2):
             rec.attempts += 1
