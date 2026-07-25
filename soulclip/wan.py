@@ -34,6 +34,22 @@ KNOWN_MODELS = {
 #: Wan generates at a fixed frame rate; clip length is set by frame count.
 WAN_FPS = 16
 
+#: Step-distilled LoRAs. These are the single biggest speed win available:
+#: they cut denoising to ~4 steps *and* are trained for guidance 1.0, which
+#: removes classifier-free guidance. CFG runs the model twice per step, so
+#: dropping it halves the cost again — together roughly 10x fewer forward
+#: passes than the 20-step default.
+SPEED_LORAS = {
+    "causvid": {
+        "repo": "Kijai/WanVideo_comfy",
+        "file": "Wan21_CausVid_bidirect2_T2V_1_3B_lora_rank32.safetensors",
+        "steps": 4,
+        "guidance": 1.0,
+        "strength": 0.8,
+        "note": "CausVid 1.3B — 4 steps, no CFG",
+    },
+}
+
 
 def _resolve(model: str) -> str:
     return KNOWN_MODELS.get(model.lower().replace("-", "").replace("_", ""), model)
@@ -69,7 +85,8 @@ class WanProvider(VideoProvider):
     # ------------------------------------------------------------------
 
     def _load(self, on_status=None):
-        key = f"{self.model}:{self.options.get('dtype', 'bf16')}"
+        key = (f"{self.model}:{self.options.get('dtype', 'bf16')}"
+               f":{self.options.get('speed_lora') or ''}")
         if WanProvider._pipe is not None and WanProvider._pipe_key == key:
             return WanProvider._pipe
 
@@ -118,11 +135,50 @@ class WanProvider(VideoProvider):
         except Exception:
             pass  # older diffusers
 
+        self._apply_speed_lora(pipe, on_status=on_status)
+
         pipe.set_progress_bar_config(disable=True)
 
         WanProvider._pipe = pipe
         WanProvider._pipe_key = key
         return pipe
+
+    def _apply_speed_lora(self, pipe, on_status=None):
+        """Attach a step-distilled LoRA, if one was requested."""
+        name = self.options.get("speed_lora")
+        if not name:
+            return
+
+        spec = SPEED_LORAS.get(str(name).lower())
+        if spec is None:
+            raise PermanentError(
+                f"Unknown speed LoRA {name!r}. Available: "
+                f"{', '.join(sorted(SPEED_LORAS))}"
+            )
+
+        if on_status:
+            on_status(f"loading {spec['note']}")
+
+        try:
+            pipe.load_lora_weights(
+                spec["repo"], weight_name=spec["file"], adapter_name="speed"
+            )
+            pipe.set_adapters(
+                ["speed"],
+                adapter_weights=[float(
+                    self.options.get("lora_strength", spec["strength"])
+                )],
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ProviderError(
+                f"Could not load the {name} LoRA ({exc}). Install peft "
+                "(`pip install -U peft`) or drop --fast."
+            ) from exc
+
+        # The distilled schedule only holds at its trained settings, so
+        # override steps/guidance unless the user was explicit.
+        self.options.setdefault("steps", spec["steps"])
+        self.options.setdefault("guidance", spec["guidance"])
 
     @classmethod
     def unload(cls):

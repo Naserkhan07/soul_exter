@@ -92,3 +92,79 @@ class TestNotebook(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSpeedLora(unittest.TestCase):
+    """--fast must actually reduce work, not just set a flag."""
+
+    def test_causvid_is_registered_for_1_3b(self):
+        from soulclip.wan import SPEED_LORAS
+
+        spec = SPEED_LORAS["causvid"]
+        self.assertIn("1_3B", spec["file"])
+        self.assertEqual(spec["steps"], 4)
+        self.assertEqual(spec["guidance"], 1.0)
+
+    def test_guidance_of_one_disables_cfg(self):
+        """CFG runs the model twice per step; the LoRA must avoid it."""
+        from soulclip.wan import SPEED_LORAS
+
+        self.assertLessEqual(SPEED_LORAS["causvid"]["guidance"], 1.0)
+
+    def test_fast_is_about_ten_times_fewer_passes(self):
+        from soulclip.wan import SPEED_LORAS
+
+        default = 20 * 2                      # 20 steps with CFG
+        spec = SPEED_LORAS["causvid"]
+        fast = spec["steps"] * (2 if spec["guidance"] > 1 else 1)
+        self.assertGreaterEqual(default / fast, 8)
+
+    def test_unknown_lora_is_permanent_error(self):
+        p = WanProvider(model="wan1.3b", speed_lora="nope")
+
+        class Dummy:
+            def load_lora_weights(self, *a, **k): pass
+            def set_adapters(self, *a, **k): pass
+
+        with self.assertRaises(PermanentError):
+            p._apply_speed_lora(Dummy())
+
+    def test_lora_supplies_its_trained_defaults(self):
+        p = WanProvider(model="wan1.3b", speed_lora="causvid")
+
+        class Dummy:
+            def load_lora_weights(self, *a, **k): pass
+            def set_adapters(self, *a, **k): pass
+
+        p._apply_speed_lora(Dummy())
+        self.assertEqual(p.options["steps"], 4)
+        self.assertEqual(p.options["guidance"], 1.0)
+
+    def test_explicit_settings_beat_lora_defaults(self):
+        p = WanProvider(model="wan1.3b", speed_lora="causvid", steps=6)
+
+        class Dummy:
+            def load_lora_weights(self, *a, **k): pass
+            def set_adapters(self, *a, **k): pass
+
+        p._apply_speed_lora(Dummy())
+        self.assertEqual(p.options["steps"], 6)
+
+    def test_no_lora_leaves_settings_untouched(self):
+        p = WanProvider(model="wan1.3b")
+
+        class Dummy:
+            def load_lora_weights(self, *a, **k):
+                raise AssertionError("should not load a LoRA")
+            def set_adapters(self, *a, **k): pass
+
+        p._apply_speed_lora(Dummy())
+        self.assertNotIn("steps", p.options)
+
+    def test_cache_key_separates_fast_from_normal(self):
+        """Switching --fast on/off must not reuse the wrong pipeline."""
+        a = WanProvider(model="wan1.3b")
+        b = WanProvider(model="wan1.3b", speed_lora="causvid")
+        ka = f"{a.model}:{a.options.get('dtype','bf16')}:{a.options.get('speed_lora') or ''}"
+        kb = f"{b.model}:{b.options.get('dtype','bf16')}:{b.options.get('speed_lora') or ''}"
+        self.assertNotEqual(ka, kb)

@@ -101,9 +101,25 @@ Wan caps at **81 frames = 5.06 s per clip** on a T4 — a 10-second shot is two
 clips stitched together.
 
 A 5-minute film is **60 clips** with hard cuts (5m05s), or **65 clips** with
-0.4 s crossfades (5m03s, since the overlaps eat ~26 s). Total time is ~4.2 h
-at 10 steps or ~8.2 h at 20 — generation is ~97% of it; stitching 60 clips
-takes about a minute (measured).
+0.4 s crossfades (5m03s, since the overlaps eat ~26 s).
+
+Use **`--fast`** to load the CausVid step-distilled LoRA. It runs 4 steps at
+guidance 1.0, which also removes classifier-free guidance — 4 forward passes
+per clip instead of 40:
+
+| Setting | Passes | 60 clips |
+|---|---|---|
+| 20 steps + CFG (default) | 40 | ~8 hours |
+| `--fast` @ 832x480 | 4 | **~50 min** |
+| `--fast` @ 640x368 | 4 | **~30 min** |
+
+```bash
+python -m soulclip.cli render script.txt --provider wan --fast \
+    --clip-seconds 5 --target 300 -o film.mp4
+```
+
+Stitching 60 clips takes about a minute (measured), so generation dominates.
+4-step output is softer than 20-step — worth comparing on a few clips first.
 
 Locally, if you do have a CUDA GPU:
 

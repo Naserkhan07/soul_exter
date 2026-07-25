@@ -84,14 +84,21 @@ examples:
     r.add_argument("--style", help="style text appended to every image prompt "
                                    "(anime, noir, watercolour, ...)")
     # Wan (local GPU video model, e.g. on Colab)
-    r.add_argument("--wan-steps", type=int, default=20, metavar="N",
-                   help="denoising steps for --provider wan (default 20; "
-                        "10 is ~2x faster and softer)")
+    r.add_argument("--fast", action="store_true",
+                   help="load the CausVid step-distilled LoRA: 4 steps and no "
+                        "classifier-free guidance, ~10x faster than the "
+                        "20-step default. Best speed/quality tradeoff.")
+    r.add_argument("--wan-steps", type=int, metavar="N",
+                   help="denoising steps for --provider wan "
+                        "(default 20, or 4 with --fast)")
     r.add_argument("--wan-frames", type=int, metavar="N",
                    help="frames per clip for wan; snapped to 4k+1 "
                         "(33=2s, 49=3s, 65=4s, 81=5s at 16fps)")
-    r.add_argument("--wan-guidance", type=float, default=5.0,
-                   help="guidance scale for wan (default 5.0)")
+    r.add_argument("--wan-guidance", type=float, metavar="N",
+                   help="guidance scale for wan (default 5.0, or 1.0 with "
+                        "--fast; >1 doubles the cost per step)")
+    r.add_argument("--lora-strength", type=float, metavar="N",
+                   help="strength of the --fast LoRA (default 0.8)")
 
     r.add_argument("--images-per-clip", type=int, default=1, metavar="N",
                    help="stills per clip; 2-3 dissolves between them for "
@@ -217,12 +224,21 @@ def cmd_render(args) -> int:
         look["style"] = args.style
 
     if args.provider == "wan":
-        look.update({
-            "steps": args.wan_steps,
-            "guidance": args.wan_guidance,
-            "height": args.height,
-            "width": args.width,
-        })
+        look.update({"height": args.height, "width": args.width})
+        if args.fast:
+            look["speed_lora"] = "causvid"
+        if args.lora_strength is not None:
+            look["lora_strength"] = args.lora_strength
+        # Only set these when given, so a distilled LoRA can supply its own
+        # trained defaults instead of being overridden by argparse defaults.
+        if args.wan_steps is not None:
+            look["steps"] = args.wan_steps
+        elif not args.fast:
+            look["steps"] = 20
+        if args.wan_guidance is not None:
+            look["guidance"] = args.wan_guidance
+        elif not args.fast:
+            look["guidance"] = 5.0
         if args.wan_frames:
             look["frames"] = args.wan_frames
 
