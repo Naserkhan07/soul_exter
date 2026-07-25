@@ -283,11 +283,78 @@ def _concat_filter(
     return output
 
 
+#: Above this many inputs, a single chained xfade graph exhausts memory,
+#: so the crossfade is done in batches and the batches joined afterwards.
+CROSSFADE_BATCH = 24
+
+
 def _concat_crossfade(
     clips: list[Path], output: Path, *, width: int, height: int, fps: int,
     crossfade: float, audio: Path | None,
 ) -> Path:
-    """Chain xfade between every pair of clips."""
+    """Chain xfade between every pair of clips.
+
+    ffmpeg opens every input at once and the xfade chain grows one filter
+    per clip, so a long film (a 5-minute cut is 60+ shots) can be killed by
+    the OOM reaper mid-render. Past :data:`CROSSFADE_BATCH` inputs the work
+    is split into batches that are crossfaded separately and then joined,
+    which keeps peak memory flat regardless of film length.
+    """
+    if len(clips) > CROSSFADE_BATCH:
+        return _concat_crossfade_batched(
+            clips, output, width=width, height=height, fps=fps,
+            crossfade=crossfade, audio=audio,
+        )
+    return _concat_crossfade_single(
+        clips, output, width=width, height=height, fps=fps,
+        crossfade=crossfade, audio=audio,
+    )
+
+
+def _concat_crossfade_batched(
+    clips: list[Path], output: Path, *, width: int, height: int, fps: int,
+    crossfade: float, audio: Path | None,
+) -> Path:
+    """Crossfade in batches, then join the batches (also with a crossfade)."""
+    tmpdir = output.parent / f".{output.stem}_xf"
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    batches: list[Path] = []
+
+    try:
+        for start in range(0, len(clips), CROSSFADE_BATCH):
+            chunk = clips[start : start + CROSSFADE_BATCH]
+            part = tmpdir / f"batch_{start // CROSSFADE_BATCH:03d}.mp4"
+            if len(chunk) == 1:
+                shutil.copyfile(chunk[0], part)
+            else:
+                _concat_crossfade_single(
+                    chunk, part, width=width, height=height, fps=fps,
+                    crossfade=crossfade, audio=None,
+                )
+            batches.append(part)
+
+        if len(batches) == 1:
+            shutil.copyfile(batches[0], output)
+        else:
+            # Recurses only if there are still too many batches.
+            _concat_crossfade(
+                batches, output, width=width, height=height, fps=fps,
+                crossfade=crossfade, audio=audio,
+            )
+    finally:
+        for b in batches:
+            b.unlink(missing_ok=True)
+        if tmpdir.exists() and not any(tmpdir.iterdir()):
+            tmpdir.rmdir()
+
+    return output
+
+
+def _concat_crossfade_single(
+    clips: list[Path], output: Path, *, width: int, height: int, fps: int,
+    crossfade: float, audio: Path | None,
+) -> Path:
+    """One xfade chain across every clip. Caller keeps the count sane."""
     durations = []
     for clip in clips:
         d = probe_duration(clip)
@@ -324,7 +391,16 @@ def _concat_crossfade(
         "-c:v", "libx264", "-preset", "medium", "-crf", "20",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output),
     ]
-    run(cmd, what="crossfade concat")
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        detail = proc.stderr.strip()[-1200:]
+        if proc.returncode < 0:
+            detail = (
+                f"ffmpeg was killed by signal {-proc.returncode} — most "
+                "likely out of memory. Try fewer clips per batch or drop "
+                "--crossfade."
+            )
+        raise FFmpegError(f"crossfade concat failed:\n{detail}")
     return output
 
 

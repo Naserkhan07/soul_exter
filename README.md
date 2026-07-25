@@ -83,11 +83,13 @@ runs **Wan 2.1 T2V 1.3B** on Colab's free T4 and drives the whole pipeline.
 
 Open it in Colab, set `Runtime > T4 GPU`, and run the cells.
 
-| Clips | Film length | Time on a free T4 |
-|---|---|---|
-| 6 | 30 s | ~15-25 min |
-| 12 | 1 min | ~30-50 min |
-| 60 | 5 min | ~3-4 hours, across sessions |
+| Clips | Film | 10 steps | 20 steps |
+|---|---|---|---|
+| 6 | 30 s | 20-30 min | 35-60 min |
+| 12 | 1 min | 35-60 min | 1.2-2 hrs |
+| **60** | **5 min** | **3-5 hrs** | **6-10 hrs** |
+
+Generation dominates; the final stitch of 60 clips is ~3 minutes (measured).
 
 Colab drops free sessions after about 90 minutes. The notebook mounts
 Google Drive and soulclip resumes from `job.json`, so a disconnect costs

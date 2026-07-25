@@ -269,6 +269,37 @@ class TestStitching(unittest.TestCase):
         out = concat([clip], self.tmp / "single.mp4")
         self.assertEqual(out.stat().st_size, clip.stat().st_size)
 
+    def test_crossfade_scales_to_a_full_length_film(self):
+        """60 clips in one xfade chain gets OOM-killed; batching must fix it.
+
+        A 5-minute film is 60+ shots, so this is the real-world case, not
+        an edge case.
+        """
+        from soulclip.ffmpeg import CROSSFADE_BATCH, concat, probe_duration
+
+        n = CROSSFADE_BATCH * 2 + 3      # forces several batches
+        clips = [self._clip(f"x{i}.mp4", seconds=1, with_audio=False)
+                 for i in range(n)]
+        out = concat(clips, self.tmp / "long.mp4", width=320, height=240,
+                     fps=12, crossfade=0.2)
+        self.assertTrue(out.exists())
+        self.assertGreater(out.stat().st_size, 1024)
+
+        # n clips of 1s with (n-1) overlaps of 0.2s
+        expected = n - (n - 1) * 0.2
+        self.assertAlmostEqual(probe_duration(out) or 0, expected, delta=1.5)
+
+    def test_crossfade_leaves_no_temp_files(self):
+        from soulclip.ffmpeg import CROSSFADE_BATCH, concat
+
+        n = CROSSFADE_BATCH + 2
+        clips = [self._clip(f"t{i}.mp4", seconds=1, with_audio=False)
+                 for i in range(n)]
+        concat(clips, self.tmp / "clean.mp4", width=320, height=240,
+               fps=12, crossfade=0.2)
+        leftovers = [p for p in self.tmp.iterdir() if p.name.startswith(".")]
+        self.assertEqual(leftovers, [], f"temp dirs left behind: {leftovers}")
+
     def test_missing_clip_raises(self):
         from soulclip.ffmpeg import FFmpegError, concat
 
