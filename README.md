@@ -35,6 +35,72 @@ Check your setup at any time:
 .venv/bin/python -m soulclip.cli doctor
 ```
 
+## Give it a story instead of a script
+
+You don't have to write `Scene 1:`, `Scene 2:` yourself. Pass prose and let
+the bot build the shot list:
+
+```bash
+python -m soulclip.cli render story.txt --story --target 300 -o film.mp4
+```
+
+```
+  story    : 8 scenes from prose
+  cast     : Alden (an old keeper), Mira (a young woman)
+```
+
+### Character consistency
+
+Video models have no memory between clips, so a character rendered in shot 1
+looks like a different person in shot 5. The storyboarder finds recurring
+names, works out a short appearance phrase, and **re-states it in every shot
+they appear in**:
+
+```
+Scene 1: The old keeper Alden lived alone in a lighthouse. Alden is an old keeper.
+Scene 4: Alden heard a sound in the storm. Alden is an old keeper.
+```
+
+That is the single most effective thing you can do about drift without
+image conditioning. It is not a full fix — see the limits at the bottom.
+
+For better pacing, use a local LLM instead of the rule-based splitter:
+
+```bash
+ollama serve &                       # in another terminal
+python -m soulclip.cli render story.txt --story --storyboard llm
+```
+
+## Narration, music and ambience
+
+```bash
+python -m soulclip.cli render story.txt --story \
+    --narrate --voice af_heart \
+    --music theme.mp3 --ambience rain.wav \
+    --target 300 -o film.mp4
+```
+
+| Flag | Does |
+|---|---|
+| `--narrate` | Kokoro TTS per scene, time-fitted to each clip |
+| `--voice` | Kokoro voice (default `af_heart`) |
+| `--music` | soundtrack, looped and faded |
+| `--ambience` | looping bed under the music |
+| `--music-level` | music gain, default `0.18` |
+| `--duck` | how far music drops under speech, default `0.35` |
+
+Narration needs `pip install kokoro soundfile` (plus `espeak-ng` on Linux).
+Kokoro is 82M parameters, Apache licensed, and runs on CPU at roughly real
+time — no GPU needed.
+
+Camera directions are stripped before speaking, so "Setting: ..." and
+"cinematic anime, film grain" never get read aloud. Music side-chain ducks
+under narration so the words stay clear.
+
+**If narration fails the film is still produced** — a missing TTS dependency
+logs a warning and the render continues silently rather than throwing away
+an hour of GPU time.
+
 ## Writing a script
 
 Label your scenes however you like — all of these parse:

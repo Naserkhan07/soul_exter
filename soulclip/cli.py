@@ -42,7 +42,17 @@ examples:
     sub = p.add_subparsers(dest="command", required=True)
 
     r = sub.add_parser("render", help="generate clips and stitch the final video")
-    r.add_argument("script", help="path to the script file, or - for stdin")
+    r.add_argument("script", help="path to the script or story file, or - "
+                                  "for stdin")
+    r.add_argument("--story", action="store_true",
+                   help="treat the input as plain prose and build the scene "
+                        "breakdown automatically, carrying character "
+                        "descriptions into every shot")
+    r.add_argument("--storyboard", choices=["rules", "llm"], default="rules",
+                   help="how to break a --story into shots: rules (offline, "
+                        "instant) or llm (local Ollama, better pacing)")
+    r.add_argument("--storyboard-model", default="llama3.2",
+                   help="Ollama model for --storyboard llm")
     r.add_argument("-o", "--output", default="output/final.mp4",
                    help="final video path (default: output/final.mp4)")
     r.add_argument("--provider", default="mock",
@@ -75,6 +85,16 @@ examples:
     r.add_argument("--crossfade", type=float, default=0.0, metavar="SECONDS",
                    help="cross-dissolve between clips, e.g. 0.5")
     r.add_argument("--music", help="audio track to lay over the finished cut")
+    r.add_argument("--narrate", action="store_true",
+                   help="speak each scene with Kokoro TTS, timed to its clip")
+    r.add_argument("--voice", default="af_heart",
+                   help="Kokoro voice for --narrate (default af_heart)")
+    r.add_argument("--ambience", metavar="FILE",
+                   help="looping background bed (rain, sea, room tone)")
+    r.add_argument("--music-level", type=float, default=0.18,
+                   help="music gain, 0-1 (default 0.18)")
+    r.add_argument("--duck", type=float, default=0.35,
+                   help="how far music drops under narration (default 0.35)")
     # Look controls for the free still-motion providers
     r.add_argument("--motion", type=float, default=0.12, metavar="AMOUNT",
                    help="camera travel per shot for image-based providers, "
@@ -193,9 +213,38 @@ def cmd_render(args) -> int:
     workdir = Path(args.workdir).expanduser() if args.workdir else \
         output.parent / f".{output.stem}_work"
 
+    raw_text = _read_script(args.script)
+
+    if args.story:
+        from soulclip.storyboard import StoryboardError, build as build_board
+
+        try:
+            board = build_board(
+                raw_text,
+                backend=args.storyboard,
+                clip_seconds=args.clip_seconds,
+                target_seconds=args.target,
+                scenes=args.max_scenes,
+                style=args.style or "",
+                model=args.storyboard_model,
+            )
+        except StoryboardError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+        raw_text = board.to_script()
+        if not args.quiet:
+            names = ", ".join(
+                f"{c.name} ({c.description})" if c.description else c.name
+                for c in board.characters.values()
+            )
+            print(f"  story    : {len(board.scenes)} scenes from prose")
+            if names:
+                print(f"  cast     : {names}")
+
     try:
         scenes = parse_script(
-            _read_script(args.script),
+            raw_text,
             clip_seconds=args.clip_seconds,
             target_seconds=args.target,
             max_scenes=args.max_scenes,
@@ -301,6 +350,11 @@ def cmd_render(args) -> int:
             width=args.width, height=args.height, fps=args.fps,
             crossfade=args.crossfade,
             music=Path(args.music) if args.music else None,
+            narrate=args.narrate,
+            voice=args.voice,
+            ambience=Path(args.ambience) if args.ambience else None,
+            music_level=args.music_level,
+            duck=args.duck,
             fast_concat=args.fast_concat,
             allow_partial=args.allow_partial,
             stitch=not args.no_stitch,

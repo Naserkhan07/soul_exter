@@ -316,6 +316,11 @@ class Pipeline:
         fps: int = 24,
         crossfade: float = 0.0,
         music: Path | None = None,
+        narrate: bool = False,
+        voice: str = "af_heart",
+        ambience: Path | None = None,
+        music_level: float = 0.18,
+        duck: float = 0.35,
         fast_concat: bool = False,
         allow_partial: bool = False,
         stitch: bool = True,
@@ -395,13 +400,62 @@ class Pipeline:
             return RenderResult(None, job, generated, reused, failed,
                                 time.time() - started)
 
+        narration_track: Path | None = None
+        if narrate:
+            from soulclip.audio import (
+                Narrator, concat_narration, narrate_scenes,
+            )
+
+            try:
+                self.report(f"\nNarrating {len(scenes)} scenes…")
+                tracks = narrate_scenes(
+                    scenes, self.workdir,
+                    narrator=Narrator(voice=voice), reporter=self.report,
+                )
+                ordered = [tracks[s.index] for s in scenes if s.index in tracks]
+                if ordered:
+                    narration_track = self.workdir / "narration.wav"
+                    concat_narration(ordered, narration_track)
+            except Exception as exc:  # noqa: BLE001
+                # Narration is optional and third-party TTS can fail in many
+                # ways. Never lose an expensively generated film over it.
+                self.report(f"Narration unavailable: {exc}")
+                self.report("Continuing without narration.")
+                narration_track = None
+
         self.report(f"\nStitching {len(clips)} clips into {output.name}…")
+        # When audio is layered on afterwards, stitch to a temp file first so
+        # the mix can copy the video stream instead of re-encoding it.
+        needs_mix = bool(narration_track or ambience or (music and narrate))
+        stitch_target = (
+            output.with_name(f".{output.stem}_silent{output.suffix}")
+            if needs_mix else output
+        )
+
         ffmpeg.concat(
-            clips, output,
+            clips, stitch_target,
             reencode=not fast_concat,
             width=width, height=height, fps=fps,
-            crossfade=crossfade, audio=music,
+            crossfade=crossfade,
+            audio=None if needs_mix else music,
         )
+
+        if needs_mix:
+            from soulclip.audio import AudioMix, mix as mix_audio
+
+            self.report("Mixing audio…")
+            try:
+                mix_audio(
+                    stitch_target, output,
+                    narration=narration_track,
+                    music=music,
+                    ambience=ambience,
+                    levels=AudioMix(music=music_level, duck=duck),
+                )
+                stitch_target.unlink(missing_ok=True)
+            except Exception as exc:  # noqa: BLE001
+                self.report(f"Mix failed ({exc}); keeping the silent cut.")
+                stitch_target.replace(output)
 
         job.output = str(output)
         job.save()
