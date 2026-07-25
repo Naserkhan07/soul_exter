@@ -305,3 +305,59 @@ class TestStitching(unittest.TestCase):
 
         with self.assertRaises(FFmpegError):
             concat([self.tmp / "nope.mp4"], self.tmp / "out.mp4")
+
+
+class TestETA(PipelineTestCase):
+    """The bot must measure its own speed rather than trust an estimate."""
+
+    def _timed_provider(self, seconds):
+        import time as _t
+
+        class Timed(FakeProvider):
+            def generate(self, prompt, dest, *, duration=10, on_status=None):
+                _t.sleep(seconds)
+                return super().generate(prompt, dest, duration=duration,
+                                        on_status=on_status)
+        return Timed()
+
+    def test_eta_is_reported_once_enough_clips_are_timed(self):
+        lines = []
+        p = Pipeline(self._timed_provider(0.05), self.tmp / "w",
+                     reporter=lines.append)
+        p.render(self.scenes, self.tmp / "o.mp4", stitch=False)
+        self.assertTrue(any("to go" in l for l in lines))
+
+    def test_no_eta_before_there_is_data(self):
+        """One sample is not enough to extrapolate from."""
+        lines = []
+        one = parse_script("Scene 1: A single wide shot of an empty road.")
+        p = Pipeline(FakeProvider(), self.tmp / "w", reporter=lines.append)
+        p.render(one, self.tmp / "o.mp4", stitch=False)
+        self.assertFalse(any("to go" in l for l in lines))
+
+    def test_eta_reflects_the_measured_rate(self):
+        lines = []
+        p = Pipeline(self._timed_provider(0.2), self.tmp / "w",
+                     reporter=lines.append)
+        p.render(self.scenes, self.tmp / "o.mp4", stitch=False)
+        etas = [l for l in lines if "to go" in l]
+        self.assertTrue(etas)
+        # 0.2s per clip should surface as ~0.2, not a hardcoded guess
+        self.assertIn("0.2s/clip", etas[0])
+
+    def test_sub_second_times_are_not_shown_as_zero(self):
+        lines = []
+        p = Pipeline(self._timed_provider(0.05), self.tmp / "w",
+                     reporter=lines.append)
+        p.render(self.scenes, self.tmp / "o.mp4", stitch=False)
+        for line in [l for l in lines if "to go" in l]:
+            self.assertNotIn("avg 0s/clip", line)
+
+    def test_remaining_count_decreases(self):
+        lines = []
+        p = Pipeline(self._timed_provider(0.05), self.tmp / "w",
+                     reporter=lines.append)
+        p.render(self.scenes, self.tmp / "o.mp4", stitch=False)
+        lefts = [int(l.split("·")[1].split("left")[0].strip())
+                 for l in lines if "to go" in l]
+        self.assertEqual(lefts, sorted(lefts, reverse=True))

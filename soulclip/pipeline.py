@@ -229,6 +229,41 @@ class Pipeline:
                     self.report(f"{prefix} {rec.label}: FAILED — {rec.error}")
         return rec
 
+    def _report_eta(self, job, total: int) -> None:
+        """Project the finish time from this run's own measured clip times.
+
+        Published per-clip figures for a given GPU vary by several times, so
+        rather than trusting an estimate the pipeline times the clips it has
+        actually produced and extrapolates from those.
+        """
+        times = [r.seconds for r in job.done() if r.seconds]
+        if len(times) < 2:
+            return
+
+        # Recent clips reflect the steady state; the first is skewed by
+        # model loading and any lazy CUDA setup.
+        recent = times[-5:]
+        per = sum(recent) / len(recent)
+        remaining = total - len(job.done())
+        if remaining <= 0:
+            return
+
+        eta = per * remaining
+        spread = max(recent) / max(min(recent), 0.01)
+        note = "" if spread < 1.5 else " (times still varying)"
+
+        if eta < 90:
+            left = f"{eta:.0f}s"
+        elif eta < 5400:
+            left = f"{eta / 60:.0f} min"
+        else:
+            left = f"{eta / 3600:.1f} h"
+
+        avg = f"{per:.1f}s" if per < 10 else f"{per:.0f}s"
+        self.report(
+            f"      avg {avg}/clip · {remaining} left · ~{left} to go{note}"
+        )
+
     # -- whole job ---------------------------------------------------------
 
     def render(
@@ -264,6 +299,7 @@ class Pipeline:
                 if rec.status == "done":
                     generated += 1
                     consecutive_failures = 0
+                    self._report_eta(job, total)
                 else:
                     consecutive_failures += 1
                     # Something systemic is wrong (bad key, bad model, no

@@ -107,11 +107,24 @@ Use **`--fast`** to load the CausVid step-distilled LoRA. It runs 4 steps at
 guidance 1.0, which also removes classifier-free guidance — 4 forward passes
 per clip instead of 40:
 
-| Setting | Passes | 60 clips |
-|---|---|---|
-| 20 steps + CFG (default) | 40 | ~8 hours |
-| `--fast` @ 832x480 | 4 | **~50 min** |
-| `--fast` @ 640x368 | 4 | **~30 min** |
+| Setting | Forward passes per clip |
+|---|---|
+| 20 steps + CFG (default) | 40 |
+| `--fast` @ any resolution | **4** |
+
+That 10x is arithmetic and dependable. **Wall-clock time is not predictable
+in advance** — published figures for a T4 running Wan 1.3B span 2-10 minutes
+per clip, so any single estimate would be guesswork.
+
+Instead the pipeline times itself and prints a projection after each clip:
+
+```
+[3/60] scene 2 (part 1/6): saved scene_003.mp4 (41.2s)
+      avg 42s/clip · 57 left · ~40 min to go
+```
+
+Run six clips, read that line, multiply by 60. Expect somewhere between 35
+minutes and 2 hours for a 5-minute film with `--fast`.
 
 ```bash
 python -m soulclip.cli render script.txt --provider wan --fast \
