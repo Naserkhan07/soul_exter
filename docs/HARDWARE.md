@@ -19,6 +19,11 @@ has no usable CUDA path, so everything runs on 2 CPU cores.
 
 ## Why video models are out
 
+> Full investigation of every open-source video model on GitHub and
+> Hugging Face, including the CPU-capable `stable-diffusion.cpp` path:
+> **[VIDEO_MODELS.md](VIDEO_MODELS.md)**.
+
+
 Measured on this reference hardware class:
 
 ```
