@@ -12,6 +12,15 @@ script.txt ──> [scene 1] ──> generate ──> download ──┐
                [scene 30] ─> generate ──> download ──┘
 ```
 
+## Open it in VS Code
+
+```bash
+git clone -b arena/019f98a2-soul-exter https://github.com/Naserkhan07/soul_exter.git && code soul_exter
+```
+
+Then in the VS Code terminal run `setup.bat` (Windows) or `./setup.sh`
+(macOS/Linux). Full guide: **[docs/VSCODE.md](docs/VSCODE.md)**.
+
 ## Quick start
 
 Nothing to install for the offline demo except an ffmpeg binary:
