@@ -35,7 +35,7 @@ def generate_infinite_code(prompt):
             # Clean markdown formatting if present
             generated_code = generated_code.replace("```python", "").replace("```", "").strip()
             
-            with open("infinite_app.py", "w") as f:
+            with open("infinite_app.py", "w", encoding="utf-8") as f:
                 f.write(generated_code)
                 
             return f"☁️ [CLOUD BRAIN] Success! I used the Cloud API to generate your custom app. Saved as infinite_app.py."

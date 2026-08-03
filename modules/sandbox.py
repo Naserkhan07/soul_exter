@@ -17,7 +17,7 @@ WORKDIR /app
 COPY {script_name} .
 CMD ["python", "{script_name}"]
 """
-    with open("Dockerfile.sandbox", "w") as f:
+    with open("Dockerfile.sandbox", "w", encoding="utf-8") as f:
         f.write(dockerfile_content)
 
     try:

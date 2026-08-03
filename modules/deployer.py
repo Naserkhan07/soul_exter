@@ -13,7 +13,7 @@ def deploy_to_internet(project_dir="jarvis_generated_web"):
     
     # 1. Write the Deployment Configuration File
     config_path = os.path.join(project_dir, "vercel.json")
-    with open(config_path, "w") as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         f.write('{"version": 2, "name": "jarvis-deployment", "public": true}')
         
     try:

@@ -31,11 +31,11 @@ if __name__ == '__main__':
     JarvisApp().run()
 """
     file_path = os.path.join(project_name, "main.py")
-    with open(file_path, "w") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(kivy_code)
         
     req_path = os.path.join(project_name, "requirements.txt")
-    with open(req_path, "w") as f:
+    with open(req_path, "w", encoding="utf-8") as f:
         f.write("kivy==2.3.0\n")
 
     return f"📱 [APP BUILDER] Success! Mobile app scaffolded at {file_path}. Run it using Kivy."

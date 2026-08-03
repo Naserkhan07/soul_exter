@@ -53,11 +53,11 @@ if __name__ == '__main__':
     run_finetuning()
 """
     file_path = os.path.join(project_name, "train.py")
-    with open(file_path, "w") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(training_script)
         
     req_path = os.path.join(project_name, "requirements.txt")
-    with open(req_path, "w") as f:
+    with open(req_path, "w", encoding="utf-8") as f:
         f.write("torch\ntransformers\ndatasets\n")
 
     return f"🧠 [FINE-TUNER] Success! I built an advanced PyTorch/HuggingFace fine-tuning pipeline at {file_path}."

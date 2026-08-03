@@ -53,7 +53,7 @@ if __name__ == "__main__":
     bot.run_interactive_loop()
 """
     
-    with open(file_name, "w") as f:
+    with open(file_name, "w", encoding="utf-8") as f:
         f.write(agent_code)
 
     return f"🤖 [META-AGENT] I have successfully spawned a new agent! The code for '{agent_name}' has been written to {file_name}."

@@ -117,7 +117,7 @@ def scaffold_3d_website(project_name="my_3d_website"):
 </html>
 """
     file_path = os.path.join(project_name, "index.html")
-    with open(file_path, "w") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(html_code)
         
     return f"Success! Interactive 3D website generated at {file_path}"

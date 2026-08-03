@@ -52,7 +52,7 @@ jobs:
         pytest || echo "No tests found."
 """
 
-    with open(file_path, "w") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(yaml_content)
 
     return f"⚙️ [DEVOPS] I have configured an enterprise CI/CD Pipeline. Every time you push code, GitHub will now automatically lint, test, and scan it for security flaws. Saved to {file_path}."

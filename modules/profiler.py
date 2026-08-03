@@ -44,7 +44,7 @@ if __name__ == '__main__':
     run_profiler()
 """
     # Fix for Windows encoding issues
-    with open(file_path, "w", encoding="utf-8") as f:
+    with open(file_path, "w", encoding="utf-8", encoding="utf-8") as f:
         f.write(code)
 
     return f"[PROFILER] I have built a performance profiler at {file_path}. Run it to find exactly which functions are slowing down your code!"

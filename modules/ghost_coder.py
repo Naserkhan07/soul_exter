@@ -9,7 +9,7 @@ def start_ghost_coder(file_to_watch="main.py"):
     """
     def watch_file():
         if not os.path.exists(file_to_watch):
-            with open(file_to_watch, "w") as f:
+            with open(file_to_watch, "w", encoding="utf-8") as f:
                 f.write("# Ghost coder is watching this file...\n")
                 
         last_mtime = os.path.getmtime(file_to_watch)

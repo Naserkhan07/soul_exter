@@ -75,7 +75,7 @@ if __name__ == '__main__':
 """
         filepath = os.path.join(project_dir, f"advanced_{skill_name.replace(' ', '_')}.py")
 
-    with open(filepath, "w") as f:
+    with open(filepath, "w", encoding="utf-8") as f:
         f.write(code)
 
     return f"🚀 [SELF-EVOLUTION] I have evolved! I learned '{skill_name}' and wrote the advanced source code at {filepath}."

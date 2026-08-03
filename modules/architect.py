@@ -42,7 +42,7 @@ graph TD
 * **Messaging**: Apache Kafka for asynchronous event-driven communication.
 """
 
-    with open(file_path, "w") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(markdown_content)
 
     return f"📐 [ARCHITECT] I have designed the system architecture for '{system_name}'. Diagram saved at {file_path}."
