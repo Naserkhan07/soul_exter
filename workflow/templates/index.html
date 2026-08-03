@@ -3,112 +3,202 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jarvis Workflow Matrix</title>
+    <title>JARVIS // Terminal Interface</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background-color: #0d1117; color: #c9d1d9; font-family: 'Courier New', Courier, monospace; }
-        .jarvis-blue { color: #58a6ff; }
-        .jarvis-border { border: 1px solid #30363d; background: #161b22; }
-        .status-badge { padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; }
-        .status-PENDING { background: #d29922; color: #fff; }
-        .status-RUNNING { background: #2f81f7; color: #fff; }
-        .status-HEALING { background: #8957e5; color: #fff; animation: pulse 1.5s infinite; }
-        .status-COMPLETED { background: #238636; color: #fff; }
-        .status-FAILED { background: #da3633; color: #fff; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-        .logs-window { height: 150px; overflow-y: auto; background: #010409; padding: 10px; border-radius: 5px; font-size: 0.85rem; }
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #040814; overflow: hidden; font-family: 'JetBrains Mono', monospace; color: #e2e8f0; }
+        canvas { position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        .ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; display: flex; justify-content: space-between; padding: 1.5rem; pointer-events: none; }
+        .panel { background: rgba(4, 8, 20, 0.85); border: 1px solid rgba(100, 150, 255, 0.3); backdrop-filter: blur(8px); border-radius: 4px; pointer-events: auto; }
+        .text-glow { text-shadow: 0 0 8px rgba(255, 170, 0, 0.8); }
+
+        #terminal-output { overflow-y: auto; height: 350px; display: flex; flex-direction: column; justify-content: flex-start; margin-top: 10px; }
+        .user-prompt { color: #facc15; margin-bottom: 4px; }
+        .jarvis-response { color: #94a3b8; margin-bottom: 12px; white-space: pre-wrap; }
+
+        input { background: transparent; border: none; outline: none; color: #60a5fa; width: 100%; font-family: 'JetBrains Mono', monospace; }
+        input::placeholder { color: rgba(96, 165, 250, 0.3); }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(96, 165, 250, 0.3); border-radius: 4px; }
+        
+        .optics-feed { color: #34d399; font-size: 10px; line-height: 1.6; }
     </style>
 </head>
-<body class="p-6">
+<body>
 
-    <div class="max-w-6xl mx-auto">
-        <header class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
-            <h1 class="text-3xl font-bold jarvis-blue">🤖 J.A.R.V.I.S. | Workflow Matrix</h1>
-            <div class="text-sm text-gray-400">Offline Deterministic Core v1.0</div>
-        </header>
+    <canvas id="networkCanvas"></canvas>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="ui-overlay">
+        <!-- LEFT SIDE: Terminal Interaction -->
+        <div class="panel w-[60%] flex flex-col p-5 shadow-2xl h-full">
+            <header class="flex justify-between items-center mb-4 border-b border-blue-900/50 pb-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <div>
+                        <div class="text-xs text-blue-300">SYSTEM.STATUS</div>
+                        <div class="text-sm font-bold text-white tracking-widest">JARVIS_TERMINAL_ACTIVE</div>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-xs text-blue-300">COMPUTE_LOAD</div>
+                    <div class="text-sm font-bold text-blue-400">0.0% (OPTIMIZED)</div>
+                </div>
+            </header>
+
+            <!-- Terminal Output -->
+            <div id="terminal-output" class="text-xs font-mono flex-1 pr-2">
+                <div class="jarvis-response">[SYSTEM] Jarvis initialized. I am online and watching your environment. How can I help you?</div>
+            </div>
             
-            <!-- ADD TASK PANEL -->
-            <div class="jarvis-border p-6 rounded-lg md:col-span-1 h-fit">
-                <h2 class="text-xl font-bold mb-4">➕ Assign New Task</h2>
-                <div class="mb-4">
-                    <label class="block text-sm mb-1">Task Name</label>
-                    <input type="text" id="taskName" placeholder="e.g. Test Broken Script" class="w-full p-2 bg-gray-900 border border-gray-700 rounded text-white outline-none focus:border-blue-500">
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm mb-1">Terminal Command</label>
-                    <input type="text" id="taskCommand" placeholder="e.g. python broken.py" class="w-full p-2 bg-gray-900 border border-gray-700 rounded text-white outline-none focus:border-blue-500">
-                </div>
-                <button onclick="submitTask()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-                    Execute Task
-                </button>
+            <!-- Input Bar -->
+            <div class="flex items-center border-t border-blue-900/50 pt-4 mt-2">
+                <span class="text-yellow-400 mr-2 font-bold">❯</span>
+                <input type="text" id="promptInput" placeholder="Type command... (e.g. 'Build a 3D website')" autocomplete="off" autofocus>
             </div>
+        </div>
 
-            <!-- WORKFLOW DASHBOARD -->
-            <div class="md:col-span-2 space-y-4" id="taskList">
-                <!-- Tasks will be injected here via JS -->
+        <!-- RIGHT SIDE: Jarvis Optics (What it sees) -->
+        <div class="panel w-[35%] flex flex-col p-5 h-full">
+            <header class="mb-4 border-b border-blue-900/50 pb-3">
+                <div class="flex items-center gap-3 mb-1">
+                    <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse text-glow" style="box-shadow: 0 0 10px red;"></div>
+                    <div class="text-sm font-bold text-white tracking-widest">JARVIS OPTICS</div>
+                </div>
+                <div class="text-[10px] text-blue-300">BACKGROUND OBSERVER [ALWAYS ON]</div>
+            </header>
+
+            <div class="text-xs text-gray-400 mb-2">TARGET: User Laptop Environment</div>
+            
+            <!-- Live Observation Feed -->
+            <div id="optics-output" class="optics-feed flex-1 overflow-y-auto pr-2">
+                <!-- Populated by JS -->
             </div>
-
         </div>
     </div>
 
     <script>
-        async function fetchTasks() {
-            const res = await fetch('/api/tasks');
-            const tasks = await res.json();
-            const taskList = document.getElementById('taskList');
-            
-            let html = '';
-            tasks.forEach(task => {
-                html += `
-                <div class="jarvis-border p-4 rounded-lg relative">
-                    <div class="flex justify-between items-start mb-2">
-                        <div>
-                            <h3 class="text-lg font-bold">${task.name}</h3>
-                            <code class="text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded">${task.command}</code>
-                        </div>
-                        <div class="flex flex-col items-end gap-2">
-                            <span class="status-badge status-${task.status}">${task.status}</span>
-                            <button onclick="deleteTask(${task.id})" class="text-xs text-red-400 hover:text-red-300">Delete</button>
-                        </div>
-                    </div>
-                    <div class="logs-window mt-3 whitespace-pre-wrap font-mono">${task.logs || 'Awaiting execution...'}</div>
-                </div>
-                `;
-            });
-            
-            if(tasks.length === 0) {
-                html = `<div class="text-center text-gray-500 mt-10">No tasks in the matrix. Assign a task to begin.</div>`;
+        // Terminal Input Logic
+        const input = document.getElementById('promptInput');
+        const output = document.getElementById('terminal-output');
+
+        input.addEventListener('keypress', async function(e) {
+            if (e.key === 'Enter' && input.value.trim() !== '') {
+                const text = input.value;
+                input.value = '';
+                
+                output.innerHTML += `<div class="user-prompt">❯ ${text}</div>`;
+                output.scrollTop = output.scrollHeight;
+
+                const response = await fetch('/api/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: text })
+                });
+                
+                const data = await response.json();
+                
+                let responseHtml = '<div class="jarvis-response">';
+                data.logs.forEach(log => { responseHtml += `<div>${log}</div>`; });
+                responseHtml += '</div>';
+                
+                output.innerHTML += responseHtml;
+                output.scrollTop = output.scrollHeight;
             }
-            
-            taskList.innerHTML = html;
+        });
+
+        // ----------------------------------------------------
+        // OPTICS LOGIC: Fetch what Jarvis is seeing every 2 seconds
+        // ----------------------------------------------------
+        const opticsOutput = document.getElementById('optics-output');
+        
+        async function fetchOptics() {
+            try {
+                const res = await fetch('/api/optics');
+                const data = await res.json();
+                
+                let html = '';
+                data.logs.forEach(log => {
+                    html += `<div class="mb-2 border-l-2 border-green-500 pl-2 opacity-80">${log}</div>`;
+                });
+                opticsOutput.innerHTML = html;
+                opticsOutput.scrollTop = opticsOutput.scrollHeight;
+            } catch (e) { console.log("Optics offline"); }
         }
+        
+        setInterval(fetchOptics, 2000);
+        fetchOptics();
 
-        async function submitTask() {
-            const name = document.getElementById('taskName').value;
-            const cmd = document.getElementById('taskCommand').value;
-            if(!name || !cmd) return alert('Please fill both fields');
+        // ----------------------------------------------------
+        // Canvas Neural Network Animation (Same background)
+        // ----------------------------------------------------
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+        let layers = [];
+        let connections = [];
+        const layerConfigs = [{ neurons: 35 }, { neurons: 35 }, { neurons: 35 }, { neurons: 35 }, { neurons: 20 }];
 
-            await fetch('/api/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name, command: cmd })
+        function resize() {
+            width = window.innerWidth; height = window.innerHeight;
+            canvas.width = width; canvas.height = height;
+            initNetwork();
+        }
+        window.addEventListener('resize', resize);
+
+        function initNetwork() {
+            layers = []; connections = [];
+            const startX = width * 0.1; const endX = width * 0.9;
+            const layerSpacing = (endX - startX) / (layerConfigs.length - 1);
+            
+            layerConfigs.forEach((config, layerIndex) => {
+                const x = startX + (layerIndex * layerSpacing);
+                const nodes = [];
+                const startY = height * 0.05; const endY = height * 0.95;
+                const nodeSpacing = (endY - startY) / (config.neurons - 1);
+                
+                for (let i = 0; i < config.neurons; i++) { nodes.push({ x: x, y: startY + (i * nodeSpacing) }); }
+                layers.push({ nodes: nodes });
             });
 
-            document.getElementById('taskName').value = '';
-            document.getElementById('taskCommand').value = '';
-            fetchTasks();
+            for (let l = 0; l < layers.length - 1; l++) {
+                const currentLayer = layers[l].nodes;
+                const nextLayer = layers[l+1].nodes;
+                for (let i = 0; i < currentLayer.length; i++) {
+                    for (let j = 0; j < nextLayer.length; j++) {
+                        connections.push({
+                            from: currentLayer[i], to: nextLayer[j],
+                            phase: Math.random() * Math.PI * 2, speed: 0.01 + Math.random() * 0.02
+                        });
+                    }
+                }
+            }
         }
 
-        async function deleteTask(id) {
-            await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
-            fetchTasks();
+        function draw() {
+            ctx.clearRect(0, 0, width, height);
+            ctx.globalCompositeOperation = 'screen';
+            for (let i = 0; i < connections.length; i++) {
+                const conn = connections[i];
+                conn.phase += conn.speed;
+                const activeWeight = (Math.sin(conn.phase) + 1) / 2;
+                ctx.beginPath();
+                ctx.moveTo(conn.from.x, conn.from.y);
+                ctx.lineTo(conn.to.x, conn.to.y);
+                ctx.strokeStyle = `rgba(255, ${100 + (155 * activeWeight)}, 0, ${0.03 + (activeWeight * 0.1)})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+            requestAnimationFrame(draw);
         }
 
-        // Poll the database every 1 second for live updates
-        setInterval(fetchTasks, 1000);
-        fetchTasks();
+        resize();
+        draw();
     </script>
 </body>
 </html>

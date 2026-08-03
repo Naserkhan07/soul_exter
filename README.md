@@ -1,26 +1,26 @@
-# Soul Exter - Deterministic Jarvis
+# Soul Exter - Jarvis Desktop Agent
 
 A completely offline, rule-based autonomous agent framework.
 
-## 1. Jarvis Workflow Matrix (Dashboard)
-This launches a beautiful, hacker-themed web dashboard where you can assign tasks to Jarvis. It has a background thread that constantly watches the queue, executes your commands on your machine, logs the outputs live to the web page, and automatically triggers the code-healer if a script crashes!
+## 1. Floating Desktop Widget (New!)
+Jarvis is now a native desktop application! It acts as a sleek, borderless widget that floats "Always On Top" of your other windows.
+* It does not use the terminal.
+* It does not require a web browser.
+* It constantly watches what you are doing (Optics).
 
-**To run the UI Dashboard:**
+**To run the Desktop Widget on your laptop:**
 ```bash
-./start_matrix.sh
-```
-Then open `http://127.0.0.1:5000` in your web browser.
-
-## 2. Voice Module
-*(Requires physical computer with microphone)*
-You can control Jarvis with your voice using offline Speech-to-Text.
-**To run Voice Jarvis:**
-```bash
-pip install -r requirements_voice.txt
-python jarvis_voice.py
+python jarvis_desktop.py
 ```
 
-## 3. Core Capabilities
+## 2. Core Capabilities
 * **Runner Module:** Executes tasks safely.
 * **Analyzer Module:** Parses exact error types from `stderr` outputs.
 * **Healer Module:** Uses python AST parsing and difflib to mathematically correct typos and missing syntax in your code files.
+* **Brain Module:** Processes natural text and maps it to actions instantly.
+
+## 3. Web & Game Builders
+Jarvis can procedurally build:
+* Interactive 3D WebGL Websites.
+* 3D First Person Shooter Games.
+* Mathematical 3D Assets (.obj files).

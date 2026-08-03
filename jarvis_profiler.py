@@ -1,0 +1,34 @@
+import cProfile
+import pstats
+import io
+import time
+
+print("⏱️ [PROFILER] Jarvis is tracking CPU execution times...")
+
+# We simulate a heavy function if no target exists
+def heavy_computation():
+    total = 0
+    for i in range(1_000_000):
+        total += i * i
+    return total
+
+def run_profiler():
+    pr = cProfile.Profile()
+    pr.enable()
+    
+    # -----------------------
+    # Code to be profiled
+    heavy_computation()
+    # -----------------------
+    
+    pr.disable()
+    s = io.StringIO()
+    sortby = 'cumulative'
+    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    ps.print_stats(10) # Print top 10 slowest functions
+    
+    print("\n📊 [PROFILER RESULTS] TOP BOTTLENECKS FOUND:")
+    print(s.getvalue())
+
+if __name__ == '__main__':
+    run_profiler()
