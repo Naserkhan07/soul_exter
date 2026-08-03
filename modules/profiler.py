@@ -13,7 +13,7 @@ import pstats
 import io
 import time
 
-print("⏱️ [PROFILER] Jarvis is tracking CPU execution times...")
+print("[PROFILER] Jarvis is tracking CPU execution times...")
 
 # We simulate a heavy function if no target exists
 def heavy_computation():
@@ -37,16 +37,17 @@ def run_profiler():
     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
     ps.print_stats(10) # Print top 10 slowest functions
     
-    print("\\n📊 [PROFILER RESULTS] TOP BOTTLENECKS FOUND:")
+    print("\\n[PROFILER RESULTS] TOP BOTTLENECKS FOUND:")
     print(s.getvalue())
 
 if __name__ == '__main__':
     run_profiler()
 """
-    with open(file_path, "w") as f:
+    # Fix for Windows encoding issues
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(code)
 
-    return f"⚡ [PROFILER] I have built a performance profiler at {file_path}. Run it to find exactly which functions are slowing down your code!"
+    return f"[PROFILER] I have built a performance profiler at {file_path}. Run it to find exactly which functions are slowing down your code!"
 
 if __name__ == "__main__":
     print(scaffold_performance_profiler())
