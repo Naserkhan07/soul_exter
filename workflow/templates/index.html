@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis Workflow Matrix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; font-family: 'Courier New', Courier, monospace; }
+        .jarvis-blue { color: #58a6ff; }
+        .jarvis-border { border: 1px solid #30363d; background: #161b22; }
+        .status-badge { padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; }
+        .status-PENDING { background: #d29922; color: #fff; }
+        .status-RUNNING { background: #2f81f7; color: #fff; }
+        .status-HEALING { background: #8957e5; color: #fff; animation: pulse 1.5s infinite; }
+        .status-COMPLETED { background: #238636; color: #fff; }
+        .status-FAILED { background: #da3633; color: #fff; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .logs-window { height: 150px; overflow-y: auto; background: #010409; padding: 10px; border-radius: 5px; font-size: 0.85rem; }
+    </style>
+</head>
+<body class="p-6">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
+            <h1 class="text-3xl font-bold jarvis-blue">🤖 J.A.R.V.I.S. | Workflow Matrix</h1>
+            <div class="text-sm text-gray-400">Offline Deterministic Core v1.0</div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            <!-- ADD TASK PANEL -->
+            <div class="jarvis-border p-6 rounded-lg md:col-span-1 h-fit">
+                <h2 class="text-xl font-bold mb-4">➕ Assign New Task</h2>
+                <div class="mb-4">
+                    <label class="block text-sm mb-1">Task Name</label>
+                    <input type="text" id="taskName" placeholder="e.g. Test Broken Script" class="w-full p-2 bg-gray-900 border border-gray-700 rounded text-white outline-none focus:border-blue-500">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm mb-1">Terminal Command</label>
+                    <input type="text" id="taskCommand" placeholder="e.g. python broken.py" class="w-full p-2 bg-gray-900 border border-gray-700 rounded text-white outline-none focus:border-blue-500">
+                </div>
+                <button onclick="submitTask()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Execute Task
+                </button>
+            </div>
+
+            <!-- WORKFLOW DASHBOARD -->
+            <div class="md:col-span-2 space-y-4" id="taskList">
+                <!-- Tasks will be injected here via JS -->
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        async function fetchTasks() {
+            const res = await fetch('/api/tasks');
+            const tasks = await res.json();
+            const taskList = document.getElementById('taskList');
+            
+            let html = '';
+            tasks.forEach(task => {
+                html += `
+                <div class="jarvis-border p-4 rounded-lg relative">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <h3 class="text-lg font-bold">${task.name}</h3>
+                            <code class="text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded">${task.command}</code>
+                        </div>
+                        <div class="flex flex-col items-end gap-2">
+                            <span class="status-badge status-${task.status}">${task.status}</span>
+                            <button onclick="deleteTask(${task.id})" class="text-xs text-red-400 hover:text-red-300">Delete</button>
+                        </div>
+                    </div>
+                    <div class="logs-window mt-3 whitespace-pre-wrap font-mono">${task.logs || 'Awaiting execution...'}</div>
+                </div>
+                `;
+            });
+            
+            if(tasks.length === 0) {
+                html = `<div class="text-center text-gray-500 mt-10">No tasks in the matrix. Assign a task to begin.</div>`;
+            }
+            
+            taskList.innerHTML = html;
+        }
+
+        async function submitTask() {
+            const name = document.getElementById('taskName').value;
+            const cmd = document.getElementById('taskCommand').value;
+            if(!name || !cmd) return alert('Please fill both fields');
+
+            await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, command: cmd })
+            });
+
+            document.getElementById('taskName').value = '';
+            document.getElementById('taskCommand').value = '';
+            fetchTasks();
+        }
+
+        async function deleteTask(id) {
+            await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+            fetchTasks();
+        }
+
+        // Poll the database every 1 second for live updates
+        setInterval(fetchTasks, 1000);
+        fetchTasks();
+    </script>
+</body>
+</html>
