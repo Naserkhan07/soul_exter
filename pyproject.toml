@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soulclip"
+version = "0.1.0"
+description = "Turn a scene-by-scene script into one long video"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# The pipeline itself is stdlib-only. ffmpeg is the single external
+# dependency and is found on PATH; install the extra below to get a
+# bundled static build instead.
+dependencies = []
+
+[project.optional-dependencies]
+ffmpeg = ["imageio-ffmpeg>=0.4.9"]
+
+[project.scripts]
+soulclip = "soulclip.cli:main"
+
+[tool.setuptools]
+packages = ["soulclip"]

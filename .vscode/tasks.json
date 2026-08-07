@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "soulclip: setup",
+      "type": "shell",
+      "command": "${workspaceFolder}/setup.sh",
+      "windows": { "command": "${workspaceFolder}\\setup.bat" },
+      "problemMatcher": []
+    },
+    {
+      "label": "soulclip: doctor",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m soulclip.cli doctor",
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe -m soulclip.cli doctor"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "soulclip: offline demo",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m soulclip.cli render examples/lighthouse.txt --provider mock --target 60 -o demo.mp4",
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe -m soulclip.cli render examples\\lighthouse.txt --provider mock --target 60 -o demo.mp4"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "soulclip: run tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python -m unittest discover -s tests -v",
+      "windows": {
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe -m unittest discover -s tests -v"
+      },
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}
