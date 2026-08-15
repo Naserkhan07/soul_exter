@@ -335,22 +335,27 @@ def analyze(asset, use_llms=True, interval="5m"):
     a = snap.get("atr14") or price * 0.005
 
     # ---- SL/TP engineering (accuracy fix) ----
-    # Old: SL = 1.5*ATR -> noise kept stopping trades out.
-    # New: SL = 2.2*ATR OR beyond the last swing point (whichever is wider,
-    # capped at 3*ATR) so stops sit BEHIND structure where they belong,
-    # plus a small spread/noise buffer.
+    # Stops must sit BEHIND structure AND outside spread/noise range.
+    # MIN_SL_PCT: in quiet markets ATR gets tiny (BTC 5m ATR can be 0.02%!)
+    # and any ATR-multiple stop lands inside noise -> instant SL hits.
+    # Floor the stop distance at a per-asset-type minimum % of price.
+    MIN_SL_PCT = {"crypto": 0.0040, "forex": 0.0015, "stock": 0.0045,
+                  "index": 0.0030, "futures": 0.0035, "fund": 0.0040}
+    min_dist = price * MIN_SL_PCT.get(asset["type"], 0.0035)
     swings = strategies.find_swings(candles)
     buffer_ = 0.25 * a
     if direction == "UP":
         swing_lows = [s["price"] for s in swings if s["type"] == "L"][-2:]
         struct_sl = min(swing_lows) - buffer_ if swing_lows else price - 2.2 * a
         sl = min(price - 1.6 * a, max(struct_sl, price - 3.0 * a))
+        sl = min(sl, price - min_dist)          # enforce noise floor
         risk = price - sl
         entry, tp = price, price + 2.0 * risk
     else:
         swing_highs = [s["price"] for s in swings if s["type"] == "H"][-2:]
         struct_sl = max(swing_highs) + buffer_ if swing_highs else price + 2.2 * a
         sl = max(price + 1.6 * a, min(struct_sl, price + 3.0 * a))
+        sl = max(sl, price + min_dist)          # enforce noise floor
         risk = sl - price
         entry, tp = price, price - 2.0 * risk
 

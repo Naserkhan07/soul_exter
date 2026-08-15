@@ -88,6 +88,7 @@ class TradingEngine:
         self.interval = "5m"             # selected analysis timeframe
         self.final_setup = None          # the ONE best trade setup right now
         self.symbol_cooldown = {}        # symbol -> ts until which no re-entry
+        self.confirm_count = {}          # symbol -> (side, consecutive confirmations)
         self.loss_streak = 0             # consecutive losses (risk throttle)
         self.day_pnl = 0.0               # realized PnL today
         self.day_stamp = time.strftime("%Y-%m-%d")
@@ -520,17 +521,28 @@ class TradingEngine:
             self.act("signal", f"TRADE FOUND: {side} {sym} conf {v['confidence']}% "
                      f"entry {plan['entry']:.6g} TP {plan['tp']:.6g} SL {plan['sl']:.6g}"
                      + ("" if self.auto_trade else " - waiting for YOUR click"))
-        if self.auto_trade and fresh:
+        # persistence tracking: same-direction signal on consecutive scans?
+        prev_side, streak = self.confirm_count.get(sym, (None, 0))
+        streak = streak + 1 if prev_side == side else 1
+        self.confirm_count[sym] = (side, streak)
+
+        if self.auto_trade:
             # AUTO trades demand a HIGHER quality bar than the signal deck:
-            # +10 confidence points AND higher-timeframe alignment. Manual
-            # clicks can still take any deck signal.
+            # +10 confidence points, HTF alignment AND the signal must
+            # CONFIRM on 2 consecutive scans (kills one-scan flickers that
+            # were instant SL fodder). Manual clicks can take any signal.
             htf = v.get("htf") or {}
             if v["confidence"] < self.min_conf + 10:
-                self.act("skip", f"{sym}: signal shown but below AUTO bar "
-                         f"({v['confidence']:.0f} < {self.min_conf + 10:.0f})")
+                if fresh:
+                    self.act("skip", f"{sym}: signal shown but below AUTO bar "
+                             f"({v['confidence']:.0f} < {self.min_conf + 10:.0f})")
             elif htf.get("bias") and not htf.get("aligned"):
-                self.act("skip", f"{sym}: AUTO skipped - counter-trend vs "
-                         f"{htf.get('tf')} (you can still place it manually)")
+                if fresh:
+                    self.act("skip", f"{sym}: AUTO skipped - counter-trend vs "
+                             f"{htf.get('tf')} (you can still place it manually)")
+            elif streak < 2:
+                self.act("skip", f"{sym}: waiting for confirmation scan "
+                         f"({streak}/2) before AUTO entry")
             else:
                 self.place_trade(sym, source="auto")
 
@@ -643,6 +655,17 @@ class TradingEngine:
             if source == "auto" and time.time() < cd:
                 return {"ok": False, "error": f"cooldown after loss "
                         f"({int((cd - time.time()) / 60)}min left)"}
+            # correlation cap: crypto moves together - one dip kills every
+            # long at once. Max 2 same-direction positions per asset type.
+            if source == "auto":
+                sig_type = sig.get("type")
+                same_dir = [p for p in self.broker.positions.values()
+                            if p["side"] == sig["side"]
+                            and p["meta"].get("asset_type") == sig_type]
+                if len(same_dir) >= 2:
+                    return {"ok": False, "error":
+                            f"correlation cap: already {len(same_dir)} "
+                            f"{sig['side']} {sig_type} positions"}
             # daily circuit breaker: stop auto-trading after -3% of capital day
             cap_ref = self.trade_capital if self.trade_capital > 0 else self.broker.balance
             if source == "auto" and self.day_pnl < -0.03 * cap_ref:
@@ -678,6 +701,7 @@ class TradingEngine:
             "features": sig.get("features"), "members": sig.get("members"),
             "reasons": sig.get("reasons"), "signal_id": sig["id"],
             "placed_by": source, "signal_ts": sig["ts"],
+            "asset_type": sig.get("type"),
         })
         with self.lock:
             sig["status"] = "placed"
