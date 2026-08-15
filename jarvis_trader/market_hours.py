@@ -16,16 +16,22 @@ from datetime import datetime, timezone
 
 # symbol -> venue override (defaults come from asset type)
 VENUE = {
-    "RELIANCE": "nse", "NIFTY50": "nse",
-    "SPX": "us", "NDX": "us", "SPY": "us",
-    "AAPL": "us", "TSLA": "us", "NVDA": "us",
-    "XAUUSD": "futures", "CL=F": "futures",
-    "EURUSD": "forex", "GBPUSD": "forex", "USDJPY": "forex",
-    "BTCUSDT": "crypto", "ETHUSDT": "crypto", "SOLUSDT": "crypto",
+    "NIFTY50": "nse", "BANKNIFTY": "nse",
+    "DAX": "eu", "FTSE": "eu", "N225": "jp",
 }
 
 TYPE_DEFAULT = {"crypto": "crypto", "forex": "forex", "stock": "us",
                 "index": "us", "futures": "futures", "fund": "us"}
+
+
+def _venue_for(asset):
+    sym = asset["symbol"]
+    if sym in VENUE:
+        return VENUE[sym]
+    # NSE stocks are declared with a .NS yahoo symbol
+    if asset.get("yahoo", "").endswith(".NS"):
+        return "nse"
+    return TYPE_DEFAULT.get(asset["type"], "us")
 
 
 def _mins(dt):
@@ -35,7 +41,7 @@ def _mins(dt):
 def market_status(asset, now_ts=None):
     """Returns {open, venue, session, note} for an asset right now (UTC logic)."""
     now = datetime.fromtimestamp(now_ts or time.time(), tz=timezone.utc)
-    venue = VENUE.get(asset["symbol"], TYPE_DEFAULT.get(asset["type"], "us"))
+    venue = _venue_for(asset)
     wd = now.weekday()          # 0=Mon .. 6=Sun
     m = _mins(now)
 
@@ -68,6 +74,18 @@ def market_status(asset, now_ts=None):
         return {"open": is_open, "venue": "NSE India",
                 "session": "cash 09:15-15:30 IST" if is_open else "closed",
                 "note": "Mon-Fri 09:15-15:30 IST (03:45-10:00 UTC)"}
+
+    if venue == "eu":
+        is_open = wd < 5 and (8 * 60) <= m < (16 * 60 + 30)
+        return {"open": is_open, "venue": "European market",
+                "session": "cash 09:00-17:30 CET" if is_open else "closed",
+                "note": "Mon-Fri ~08:00-16:30 UTC"}
+
+    if venue == "jp":
+        is_open = wd < 5 and ((0 <= m < 2 * 60 + 30) or (3 * 60 + 30 <= m < 6 * 60))
+        return {"open": is_open, "venue": "Tokyo market",
+                "session": "TSE 09:00-15:00 JST" if is_open else "closed",
+                "note": "Mon-Fri 00:00-06:00 UTC with lunch break"}
 
     # default: US cash session
     is_open = wd < 5 and (13 * 60 + 30) <= m < (20 * 60)

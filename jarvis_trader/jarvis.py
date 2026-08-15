@@ -226,6 +226,14 @@ class JarvisBrain:
         total = 0
         plans = [("5m", 300, (3, 6, 12)),      # short/medium/longer intraday moves
                  ("15m", 200, (4, 8))]
+        # with a very large watchlist, bootstrap on a representative subset
+        # (one slice per asset type) to keep startup fast; live-lessons keep
+        # training on everything afterwards
+        if len(watchlist) > 24:
+            by_type = {}
+            for a in watchlist:
+                by_type.setdefault(a["type"], []).append(a)
+            watchlist = [a for lst in by_type.values() for a in lst[:4]]
         for asset in watchlist:
             for interval, limit, horizons in plans:
                 try:

@@ -91,6 +91,19 @@ def api_journal():
     return ENGINE.get_journal()
 
 
+@app.post("/api/interval/{interval}")
+def api_interval(interval: str):
+    """Switch the analysis timeframe: 1m 2m 5m 10m 15m 30m 1h."""
+    ok = ENGINE.set_interval(interval)
+    return {"ok": ok, "interval": ENGINE.interval}
+
+
+@app.get("/api/final")
+def api_final():
+    """The ONE final trade setup generated from all scores."""
+    return {"final_setup": ENGINE.final_setup, "interval": ENGINE.interval}
+
+
 @app.get("/api/activity")
 def api_activity():
     """Live feed of what the bot is doing right now + counters + market hours."""

@@ -169,7 +169,14 @@ if not say_parts:
 st.markdown(f"<div class='jsay'>JARVIS ▸ {' '.join(say_parts)}</div>",
             unsafe_allow_html=True)
 
-cc1, cc2, cc3, cc4, cc5 = st.columns([1.1, 1.6, 1.6, 1, 1])
+cc0, cc1, cc2, cc3, cc4, cc5 = st.columns([1.7, 1, 1.4, 1.4, 0.9, 0.9])
+with cc0:
+    from jarvis_trader import feeds as _feeds
+    tf = st.radio("TIMEFRAME", _feeds.VALID_INTERVALS, horizontal=True,
+                  index=_feeds.VALID_INTERVALS.index(S.get("interval", "5m")))
+    if tf != S.get("interval"):
+        ENGINE.set_interval(tf)
+        st.rerun()
 with cc1:
     auto = st.toggle("AUTO-TRADE", value=S["auto_trade"],
                      help="ON = Jarvis places trades himself. OFF = you click.")
@@ -190,6 +197,50 @@ with cc4:
 with cc5:
     if st.button("⟳ REFRESH", use_container_width=True):
         st.rerun()
+
+# ================================================================== #
+#  FINAL TRADE SETUP - the ONE best trade from all scores
+# ================================================================== #
+fs = S.get("final_setup")
+if fs:
+    fcol = "#20e397" if fs["side"] == "BUY" else "#ff4d67"
+    grade_col = "#f5b83d" if fs["grade"] == "READY" else "#51637f"
+    members_txt = " · ".join(
+        f"{k} {v:+.0f}" if v is not None else f"{k} --"
+        for k, v in (fs.get("members") or {}).items())
+    reasons_txt = "".join(f"<div class='why'>▸ {r[:105]}</div>"
+                          for r in (fs.get("reasons") or [])[:3])
+    fs_c1, fs_c2 = st.columns([4.2, 1])
+    with fs_c1:
+        st.markdown(f"""
+<div class="sig {'buy' if fs['side']=='BUY' else 'sell'}" style="border-width:2px">
+  <div class="head">
+    <span style="color:{grade_col};font-size:10px;letter-spacing:2px">🎯 FINAL TRADE SETUP [{fs['interval']}] · {fs['grade']}</span><br>
+    <span style="color:{fcol};font-size:22px">{fs['side']} {fs['symbol']}</span>
+    <span style="font-size:12px;color:#8ba3c4"> {fs['name']} · confidence {fs['confidence']:.0f}% · score {fs['score']:+.1f}</span>
+  </div>
+  <div class="lvl" style="font-size:13px">ENTRY <b>{fmt(fs['entry'])}</b> &nbsp;·&nbsp;
+    TP <b style="color:#20e397">{fmt(fs['tp'])}</b> &nbsp;·&nbsp;
+    SL <b style="color:#ff4d67">{fmt(fs['sl'])}</b> &nbsp;·&nbsp; R:R <b>{fs.get('rr','--')}</b>
+    &nbsp;·&nbsp; <span style="color:#51637f">{fs.get('tp_source','')}</span></div>
+  {reasons_txt}
+  <div class="why" style="margin-top:4px">scores ▸ {members_txt}</div>
+</div>""", unsafe_allow_html=True)
+    with fs_c2:
+        if fs["grade"] == "READY":
+            st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+            if st.button(f"▶ PLACE\n{fs['side']} {fs['symbol']}", key="place_final",
+                         type="primary", use_container_width=True):
+                res = ENGINE.place_trade(fs["symbol"], source="final setup click")
+                if res.get("ok"):
+                    st.toast(f"✅ {fs['side']} {fs['symbol']} PLACED", icon="🎯")
+                else:
+                    st.toast(f"❌ {res.get('error')}", icon="⚠️")
+                time.sleep(0.5)
+                st.rerun()
+        else:
+            st.markdown("<div class='small' style='margin-top:30px'>below confidence "
+                        "threshold — watching</div>", unsafe_allow_html=True)
 
 # ================================================================== #
 #  SIGNAL DECK - one-click trading, front and center
@@ -245,27 +296,36 @@ colL, colM, colR = st.columns([1.15, 1.5, 1.15])
 
 # ---------- LEFT: live market grid ----------
 with colL:
-    st.markdown("<div class='tpanel'><div class='hd'><span>📡 LIVE MARKETS</span>"
-                f"<span>{len(ENGINE.market)} assets</span></div></div>",
+    mkts = list(ENGINE.market.values())
+    n_open = sum(1 for m in mkts if m.get("market_open"))
+    st.markdown("<div class='tpanel'><div class='hd'><span>📡 LIVE MARKETS "
+                f"[{S.get('interval','5m')}]</span>"
+                f"<span>{n_open} open / {len(mkts)} total</span></div></div>",
                 unsafe_allow_html=True)
     analysis = dict(ENGINE.last_analysis)
-    for m in sorted(ENGINE.market.values(), key=lambda x: (x["type"], x["symbol"])):
+    # open markets first, then closed; grouped by type
+    ordered = sorted(mkts, key=lambda x: (not x.get("market_open"),
+                                          x["type"], x["symbol"]))
+    rows = ""
+    for m in ordered:
         a = analysis.get(m["symbol"])
         v = a["verdict"] if a else None
         dirn = ""
-        if v:
-            vc = "#20e397" if v["direction"] == "UP" else "#ff4d67"
+        if v and m.get("market_open"):
             dirn = (f"<span class='badge {'buy' if v['direction']=='UP' else 'sell'}'>"
                     f"{v['direction']} {v['confidence']:.0f}</span>")
         closed = "" if m.get("market_open") else "<span class='badge closed'>CLOSED</span>"
         chg_cls = "up" if m["change_pct"] >= 0 else "down"
-        st.markdown(f"""
+        px = fmt(m["price"]) if m.get("price") is not None else "--"
+        rows += f"""
 <div class="tick">
   <span class="sym">{m['symbol']}</span> {closed} {dirn}
-  <span style="float:right" class="px {chg_cls}">{fmt(m['price'])}</span><br>
+  <span style="float:right" class="px {chg_cls}">{px}</span><br>
   <span class="meta">{m['name']} · {m['type']} · {m['source']}</span>
   <span style="float:right" class="meta {chg_cls}">{m['change_pct']:+.2f}%</span>
-</div>""", unsafe_allow_html=True)
+</div>"""
+    st.markdown(f"<div style='max-height:640px;overflow-y:auto'>{rows}</div>",
+                unsafe_allow_html=True)
 
 # ---------- MIDDLE: positions + AI council ----------
 with colM:
@@ -304,8 +364,10 @@ with colM:
         ask = st.button("ASK COUNCIL", use_container_width=True)
     if ask:
         asset = next(a for a in config.WATCHLIST if a["symbol"] == pick)
-        with st.spinner("Consulting Jarvis + Gemini + Groq + engines…"):
-            verdict = council.analyze(asset, use_llms=True)
+        with st.spinner(f"Consulting Jarvis + Gemini + Groq + engines on "
+                        f"{S.get('interval','5m')} candles…"):
+            verdict = council.analyze(asset, use_llms=True,
+                                      interval=S.get("interval", "5m"))
             ENGINE.last_analysis[pick] = verdict
     a = ENGINE.last_analysis.get(pick)
     if a:

@@ -50,7 +50,7 @@ def _extract_json(text):
             return None
 
 
-def _build_llm_prompt(asset, snap, strat, pat, news_score, news_titles, jarvis_score):
+def _build_llm_prompt(asset, snap, strat, pat, news_score, news_titles, jarvis_score, interval="5m"):
     ctx = as_prompt_context(3400)
     ind_lines = json.dumps({k: v for k, v in snap.items() if k not in ("votes",)},
                            default=lambda o: round(o, 5) if isinstance(o, float) else str(o))[:900]
@@ -72,9 +72,9 @@ def _build_llm_prompt(asset, snap, strat, pat, news_score, news_titles, jarvis_s
 EXPERT KNOWLEDGE:
 {ctx}
 
-TASK: Analyze {asset['name']} ({asset['symbol']}, type={asset['type']}) and decide if price will go UP or DOWN in the next 30-60 minutes.
+TASK: Analyze {asset['name']} ({asset['symbol']}, type={asset['type']}) and decide if price will go UP or DOWN over the next 5-15 {interval} candles.
 
-CURRENT TECHNICALS (5m candles): {ind_lines}
+CURRENT TECHNICALS ({interval} candles): {ind_lines}
 STRATEGY SIGNALS: {strat_lines}{abcd_line}
 LIVE CANDLESTICK & CHART PATTERNS DETECTED: {pat_lines} (aggregate pattern score {pat['pattern_score']})
 NEWS SENTIMENT SCORE: {news_score} (-100 bearish .. +100 bullish)
@@ -161,10 +161,10 @@ def _llm_vote(js):
     return max(-100, min(100, score))
 
 
-def analyze(asset, use_llms=True):
-    """Full council analysis for one asset. Returns a big verdict dict."""
+def analyze(asset, use_llms=True, interval="5m"):
+    """Full council analysis for one asset on the chosen timeframe."""
     t0 = time.time()
-    candles, source = feeds.get_candles(asset, "5m", 220)
+    candles, source = feeds.get_candles(asset, interval, 220)
     snap = indicators.snapshot(candles)
     strat = strategies.run_all(candles, snap)
     swings = strategies.find_swings(candles)
@@ -200,7 +200,7 @@ def analyze(asset, use_llms=True):
 
     gem_reason = groq_reason = None
     if use_llms:
-        prompt = _build_llm_prompt(asset, snap, strat, pat, news_score, titles, jarvis_score)
+        prompt = _build_llm_prompt(asset, snap, strat, pat, news_score, titles, jarvis_score, interval)
         results = {}
 
         def run(name, fn):
@@ -259,7 +259,7 @@ def analyze(asset, use_llms=True):
 
     return {
         "symbol": asset["symbol"], "name": asset["name"], "type": asset["type"],
-        "price": price, "data_source": source,
+        "price": price, "data_source": source, "interval": interval,
         "verdict": {"direction": direction, "score": round(final, 1),
                     "confidence": confidence},
         "members": members,

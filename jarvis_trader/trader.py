@@ -83,7 +83,27 @@ class TradingEngine:
         self.activity = []               # live "what am I doing right now" feed
         self.counters = {"price_ticks": 0, "council_runs": 0, "news_refreshes": 0,
                          "patterns_seen": 0, "llm_calls": 0, "skipped_closed": 0}
+        self.interval = "5m"             # selected analysis timeframe
+        self.final_setup = None          # the ONE best trade setup right now
         self._load()
+
+    def set_interval(self, interval):
+        from . import feeds
+        if interval not in feeds.VALID_INTERVALS:
+            return False
+        if interval != self.interval:
+            self.interval = interval
+            with self.lock:
+                # timeframe changed -> stale signals/analysis no longer valid
+                for s in self.signals.values():
+                    if s["status"] == "waiting":
+                        s["status"] = "expired"
+                self.final_setup = None
+            self.log(f"Timeframe switched to {interval} - re-analyzing all markets "
+                     "on this timeframe only")
+            self.act("analyze", f"timeframe set to {interval}: all analysis, signals "
+                     "and TP/SL now computed on {0} candles".format(interval))
+        return True
 
     def act(self, kind, msg):
         """Record a live activity event (the bot narrating what it's doing)."""
@@ -177,7 +197,24 @@ class TradingEngine:
             for asset in config.WATCHLIST:
                 try:
                     mh = market_hours.market_status(asset)
-                    candles, source = feeds.get_candles(asset, "5m", 60)
+                    if not mh["open"]:
+                        # CLOSED market: do NOT fetch/scan - keep last known quote
+                        with self.lock:
+                            q = self.market.get(asset["symbol"])
+                            if q:
+                                q["market_open"] = False
+                                q["session"] = mh["session"]
+                            else:
+                                self.market[asset["symbol"]] = {
+                                    "symbol": asset["symbol"], "name": asset["name"],
+                                    "type": asset["type"], "price": None,
+                                    "change_pct": 0.0, "tick": "down",
+                                    "source": "-", "ts": time.time(),
+                                    "market_open": False, "venue": mh["venue"],
+                                    "session": mh["session"],
+                                }
+                        continue
+                    candles, source = feeds.get_candles(asset, self.interval, 60)
                     fetched += 1
                     price = candles[-1]["c"]
                     prev = candles[-2]["c"] if len(candles) > 1 else price
@@ -199,13 +236,13 @@ class TradingEngine:
                     self.log(f"price loop error {asset['symbol']}: {e}")
             self.broker.equity = self.broker.balance + sum(
                 p["pnl"] for p in self.broker.positions.values())
-            if cycle % 5 == 1:
+            if cycle % 3 == 1:
                 open_n = sum(1 for m in self.market.values() if m.get("market_open"))
-                self.act("track", f"tick cycle #{cycle}: fetched live prices for "
-                         f"{fetched}/{len(config.WATCHLIST)} assets "
-                         f"({open_n} markets open), managing "
+                self.act("track", f"tick cycle #{cycle}: fetched {fetched} OPEN-market "
+                         f"prices ({open_n}/{len(config.WATCHLIST)} markets open, "
+                         f"closed markets not scanned), managing "
                          f"{len(self.broker.positions)} positions")
-            time.sleep(3)
+            time.sleep(4)
 
     def _manage_positions(self, symbol, price, candles):
         """Auto TP/SL hit detection + breakeven + ATR trailing."""
@@ -381,15 +418,16 @@ class TradingEngine:
                         sig = self.signals.get(asset["symbol"])
                         if sig and sig["status"] == "waiting":
                             sig["status"] = "expired"
-                    self.act("skip", f"{asset['symbol']}: market CLOSED "
-                             f"({mh['venue']}, {mh['session']}) - no analysis, no trades")
-                    time.sleep(1)
+                    # throttled narration (avoid spamming with ~90 assets)
+                    if self.counters["skipped_closed"] % 25 == 1:
+                        self.act("skip", f"{asset['symbol']} and other CLOSED markets "
+                                 "skipped - scanning OPEN markets only")
                     continue
                 use_llms = (self.scan_idx % 3 == 1)   # LLM votes every 3rd pass per asset
-                self.act("analyze", f"{asset['symbol']}: running AI council "
-                         f"(indicators + 8 strategies + patterns + news + Jarvis"
+                self.act("analyze", f"{asset['symbol']} [{self.interval}]: running AI "
+                         f"council (indicators + 8 strategies + patterns + news + Jarvis"
                          + (" + Gemini + Groq" if use_llms else "") + ")")
-                verdict = council.analyze(asset, use_llms=use_llms)
+                verdict = council.analyze(asset, use_llms=use_llms, interval=self.interval)
                 with self.lock:
                     self.counters["council_runs"] += 1
                     if use_llms:
@@ -405,13 +443,15 @@ class TradingEngine:
                                 verdict["members"][k] = prev["members"][k]
                     self.last_analysis[asset["symbol"]] = verdict
                 v = verdict["verdict"]
-                self.log(f"Council {asset['symbol']}: {v['direction']} "
+                self.log(f"Council {asset['symbol']} [{self.interval}]: {v['direction']} "
                          f"score={v['score']} conf={v['confidence']}")
                 self._register_prediction(verdict)
                 self._maybe_signal(asset, verdict)
+                self._update_final_setup()
+                time.sleep(3)
             except Exception as e:
                 self.log(f"council error {asset['symbol']}: {e}")
-            time.sleep(max(4, config.SCAN_INTERVAL_SEC // len(config.WATCHLIST)))
+                time.sleep(1)
 
     def _maybe_signal(self, asset, verdict):
         """Council found a setup -> publish it as a clickable SIGNAL.
@@ -458,6 +498,57 @@ class TradingEngine:
                      + ("" if self.auto_trade else " - waiting for YOUR click"))
         if self.auto_trade and fresh:
             self.place_trade(sym, source="auto")
+
+    def _update_final_setup(self):
+        """
+        After collecting scores from EVERYTHING (indicators, strategies,
+        patterns, news, Jarvis, Gemini, Groq) across all OPEN markets,
+        generate ONE final trade setup - the single best BUY or SELL
+        right now on the selected timeframe, with its TP and SL.
+        """
+        with self.lock:
+            waiting = [s for s in self.signals.values() if s["status"] == "waiting"]
+            if not waiting:
+                # fall back to the strongest fresh analysis even below threshold
+                fresh = [a for a in self.last_analysis.values()
+                         if time.time() - a["ts"] < 300
+                         and a.get("interval") == self.interval]
+                if not fresh:
+                    self.final_setup = None
+                    return
+                best_a = max(fresh, key=lambda a: a["verdict"]["confidence"])
+                v = best_a["verdict"]
+                p = best_a["plan"]
+                self.final_setup = {
+                    "grade": "WATCH",       # not strong enough to arm
+                    "symbol": best_a["symbol"], "name": best_a["name"],
+                    "side": "BUY" if v["direction"] == "UP" else "SELL",
+                    "confidence": v["confidence"], "score": v["score"],
+                    "entry": p["entry"], "tp": p["tp"], "sl": p["sl"],
+                    "rr": p["rr"], "tp_source": p.get("tp_source"),
+                    "interval": self.interval,
+                    "members": {k: m["score"] for k, m in best_a["members"].items()},
+                    "reasons": self._signal_reasons(best_a),
+                    "ts": time.time(),
+                }
+                return
+            best = max(waiting, key=lambda s: s["confidence"])
+            prev = self.final_setup
+            self.final_setup = {
+                "grade": "READY",           # armed - one click places it
+                "symbol": best["symbol"], "name": best.get("name", best["symbol"]),
+                "side": best["side"], "confidence": best["confidence"],
+                "score": best["score"], "entry": best["entry"], "tp": best["tp"],
+                "sl": best["sl"], "rr": best.get("rr"),
+                "tp_source": best.get("tp_source"), "interval": self.interval,
+                "members": best.get("members"), "reasons": best.get("reasons"),
+                "signal_id": best["id"], "ts": time.time(),
+            }
+            if not prev or prev.get("signal_id") != best["id"]:
+                self.act("signal", f"FINAL SETUP [{self.interval}]: {best['side']} "
+                         f"{best['symbol']} conf {best['confidence']:.0f}% - "
+                         f"entry {best['entry']:.6g} TP {best['tp']:.6g} "
+                         f"SL {best['sl']:.6g}")
 
     @staticmethod
     def _signal_reasons(verdict):
@@ -605,6 +696,8 @@ class TradingEngine:
             waiting = [s for s in self.signals.values() if s["status"] == "waiting"]
             return {
                 "running": self.running,
+                "interval": self.interval,
+                "final_setup": self.final_setup,
                 "signals_waiting": len(waiting),
                 "signals_scanned": self.signals_scanned,
                 "counters": dict(self.counters),
