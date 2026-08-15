@@ -7,8 +7,11 @@ AI-powered multi-market trading bot: **live tracking of crypto, stocks, forex, f
 ```bash
 pip install -r requirements.txt
 python run.py
-# open http://localhost:8000
+# JARVIS opens in your browser at http://localhost:8501 (Streamlit control center)
+# optional: python run.py --api   -> also starts the REST API / MT5 bridge on :8000
 ```
+
+**You operate everything from the JARVIS app** — he speaks his status at the top, and you get tabs for: 📡 Live Markets, ⚡ Trade Signals (click PLACE to authorize), 🧠 AI Council (ask any asset UP or DOWN), 📈 Positions, 📕 Journal, 🤖 Jarvis Activity (live narration of everything he's doing), 📰 News. Controls (auto-trade, confidence, risk) live in the sidebar.
 
 API keys live in `.env` (Gemini + Groq only — all market data comes from free, unlimited sources: Binance, OKX, Kraken, Coinbase, Yahoo Finance, Stooq).
 
