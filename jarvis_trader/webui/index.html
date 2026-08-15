@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>J.A.R.V.I.S TERMINAL</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{
+  --bg:#05080d; --panel:#080d16; --panel2:#0b1424; --border:#16233c;
+  --border2:#23405f; --txt:#cfe1f5; --dim:#51637f; --dim2:#8ba3c4;
+  --green:#20e397; --red:#ff4d67; --cyan:#37c8f5; --gold:#f5b83d; --purple:#a78bfa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:
+  linear-gradient(rgba(5,8,13,.97),rgba(5,8,13,.97)),
+  repeating-linear-gradient(0deg,transparent,transparent 39px,#0d1626 40px),
+  repeating-linear-gradient(90deg,transparent,transparent 39px,#0d1626 40px);
+  background-color:var(--bg); color:var(--txt);
+  font:12px/1.4 'Consolas','Menlo',monospace; overflow-x:hidden;}
+::-webkit-scrollbar{width:7px;height:7px}
+::-webkit-scrollbar-thumb{background:#1b3252;border-radius:3px}
+
+/* ---------- top bar ---------- */
+#topbar{display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  background:linear-gradient(90deg,#081422,#0a0f1a);
+  border-bottom:1px solid var(--border2);padding:7px 14px;position:sticky;top:0;z-index:50}
+#brand{font-size:17px;font-weight:800;color:var(--cyan);letter-spacing:3px}
+#brand span{color:var(--gold)}
+.kpi{display:flex;flex-direction:column;min-width:64px}
+.kpi .v{font-size:15px;font-weight:700;color:#e8f1fc}
+.kpi .l{font-size:8.5px;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase}
+.kpi .v.pos{color:var(--green)}.kpi .v.neg{color:var(--red)}
+.kpi .v.gold{color:var(--gold)}.kpi .v.purple{color:var(--purple)}
+#controls{display:flex;gap:10px;align-items:center;margin-left:auto;flex-wrap:wrap}
+select,input[type=number]{background:var(--panel2);border:1px solid var(--border2);
+  color:var(--txt);border-radius:3px;padding:4px 6px;font:11px monospace}
+button{background:#0d1930;border:1px solid var(--border2);color:var(--txt);
+  border-radius:3px;padding:5px 10px;font:700 11px monospace;letter-spacing:1px;cursor:pointer}
+button:hover{border-color:var(--cyan);color:var(--cyan)}
+button.primary{background:#08351f;border-color:var(--green);color:var(--green)}
+button.primary:hover{background:var(--green);color:#04140b}
+button.danger{background:#2b0f16;border-color:var(--red);color:var(--red)}
+.toggle{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--dim2);cursor:pointer}
+.toggle input{accent-color:var(--cyan)}
+
+/* ---------- jarvis line ---------- */
+#jsay{background:#07131f;border-left:3px solid var(--cyan);padding:4px 14px;
+  color:#9fd3ec;font-size:11.5px}
+
+/* ---------- chart grid ---------- */
+#gridwrap{padding:8px}
+#grid{display:grid;gap:8px}
+.pane{background:var(--panel);border:1px solid var(--border);border-radius:4px;
+  overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.pane-head{display:flex;align-items:center;gap:6px;padding:4px 8px;
+  border-bottom:1px solid var(--border);background:var(--panel2)}
+.pane-head select{padding:2px 4px;font-size:10.5px}
+.tickstrip{margin-left:auto;display:flex;align-items:center;gap:8px}
+.tickstrip .px{font-size:15px;font-weight:800;transition:color .15s}
+.tickstrip .px.flash-up{color:var(--green)!important}
+.tickstrip .px.flash-down{color:var(--red)!important}
+.tickstrip .chg{font-size:10px}
+.tickstrip .src{font-size:8.5px;color:var(--dim)}
+.badge{font-size:8.5px;padding:1px 5px;border-radius:2px;font-weight:700}
+.badge.closed{background:#2b0f16;color:var(--red);border:1px solid #571f2b}
+.badge.buy{background:#06281c;color:var(--green);border:1px solid #14563a}
+.badge.sell{background:#2b0f16;color:var(--red);border:1px solid #571f2b}
+.chartbox{flex:1;min-height:0;position:relative}
+
+/* ---------- lower deck ---------- */
+#lower{display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:8px;padding:0 8px 8px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:4px;
+  padding:8px 10px;min-height:0}
+.panel .hd{color:#3fa9db;font-size:9.5px;letter-spacing:2.5px;font-weight:700;
+  text-transform:uppercase;border-bottom:1px solid var(--border);
+  padding-bottom:4px;margin-bottom:6px;display:flex;justify-content:space-between}
+.scroll{overflow-y:auto}
+.sig{background:linear-gradient(180deg,#0b1424,#080d16);border:1px solid var(--border2);
+  border-radius:4px;padding:8px 10px;margin-bottom:6px}
+.sig.buy{border-left:4px solid var(--green)}.sig.sell{border-left:4px solid var(--red)}
+.sig .head{font-size:14px;font-weight:800}
+.sig .lvl{font-size:10.5px;color:var(--dim2);margin:3px 0}
+.sig .lvl b{color:#e8f1fc}
+.sig .why{font-size:9.5px;color:var(--dim)}
+.final{border-width:2px;box-shadow:0 0 14px rgba(245,184,61,.08)}
+.final .grade{color:var(--gold);font-size:9px;letter-spacing:2px}
+.posrow,.jrow{border-bottom:1px solid #101a2c;padding:4px 0;font-size:11px}
+.up{color:var(--green)}.down{color:var(--red)}.dim{color:var(--dim)}.gold{color:var(--gold)}
+.feed{font-size:10px;line-height:1.55;max-height:230px;overflow-y:auto}
+.f-track{color:var(--dim)}.f-analyze{color:var(--cyan)}.f-signal{color:var(--gold)}
+.f-trade{color:var(--green)}.f-jarvis{color:var(--purple)}.f-news{color:#e8853d}
+.f-skip{color:#b33e4e}
+.newsrow{font-size:10px;padding:2px 0;color:var(--dim2)}
+.votebar{display:flex;gap:6px;align-items:center;font-size:10px;margin:2px 0}
+.votebar .nm{width:50px;color:var(--dim2)}
+.votebar .bar{flex:1;background:#0d1626;height:8px;border-radius:2px;position:relative;overflow:hidden}
+.votebar .fill{position:absolute;top:0;bottom:0}
+.votebar .mid{position:absolute;left:50%;width:1px;top:0;bottom:0;background:var(--border2)}
+.votebar .sc{width:34px;text-align:right;font-weight:700}
+
+/* ---------- modal ---------- */
+#modal{position:fixed;inset:0;background:rgba(3,6,10,.8);z-index:100;display:none;
+  align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto}
+#modal.on{display:flex}
+#modalbox{background:var(--panel);border:1px solid var(--border2);border-radius:6px;
+  max-width:980px;width:100%;padding:16px}
+.vgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:10px}
+.vfield{margin-bottom:8px}
+.vfield label{display:block;font-size:9.5px;color:var(--dim2);margin-bottom:2px}
+.vfield input{width:100%;background:var(--panel2);border:1px solid var(--border2);
+  color:var(--txt);border-radius:3px;padding:5px 7px;font:11px monospace}
+.vfield .hint{font-size:8.5px;color:var(--dim)}
+.warn{background:#2a2008;border:1px solid #6b5216;color:var(--gold);
+  border-radius:4px;padding:8px 10px;font-size:10.5px;margin-top:8px}
+#toast{position:fixed;bottom:18px;right:18px;z-index:200;display:flex;
+  flex-direction:column;gap:6px}
+.toastmsg{background:#0b2d46;border:1px solid var(--cyan);color:#bfe6f7;
+  border-radius:4px;padding:8px 14px;font-size:11.5px;animation:fadein .2s}
+@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+</style>
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<div id="topbar">
+  <div id="brand">J.A.R.V.I.S <span>TERMINAL</span></div>
+  <div class="kpi"><div class="v" id="k-bal">--</div><div class="l">Balance</div></div>
+  <div class="kpi"><div class="v" id="k-eq">--</div><div class="l">Equity</div></div>
+  <div class="kpi"><div class="v" id="k-pnl">--</div><div class="l">Open PnL</div></div>
+  <div class="kpi"><div class="v" id="k-pos">0</div><div class="l">Positions</div></div>
+  <div class="kpi"><div class="v gold" id="k-sig">0</div><div class="l">Signals</div></div>
+  <div class="kpi"><div class="v purple" id="k-brain">--</div><div class="l">Jarvis</div></div>
+  <div class="kpi"><div class="v purple" id="k-acc">--</div><div class="l">Accuracy</div></div>
+  <div class="kpi"><div class="v" id="k-open">--</div><div class="l">Mkts open</div></div>
+  <div id="controls">
+    <span class="dim" style="font-size:9px">LAYOUT</span>
+    <select id="layoutSel">
+      <option value="1">1</option><option value="2">2</option>
+      <option value="4" selected>4</option><option value="6">6</option>
+      <option value="8">8</option>
+    </select>
+    <span class="dim" style="font-size:9px">BOT TF</span>
+    <select id="botTf"></select>
+    <label class="toggle"><input type="checkbox" id="autoTrade"/> AUTO</label>
+    <span class="dim" style="font-size:9px">CONF</span>
+    <input type="number" id="minConf" style="width:52px" min="0" max="100" step="5"/>
+    <span class="dim" style="font-size:9px">RISK%</span>
+    <input type="number" id="riskPct" style="width:52px" min="0.1" max="5" step="0.1"/>
+    <button onclick="openVault()">🔐 KEYS</button>
+  </div>
+</div>
+<div id="jsay">JARVIS ▸ booting…</div>
+
+<!-- ============ CHART GRID ============ -->
+<div id="gridwrap"><div id="grid"></div></div>
+
+<!-- ============ LOWER DECK ============ -->
+<div id="lower">
+  <div class="panel">
+    <div class="hd"><span>🎯 FINAL SETUP + ⚡ SIGNAL DECK — click = trade placed</span>
+      <span id="sigCount">--</span></div>
+    <div id="finalBox"></div>
+    <div id="signals" class="scroll" style="max-height:330px"></div>
+    <div class="hd" style="margin-top:8px"><span>📈 OPEN POSITIONS</span><span id="posCount">0</span></div>
+    <div id="positions" class="scroll" style="max-height:190px"></div>
+  </div>
+
+  <div class="panel">
+    <div class="hd"><span>🧠 AI COUNCIL</span>
+      <span><select id="askSym" style="font-size:9.5px"></select>
+      <button onclick="askCouncil()" id="askBtn" style="padding:2px 8px;font-size:9.5px">ASK</button></span></div>
+    <div id="council" class="scroll" style="max-height:300px">
+      <span class="dim">pick an asset and ASK — Jarvis, Gemini, Groq, indicators,
+      strategies, patterns and news all vote</span></div>
+    <div class="hd" style="margin-top:8px"><span>📕 TRADE JOURNAL</span><span id="jrnStats">--</span></div>
+    <div id="journal" class="scroll" style="max-height:240px"></div>
+  </div>
+
+  <div class="panel">
+    <div class="hd"><span>🤖 JARVIS ACTIVITY</span><span id="actCount">--</span></div>
+    <div id="activity" class="feed"></div>
+    <div class="hd" style="margin-top:8px"><span>🕐 SESSIONS</span><span id="sesCount"></span></div>
+    <div id="sessions" class="feed" style="max-height:130px"></div>
+    <div class="hd" style="margin-top:8px"><span>📰 NEWS WIRE</span><span id="newsCount">--</span></div>
+    <div id="news" class="feed" style="max-height:160px"></div>
+  </div>
+</div>
+
+<!-- ============ VAULT MODAL ============ -->
+<div id="modal"><div id="modalbox">
+  <div class="hd" style="display:flex;justify-content:space-between">
+    <span style="color:var(--cyan);font-weight:700;letter-spacing:2px">🔐 CREDENTIALS VAULT — everything the bot needs</span>
+    <button onclick="closeVault()">✕ CLOSE</button></div>
+  <div class="warn">⚠️ Never give any bot your TradingView (or any website) email+password —
+    TradingView has no official trading API. Use MT5 or exchange API keys (create them
+    WITHOUT withdrawal permission). Everything here is saved to .env on YOUR machine only.</div>
+  <div class="vgrid" id="vaultGrid"></div>
+  <button class="primary" style="margin-top:10px" onclick="saveVault()">💾 SAVE ALL</button>
+</div></div>
+
+<div id="toast"></div>
+
+<script>
+/* ================= helpers ================= */
+const $=id=>document.getElementById(id);
+const fmt=(x,d)=> x==null?'--':(Math.abs(x)>=1000?Number(x).toLocaleString(undefined,{maximumFractionDigits:2}):Number(x).toPrecision(6).replace(/\.?0+$/,''));
+async function jget(u){const r=await fetch(u);return r.json();}
+async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):null});return r.json();}
+function toast(msg){const d=document.createElement('div');d.className='toastmsg';d.textContent=msg;
+  $('toast').appendChild(d);setTimeout(()=>d.remove(),3500);}
+
+let WATCH=[], INTERVALS=[], STATUS=null, SIGNALS=null, lastPx={};
+
+/* ================= chart grid ================= */
+const LAYOUTS={1:[1,1],2:[2,1],4:[2,2],6:[3,2],8:[4,2]};
+const DEF_SYMS=['BTCUSDT','ETHUSDT','SOLUSDT','XAUUSD','EURUSD','NIFTY50','AAPL','SPX'];
+let panes=[];   // {sym, tf, chart, series, vol, lines[], root, els}
+
+function paneState(){return panes.map(p=>({sym:p.sym,tf:p.tf}));}
+function saveGrid(){localStorage.setItem('jarvis_grid',JSON.stringify({n:panes.length,panes:paneState()}));}
+function loadGrid(){try{return JSON.parse(localStorage.getItem('jarvis_grid'))}catch(e){return null}}
+
+function buildGrid(n, saved){
+  panes.forEach(p=>{try{p.chart.remove()}catch(e){}});
+  panes=[]; $('grid').innerHTML='';
+  const [cols,rows]=LAYOUTS[n];
+  $('grid').style.gridTemplateColumns=`repeat(${cols},1fr)`;
+  const h = Math.max(230, Math.floor((window.innerHeight-210)/rows));
+  for(let i=0;i<n;i++){
+    const st=(saved&&saved[i])||{sym:DEF_SYMS[i%DEF_SYMS.length],tf:'5m'};
+    const root=document.createElement('div');root.className='pane';
+    root.innerHTML=`
+      <div class="pane-head">
+        <select class="symSel"></select>
+        <select class="tfSel"></select>
+        <span class="paneBadge"></span>
+        <div class="tickstrip">
+          <span class="px">--</span><span class="chg dim">--</span><span class="src"></span>
+        </div>
+      </div>
+      <div class="chartbox" style="height:${h}px"></div>`;
+    $('grid').appendChild(root);
+    const symSel=root.querySelector('.symSel'), tfSel=root.querySelector('.tfSel');
+    WATCH.forEach(a=>{const o=document.createElement('option');o.value=a.symbol;
+      o.textContent=a.symbol;symSel.appendChild(o);});
+    INTERVALS.forEach(iv=>{const o=document.createElement('option');o.value=iv;
+      o.textContent=iv;tfSel.appendChild(o);});
+    symSel.value=st.sym; tfSel.value=st.tf;
+    const box=root.querySelector('.chartbox');
+    const chart=LightweightCharts.createChart(box,{
+      width:box.clientWidth,height:h,
+      layout:{background:{color:'#05080d'},textColor:'#8ba3c4',fontFamily:'monospace',fontSize:10},
+      grid:{vertLines:{color:'#0d1626'},horzLines:{color:'#0d1626'}},
+      crosshair:{mode:0,vertLine:{color:'#23405f'},horzLine:{color:'#23405f'}},
+      rightPriceScale:{borderColor:'#16233c'},
+      timeScale:{borderColor:'#16233c',timeVisible:true,secondsVisible:false}});
+    const series=chart.addCandlestickSeries({upColor:'#20e397',downColor:'#ff4d67',
+      borderUpColor:'#20e397',borderDownColor:'#ff4d67',
+      wickUpColor:'#20e397',wickDownColor:'#ff4d67'});
+    const vol=chart.addHistogramSeries({priceScaleId:'vol',priceFormat:{type:'volume'}});
+    chart.priceScale('vol').applyOptions({scaleMargins:{top:0.85,bottom:0}});
+    const p={sym:st.sym,tf:st.tf,chart,series,vol,lines:[],root,
+      els:{px:root.querySelector('.px'),chg:root.querySelector('.chg'),
+           src:root.querySelector('.src'),badge:root.querySelector('.paneBadge')},
+      fitted:false};
+    symSel.onchange=()=>{p.sym=symSel.value;p.fitted=false;saveGrid();refreshPane(p,true);};
+    tfSel.onchange=()=>{p.tf=tfSel.value;p.fitted=false;saveGrid();refreshPane(p,true);};
+    panes.push(p);
+    refreshPane(p,true);
+  }
+  saveGrid();
+  window.addEventListener('resize',()=>panes.forEach(p=>{
+    const b=p.root.querySelector('.chartbox');
+    p.chart.applyOptions({width:b.clientWidth});}));
+}
+
+async function refreshPane(p, full){
+  try{
+    const d=await jget(`/api/candles/${encodeURIComponent(p.sym)}?interval=${p.tf}&limit=280`);
+    if(!d.candles)return;
+    const data=d.candles.map(c=>({time:Math.floor(c.t),open:c.o,high:c.h,low:c.l,close:c.c}));
+    const vols=d.candles.map(c=>({time:Math.floor(c.t),value:c.v,
+      color:c.c>=c.o?'#1c4d3a':'#4d1c28'}));
+    p.series.setData(data); p.vol.setData(vols);
+    if(!p.fitted){p.chart.timeScale().fitContent();p.fitted=true;}
+    /* ticker strip flash */
+    const last=d.candles[d.candles.length-1].c;
+    const prev=lastPx[p.sym+p.tf];
+    const px=p.els.px;
+    px.textContent=fmt(last);
+    px.classList.remove('flash-up','flash-down');
+    if(prev!=null&&last!==prev){void px.offsetWidth;
+      px.classList.add(last>prev?'flash-up':'flash-down');}
+    px.style.color=last>=(d.candles[0].c)?'var(--green)':'var(--red)';
+    const chg=(last/d.candles[0].c-1)*100;
+    p.els.chg.textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';
+    p.els.chg.className='chg '+(chg>=0?'up':'down');
+    p.els.src.textContent=d.source;
+    lastPx[p.sym+p.tf]=last;
+    drawTrades(p);
+    /* market open badge + verdict */
+    if(STATUS){
+      const mkts=STATUS.markets||{};
+      const m=mkts[p.sym];
+      let b='';
+      if(m&&m.open===false)b='<span class="badge closed">CLOSED</span>';
+      const an=STATUS.analysis&&STATUS.analysis[p.sym];
+      if(an)b+=` <span class="badge ${an.dir==='UP'?'buy':'sell'}">${an.dir} ${Math.round(an.conf)}</span>`;
+      p.els.badge.innerHTML=b;
+    }
+  }catch(e){}
+}
+
+function drawTrades(p){
+  /* clear old lines */
+  p.lines.forEach(l=>{try{p.series.removePriceLine(l)}catch(e){}});
+  p.lines=[]; const markers=[];
+  if(!STATUS)return;
+  for(const pos of (STATUS.open_positions||[])){
+    if(pos.symbol!==p.sym)continue;
+    const c=pos.side==='BUY'?'#20e397':'#ff4d67';
+    p.lines.push(p.series.createPriceLine({price:pos.entry,color:c,lineWidth:2,
+      lineStyle:0,axisLabelVisible:true,title:pos.side+' ENTRY'}));
+    p.lines.push(p.series.createPriceLine({price:pos.tp,color:'#20e397',lineWidth:1,
+      lineStyle:2,axisLabelVisible:true,title:'TP'}));
+    p.lines.push(p.series.createPriceLine({price:pos.sl,color:'#ff4d67',lineWidth:1,
+      lineStyle:2,axisLabelVisible:true,title:pos.be_moved?'SL(BE)':'SL'}));
+    markers.push({time:Math.floor(pos.opened),position:pos.side==='BUY'?'belowBar':'aboveBar',
+      color:c,shape:pos.side==='BUY'?'arrowUp':'arrowDown',text:pos.side});
+  }
+  const fs=STATUS.final_setup;
+  if(fs&&fs.symbol===p.sym&&fs.grade==='READY'){
+    p.lines.push(p.series.createPriceLine({price:fs.entry,color:'#f5b83d',lineWidth:1,
+      lineStyle:1,axisLabelVisible:true,title:'PLAN '+fs.side}));
+    p.lines.push(p.series.createPriceLine({price:fs.tp,color:'#20e397',lineWidth:1,
+      lineStyle:1,axisLabelVisible:true,title:'PLAN TP'}));
+    p.lines.push(p.series.createPriceLine({price:fs.sl,color:'#ff4d67',lineWidth:1,
+      lineStyle:1,axisLabelVisible:true,title:'PLAN SL'}));
+  }
+  for(const t of (STATUS.journal||[]).slice(0,15)){
+    if(t.symbol!==p.sym)continue;
+    markers.push({time:Math.floor(t.opened_at),
+      position:t.side==='BUY'?'belowBar':'aboveBar',color:'#8ba3c4',
+      shape:t.side==='BUY'?'arrowUp':'arrowDown',text:t.side});
+    markers.push({time:Math.floor(t.closed_at),
+      position:'inBar',color:t.outcome==='WIN'?'#20e397':'#ff4d67',
+      shape:'circle',text:t.close_reason+' '+(t.pnl>=0?'+':'')+t.pnl});
+  }
+  markers.sort((a,b)=>a.time-b.time);
+  try{p.series.setMarkers(markers)}catch(e){}
+}
+
+/* ================= status + panels ================= */
+async function refreshStatus(){
+  try{
+    const [s,sig,jrn,act,an]=await Promise.all([
+      jget('/api/status'),jget('/api/signals'),jget('/api/journal'),
+      jget('/api/activity'),jget('/api/analysis')]);
+    /* pack for panes */
+    STATUS={...s,journal:jrn.journal,markets:act.markets,
+      analysis:Object.fromEntries(Object.entries(an.analysis||{}).map(
+        ([k,v])=>[k,{dir:v.verdict.direction,conf:v.verdict.confidence}]))};
+    SIGNALS=sig;
+    /* top bar */
+    $('k-bal').textContent='$'+Number(s.balance).toLocaleString(undefined,{minimumFractionDigits:2});
+    $('k-eq').textContent='$'+Number(s.equity).toLocaleString(undefined,{minimumFractionDigits:2});
+    const pnl=s.equity-s.balance;
+    $('k-eq').className='v '+(pnl>=0?'pos':'neg');
+    $('k-pnl').textContent=(pnl>=0?'+':'')+pnl.toFixed(2);
+    $('k-pnl').className='v '+(pnl>=0?'pos':'neg');
+    $('k-pos').textContent=s.open_positions.length;
+    $('k-sig').textContent=s.signals_waiting;
+    $('k-brain').textContent=s.jarvis.samples_trained;
+    $('k-acc').textContent=s.jarvis.accuracy!=null?s.jarvis.accuracy+'%':'—';
+    const openM=Object.values(act.markets||{}).filter(m=>m.open).length;
+    $('k-open').textContent=openM+'/'+Object.keys(act.markets||{}).length;
+    if(document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='SELECT'){
+      $('autoTrade').checked=s.auto_trade;$('minConf').value=s.min_confidence;
+      $('riskPct').value=s.risk_pct;$('botTf').value=s.interval;
+    }
+    /* jarvis says */
+    let say=[];
+    if(s.jarvis.bootstrapping)say.push('Training my brain on history…');
+    if(s.signals_waiting)say.push(`${s.signals_waiting} setup(s) armed — one click places the trade.`);
+    if(s.open_positions.length)say.push(`Managing ${s.open_positions.length} live position(s) (${pnl>=0?'+':''}${pnl.toFixed(2)}).`);
+    if(!say.length)say.push(`Scanning ${openM} open markets on ${s.interval} for the next setup…`);
+    $('jsay').textContent='JARVIS ▸ '+say.join(' ');
+    renderSignals(sig,s);
+    renderPositions(s);
+    renderJournal(jrn);
+    renderActivity(act);
+    panes.forEach(drawTrades);
+  }catch(e){}
+}
+
+function renderSignals(sig,s){
+  const waiting=sig.signals.filter(x=>x.status==='waiting');
+  $('sigCount').textContent=`${waiting.length} armed · ${sig.total_scanned} scanned`;
+  const fs=s.final_setup;
+  $('finalBox').innerHTML = fs?`
+    <div class="sig final ${fs.side==='BUY'?'buy':'sell'}">
+      <div class="grade">🎯 FINAL TRADE SETUP [${fs.interval}] · ${fs.grade}</div>
+      <div class="head ${fs.side==='BUY'?'up':'down'}">${fs.side} ${fs.symbol}
+        <span style="font-size:10px;color:var(--dim2)"> conf ${Math.round(fs.confidence)}% · score ${fs.score>0?'+':''}${Math.round(fs.score)}</span>
+        ${fs.grade==='READY'?`<button class="primary" style="float:right" onclick="placeTrade('${fs.symbol}')">▶ PLACE</button>`:''}
+      </div>
+      <div class="lvl">ENTRY <b>${fmt(fs.entry)}</b> · TP <b class="up">${fmt(fs.tp)}</b> ·
+        SL <b class="down">${fmt(fs.sl)}</b> · R:R <b>${fs.rr??'--'}</b>
+        <span class="dim"> ${fs.tp_source||''}</span></div>
+      ${(fs.reasons||[]).slice(0,3).map(r=>`<div class="why">▸ ${r}</div>`).join('')}
+    </div>`:'<span class="dim">no final setup yet — scanning…</span>';
+  $('signals').innerHTML=sig.signals.map(x=>{
+    const secs=Math.max(0,Math.round(x.expires-Date.now()/1000));
+    const stat=x.status==='waiting'?`⏳${Math.floor(secs/60)}m${String(secs%60).padStart(2,'0')}`
+      :x.status==='placed'?'✔ PLACED':'· expired';
+    return `<div class="sig ${x.side==='BUY'?'buy':'sell'}" ${x.status!=='waiting'?'style="opacity:.5"':''}>
+      <div class="head ${x.side==='BUY'?'up':'down'}" style="font-size:12.5px">${x.side} ${x.symbol}
+        <span style="font-size:9.5px;color:var(--dim2)"> conf ${Math.round(x.confidence)}% ${stat}</span>
+        ${x.status==='waiting'?`<button class="primary" style="float:right;padding:2px 8px" onclick="placeTrade('${x.symbol}')">▶ PLACE</button>`:''}
+      </div>
+      <div class="lvl">E <b>${fmt(x.entry)}</b> · TP <b class="up">${fmt(x.tp)}</b> · SL <b class="down">${fmt(x.sl)}</b> · R:R ${x.rr??'--'}</div>
+      ${(x.reasons||[]).slice(0,2).map(r=>`<div class="why">▸ ${r.slice(0,85)}</div>`).join('')}
+    </div>`;}).join('')||'<span class="dim">hunting for setups in open markets…</span>';
+}
+
+async function placeTrade(sym){
+  const r=await jpost('/api/place/'+encodeURIComponent(sym));
+  if(r.ok){toast(`⚡ TRADE PLACED: ${sym} @ ${fmt(r.entry)} TP ${fmt(r.tp)} SL ${fmt(r.sl)}`);}
+  else toast('❌ '+(r.error||'could not place'));
+  refreshStatus();
+}
+
+function renderPositions(s){
+  $('posCount').textContent=s.open_positions.length;
+  $('positions').innerHTML=s.open_positions.map(p=>`
+    <div class="posrow">
+      <b class="${p.side==='BUY'?'up':'down'}">${p.side} ${p.symbol}</b>
+      <span class="dim"> @ ${fmt(p.entry)}</span>
+      <span style="float:right" class="${p.pnl>=0?'up':'down'}">${p.pnl>=0?'+':''}${p.pnl.toFixed(2)}
+        <button class="danger" style="padding:1px 6px;font-size:9px;margin-left:6px"
+          onclick="closePos('${p.id}')">✕</button></span><br>
+      <span class="dim" style="font-size:9.5px">TP ${fmt(p.tp)} · SL ${fmt(p.sl)}${p.be_moved?' 🛡BE':''} · qty ${fmt(p.qty)}</span>
+    </div>`).join('')||'<span class="dim">flat — no exposure</span>';
+}
+async function closePos(id){await jpost('/api/close/'+id);toast('position closed');refreshStatus();}
+
+function renderJournal(jrn){
+  const st=jrn.stats;
+  $('jrnStats').textContent=st.total?`${st.total} · ${st.wins}W/${st.losses}L (${st.win_rate}%) · ${st.total_pnl>=0?'+':''}${st.total_pnl}`:'none yet';
+  $('journal').innerHTML=jrn.journal.slice(0,25).map(t=>`
+    <div class="jrow" title="${t.close_explanation}">
+      ${t.outcome==='WIN'?'✅':'❌'} <b>${t.symbol}</b> ${t.side}
+      <span class="${t.pnl>=0?'up':'down'}">${t.pnl>=0?'+':''}${t.pnl}</span>
+      <span class="dim">(${t.r_multiple!=null?t.r_multiple+'R':'--'})</span>
+      <span style="float:right" class="dim">${t.close_reason} · ${t.held_human}</span><br>
+      <span class="dim" style="font-size:9px">in ${fmt(t.entry_price)} → out ${fmt(t.exit_price)} · TP ${fmt(t.tp)} · SL ${fmt(t.initial_sl)} · ${t.placed_by}</span>
+    </div>`).join('')||'<span class="dim">closed trades appear here with entry, TP, SL, exit and WHY they closed</span>';
+}
+
+function renderActivity(act){
+  const c=act.counters;
+  $('actCount').textContent=`${c.price_ticks}t · ${c.council_runs}s · ${c.llm_calls}ai`;
+  $('activity').innerHTML=act.activity.slice(0,40).map(a=>{
+    const ts=new Date(a.ts*1000).toLocaleTimeString();
+    return `<div class="f-${a.kind}">[${ts}] ${a.kind.toUpperCase()} ▸ ${a.msg}</div>`;}).join('');
+  const mk=Object.entries(act.markets||{});
+  $('sesCount').textContent=mk.filter(([s,m])=>m.open).length+' open';
+  $('sessions').innerHTML=mk.map(([sym,m])=>
+    `<div>${m.open?'🟢':'🔴'} <b>${sym}</b> <span class="dim">${m.venue||''} · ${m.session||''}</span></div>`).join('');
+}
+
+async function refreshNews(){
+  try{
+    const d=await jget('/api/news');
+    $('newsCount').textContent=d.headlines.length+' · '+d.sources_ok.length+' src';
+    $('news').innerHTML=d.headlines.slice(0,18).map(h=>{
+      const dot=h.sentiment>0.05?'🟢':h.sentiment<-0.05?'🔴':'⚪';
+      return `<div class="newsrow">${dot} ${h.title.slice(0,95)} <span class="dim">— ${h.source}</span></div>`;
+    }).join('')||'<span class="dim">news sources unreachable on this network — they connect on your PC</span>';
+  }catch(e){}
+}
+
+/* ================= council ================= */
+async function askCouncil(){
+  const sym=$('askSym').value;
+  $('askBtn').textContent='…';$('askBtn').disabled=true;
+  try{
+    const a=await jpost('/api/analyze/'+encodeURIComponent(sym));
+    const v=a.verdict;
+    const names={jarvis:'JARVIS',gemini:'GEMINI',groq:'GROQ',indicators:'INDIC',
+      strategies:'STRAT',patterns:'PATTRN',news:'NEWS'};
+    let bars='';
+    for(const k of Object.keys(names)){
+      const m=a.members[k]; if(!m)continue;
+      if(m.score==null){bars+=`<div class="votebar"><span class="nm">${names[k]}</span><span class="dim" style="font-size:9px">no vote ${(m.detail&&m.detail.error||'').slice(0,30)}</span></div>`;continue;}
+      const sc=m.score,w=Math.abs(sc)/2,left=sc>=0?50:50-w,col=sc>=0?'var(--green)':'var(--red)';
+      bars+=`<div class="votebar"><span class="nm">${names[k]}</span>
+        <span class="bar"><span class="fill" style="left:${left}%;width:${w}%;background:${col}"></span><span class="mid"></span></span>
+        <span class="sc" style="color:${col}">${sc>0?'+':''}${Math.round(sc)}</span></div>`;
+    }
+    let extra='';
+    for(const k of ['gemini','groq']){
+      const det=(a.members[k]||{}).detail||{};
+      if(det.reason)extra+=`<div class="why" style="font-size:9.5px;color:var(--dim2)">▸ ${k.toUpperCase()}: ${det.reason.slice(0,120)}</div>`;
+    }
+    const pats=((a.members.patterns||{}).detail||{}).found||[];
+    if(pats.length)extra+=`<div class="why" style="font-size:9.5px">PATTERNS ▸ ${pats.slice(0,5).map(p=>(p.score>0?'▲':p.score<0?'▼':'▶')+p.name).join(' · ')}</div>`;
+    if(a.abcd)extra+=`<div class="why" style="font-size:9.5px">ABCD ▸ ${a.abcd.direction} D=(B×C)÷A=<b class="gold">${fmt(a.abcd.D)}</b></div>`;
+    const p=a.plan;
+    $('council').innerHTML=`
+      <div style="font-size:15px;font-weight:800" class="${v.direction==='UP'?'up':'down'}">
+        ${sym} ▸ ${v.direction} ${v.score>0?'+':''}${v.score}
+        <span style="font-size:10px;color:var(--dim2)">conf ${v.confidence}% · ${fmt(a.price)} · ${a.data_source} · ${a.interval}</span></div>
+      ${bars}${extra}
+      <div class="lvl" style="margin-top:4px">PLAN ▸ E <b>${fmt(p.entry)}</b> · TP <b class="up">${fmt(p.tp)}</b> · SL <b class="down">${fmt(p.sl)}</b> · R:R ${p.rr}</div>`;
+  }catch(e){toast('council failed');}
+  $('askBtn').textContent='ASK';$('askBtn').disabled=false;
+}
+
+/* ================= vault ================= */
+async function openVault(){
+  const d=await jget('/api/vault');
+  const bySec={};
+  d.fields.forEach(f=>{(bySec[f.section]=bySec[f.section]||[]).push(f);});
+  $('vaultGrid').innerHTML=Object.entries(bySec).map(([sec,fs])=>`
+    <div><div style="color:var(--cyan);font-size:10px;letter-spacing:2px;margin-bottom:6px">${sec.toUpperCase()}</div>
+    ${fs.map(f=>`<div class="vfield"><label>${f.label} ${f.set?'<span class="up">●</span>':'<span class="dim">○</span>'}</label>
+      <input data-key="${f.key}" type="${f.secret?'password':'text'}" value="${f.value||''}" placeholder="not set"/>
+      ${f.help?`<div class="hint">${f.help}</div>`:''}</div>`).join('')}</div>`).join('');
+  $('modal').classList.add('on');
+}
+function closeVault(){$('modal').classList.remove('on');}
+async function saveVault(){
+  const updates={};
+  document.querySelectorAll('#vaultGrid input').forEach(i=>{
+    if(i.value&&!i.value.includes('•'))updates[i.dataset.key]=i.value;});
+  const r=await jpost('/api/vault',updates);
+  toast(`🔐 saved ${r.saved} credential(s) to .env`);
+  closeVault();
+}
+
+/* ================= controls ================= */
+$('layoutSel').onchange=()=>{const n=+$('layoutSel').value;
+  const saved=loadGrid();buildGrid(n,saved&&saved.panes);};
+$('botTf').onchange=async()=>{await jpost('/api/interval/'+$('botTf').value);
+  toast('bot timeframe → '+$('botTf').value);};
+$('autoTrade').onchange=()=>jpost('/api/settings',{auto_trade:$('autoTrade').checked});
+$('minConf').onchange=()=>jpost('/api/settings',{min_confidence:+$('minConf').value});
+$('riskPct').onchange=()=>jpost('/api/settings',{risk_pct:+$('riskPct').value});
+
+/* ================= boot ================= */
+(async function boot(){
+  const w=await jget('/api/watchlist');
+  WATCH=w.assets; INTERVALS=w.intervals;
+  INTERVALS.forEach(iv=>{const o=document.createElement('option');o.value=iv;o.textContent=iv;$('botTf').appendChild(o);});
+  WATCH.forEach(a=>{const o=document.createElement('option');o.value=a.symbol;
+    o.textContent=a.symbol;$('askSym').appendChild(o);});
+  const saved=loadGrid();
+  const n=saved&&LAYOUTS[saved.n]?saved.n:4;
+  $('layoutSel').value=n;
+  buildGrid(n,saved&&saved.panes);
+  refreshStatus();refreshNews();
+  setInterval(refreshStatus,4000);
+  setInterval(()=>panes.forEach(p=>refreshPane(p,false)),5000);
+  setInterval(refreshNews,60000);
+})();
+</script>
+</body>
+</html>

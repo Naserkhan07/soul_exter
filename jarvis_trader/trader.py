@@ -74,7 +74,7 @@ class TradingEngine:
         self.journal = []                # full closed-trade journal (persisted)
         self.logs = []
         self.commands = []               # queue for MT5 / TradingView executors
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.running = False
         self.scan_idx = 0
         self.jarvis_bootstrapping = False
@@ -544,11 +544,12 @@ class TradingEngine:
                 "members": best.get("members"), "reasons": best.get("reasons"),
                 "signal_id": best["id"], "ts": time.time(),
             }
-            if not prev or prev.get("signal_id") != best["id"]:
-                self.act("signal", f"FINAL SETUP [{self.interval}]: {best['side']} "
-                         f"{best['symbol']} conf {best['confidence']:.0f}% - "
-                         f"entry {best['entry']:.6g} TP {best['tp']:.6g} "
-                         f"SL {best['sl']:.6g}")
+            announce = (not prev or prev.get("signal_id") != best["id"])
+        if announce:
+            self.act("signal", f"FINAL SETUP [{self.interval}]: {best['side']} "
+                     f"{best['symbol']} conf {best['confidence']:.0f}% - "
+                     f"entry {best['entry']:.6g} TP {best['tp']:.6g} "
+                     f"SL {best['sl']:.6g}")
 
     @staticmethod
     def _signal_reasons(verdict):

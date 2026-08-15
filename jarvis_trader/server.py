@@ -16,14 +16,16 @@ Endpoints:
 """
 import json
 import time
+from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 
-from . import config, council, news, trader
+from . import config, council, news, trader, feeds, vault
 
 app = FastAPI(title="Jarvis Trader")
 ENGINE = trader.ENGINE
+WEBUI = Path(__file__).parent / "webui" / "index.html"
 
 
 @app.on_event("startup")
@@ -53,10 +55,52 @@ def api_analyze(symbol: str):
     asset = next((a for a in config.WATCHLIST if a["symbol"] == symbol), None)
     if not asset:
         return JSONResponse({"error": "unknown symbol"}, status_code=404)
-    verdict = council.analyze(asset, use_llms=True)
+    verdict = council.analyze(asset, use_llms=True, interval=ENGINE.interval)
     with ENGINE.lock:
         ENGINE.last_analysis[symbol] = verdict
     return verdict
+
+
+@app.get("/api/candles/{symbol}")
+def api_candles(symbol: str, interval: str = "5m", limit: int = 300):
+    """OHLCV for the chart panes. Any watchlist symbol, any timeframe."""
+    asset = next((a for a in config.WATCHLIST if a["symbol"] == symbol), None)
+    if not asset:
+        return JSONResponse({"error": "unknown symbol"}, status_code=404)
+    candles, src = feeds.get_candles(asset, interval, min(int(limit), 500))
+    return {"symbol": symbol, "interval": interval, "source": src,
+            "candles": candles}
+
+
+@app.get("/api/watchlist")
+def api_watchlist():
+    return {"assets": [{"symbol": a["symbol"], "name": a["name"],
+                        "type": a["type"]} for a in config.WATCHLIST],
+            "intervals": feeds.VALID_INTERVALS}
+
+
+@app.get("/api/vault")
+def api_vault():
+    env = vault.read_env()
+    out = []
+    for key, (section, label, secret, help_) in vault.FIELDS.items():
+        val = env.get(key, "")
+        out.append({"key": key, "section": section, "label": label,
+                    "secret": secret, "help": help_,
+                    "value": vault.masked(val) if secret else val,
+                    "set": bool(val)})
+    return {"fields": out}
+
+
+@app.post("/api/vault")
+async def api_vault_save(req: Request):
+    body = await req.json()
+    updates = {k: v for k, v in body.items()
+               if k in vault.FIELDS and "•" not in str(v)}
+    if updates:
+        vault.write_env(updates)
+        ENGINE.log(f"Vault: updated {len(updates)} credential(s)")
+    return {"ok": True, "saved": len(updates)}
 
 
 @app.get("/api/news")
@@ -174,6 +218,8 @@ async def tradingview_webhook(req: Request):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
+    if WEBUI.exists():
+        return WEBUI.read_text()
     return DASHBOARD_HTML
 
 
