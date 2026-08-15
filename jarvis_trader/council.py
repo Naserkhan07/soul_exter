@@ -85,28 +85,46 @@ Respond with ONLY a JSON object, no markdown:
 {{"direction": "UP" or "DOWN", "score": <integer -100 to 100, negative=down conviction, positive=up conviction>, "confidence": <0-100>, "reason": "<one concise sentence>"}}"""
 
 
+GEMINI_MODEL_FALLBACKS = ["gemini-2.0-flash", "gemini-2.5-flash",
+                          "gemini-1.5-flash", "gemini-flash-latest"]
+_gemini_model_idx = 0
+
+
 def ask_gemini(prompt):
+    global _gemini_model_idx
     if not config.GEMINI_API_KEY:
         return None, "no API key configured"
-    try:
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{config.GEMINI_MODEL}:generateContent?key={config.GEMINI_API_KEY}")
-        r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}],
-                                     "generationConfig": {"temperature": 0.2,
-                                                          "maxOutputTokens": 200}},
-                          timeout=TIMEOUT)
-        if r.status_code != 200:
-            _llm_status["gemini"] = f"HTTP {r.status_code}"
-            return None, f"HTTP {r.status_code}: {r.text[:120]}"
-        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        js = _extract_json(text)
-        if js:
-            _llm_status["gemini"] = "ok"
-            return js, None
-        return None, "unparseable reply"
-    except Exception as e:
-        _llm_status["gemini"] = "unreachable"
-        return None, str(e)[:120]
+    last_err = "unknown"
+    # try model names in order; remember the first that works
+    for i in range(len(GEMINI_MODEL_FALLBACKS)):
+        idx = (_gemini_model_idx + i) % len(GEMINI_MODEL_FALLBACKS)
+        model = GEMINI_MODEL_FALLBACKS[idx]
+        try:
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                   f"{model}:generateContent?key={config.GEMINI_API_KEY}")
+            r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}],
+                                         "generationConfig": {"temperature": 0.2,
+                                                              "maxOutputTokens": 200}},
+                              timeout=TIMEOUT)
+            if r.status_code == 404:
+                last_err = f"{model}: HTTP 404 (model not available for this key)"
+                continue
+            if r.status_code != 200:
+                _llm_status["gemini"] = f"HTTP {r.status_code}"
+                return None, f"{model}: HTTP {r.status_code}: {r.text[:100]}"
+            text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            js = _extract_json(text)
+            if js:
+                _llm_status["gemini"] = "ok"
+                _gemini_model_idx = idx
+                return js, None
+            return None, "unparseable reply"
+        except Exception as e:
+            last_err = str(e)[:100]
+            _llm_status["gemini"] = "unreachable"
+            return None, last_err
+    _llm_status["gemini"] = "HTTP 404 all models"
+    return None, last_err
 
 
 def ask_groq(prompt):
@@ -226,15 +244,31 @@ def analyze(asset, use_llms=True, interval="5m"):
 
     # weighted verdict over members that voted
     num = den = 0.0
+    votes = []
     for name, m in members.items():
         if m["score"] is None:
             continue
         w = WEIGHTS.get(name, 1.0)
         num += w * m["score"]
         den += w
+        votes.append(m["score"])
     final = num / den if den else 0.0
     direction = "UP" if final >= 0 else "DOWN"
-    confidence = round(abs(final), 1)
+
+    # ---- confidence calibration ----
+    # raw |weighted avg| under-reads conviction when many members agree
+    # mildly. Blend magnitude with AGREEMENT (how many members point the
+    # same way) and the strength of the strongest agreeing member.
+    base = abs(final)
+    if votes:
+        same = [v for v in votes if (v >= 0) == (final >= 0) and abs(v) >= 5]
+        agree_ratio = len(same) / len(votes)
+        strongest = max((abs(v) for v in same), default=0)
+        confidence = base * 0.55 + agree_ratio * 32 + strongest * 0.22
+        confidence = min(96.0, confidence)
+    else:
+        confidence = base
+    confidence = round(confidence, 1)
 
     price = snap["price"]
     a = snap.get("atr14") or price * 0.005

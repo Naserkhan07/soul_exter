@@ -26,7 +26,8 @@ def boot_engine():
 
 ENGINE = boot_engine()
 
-from jarvis_trader import config, council, news, indicators  # noqa: E402
+from jarvis_trader import config, council, news, indicators, feeds, chart, vault  # noqa: E402
+import streamlit.components.v1 as components  # noqa: E402
 
 # ================================================================== #
 #  HEAVY TERMINAL THEME
@@ -169,11 +170,10 @@ if not say_parts:
 st.markdown(f"<div class='jsay'>JARVIS ▸ {' '.join(say_parts)}</div>",
             unsafe_allow_html=True)
 
-cc0, cc1, cc2, cc3, cc4, cc5 = st.columns([1.7, 1, 1.4, 1.4, 0.9, 0.9])
+cc0, cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([1.7, 1, 1.4, 1.4, 0.9, 0.9, 0.9])
 with cc0:
-    from jarvis_trader import feeds as _feeds
-    tf = st.radio("TIMEFRAME", _feeds.VALID_INTERVALS, horizontal=True,
-                  index=_feeds.VALID_INTERVALS.index(S.get("interval", "5m")))
+    tf = st.radio("TIMEFRAME", feeds.VALID_INTERVALS, horizontal=True,
+                  index=feeds.VALID_INTERVALS.index(S.get("interval", "5m")))
     if tf != S.get("interval"):
         ENGINE.set_interval(tf)
         st.rerun()
@@ -197,6 +197,49 @@ with cc4:
 with cc5:
     if st.button("⟳ REFRESH", use_container_width=True):
         st.rerun()
+with cc6:
+    show_vault = st.toggle("🔐 KEYS", value=False,
+                           help="API keys / IDs / credentials vault")
+
+# ================================================================== #
+#  🔐 CREDENTIALS VAULT - all API keys / IDs in one place
+# ================================================================== #
+if show_vault:
+    st.markdown("<div class='tpanel'><div class='hd'><span>🔐 CREDENTIALS VAULT — "
+                "everything the bot needs from you</span><span>saved to .env on YOUR "
+                "machine only (gitignored)</span></div></div>", unsafe_allow_html=True)
+    st.warning("⚠️ **Never give a bot your TradingView (or any website) email+password.** "
+               "TradingView has **no official trading API** — bots cannot place orders "
+               "into TradingView Paper Trading. To SEE the bot's trades on charts, use "
+               "the live charts below (trades are drawn on them). To trade REAL accounts, "
+               "fill MT5 or exchange API keys here (API keys never expose your password, "
+               "and you should create them **without withdrawal permission**). "
+               "Also: if you ever pasted a password in chat, change it immediately.")
+    env_now = vault.read_env()
+    sections = {}
+    for key, (section, label, secret, help_) in vault.FIELDS.items():
+        sections.setdefault(section, []).append((key, label, secret, help_))
+    updates = {}
+    vcols = st.columns(3)
+    for i, (section, fields) in enumerate(sections.items()):
+        with vcols[i % 3]:
+            st.markdown(f"**{section}**")
+            for key, label, secret, help_ in fields:
+                cur = env_now.get(key, "")
+                val = st.text_input(
+                    label, value=cur, key=f"vault_{key}",
+                    type="password" if secret else "default",
+                    help=help_ or None, placeholder="not set")
+                if val != cur:
+                    updates[key] = val
+    if st.button("💾 SAVE ALL CREDENTIALS", type="primary"):
+        if updates:
+            vault.write_env(updates)
+            st.toast(f"✅ saved {len(updates)} value(s) to .env", icon="🔐")
+            time.sleep(0.6)
+            st.rerun()
+        else:
+            st.toast("nothing changed", icon="ℹ️")
 
 # ================================================================== #
 #  FINAL TRADE SETUP - the ONE best trade from all scores
@@ -241,6 +284,40 @@ if fs:
         else:
             st.markdown("<div class='small' style='margin-top:30px'>below confidence "
                         "threshold — watching</div>", unsafe_allow_html=True)
+
+# ================================================================== #
+#  📊 LIVE CHART - trades drawn on the chart (TradingView-style)
+# ================================================================== #
+chart_syms = [a["symbol"] for a in config.WATCHLIST]
+# default to: symbol of an open position > final setup > BTC
+_default = "BTCUSDT"
+if S["open_positions"]:
+    _default = S["open_positions"][0]["symbol"]
+elif fs:
+    _default = fs["symbol"]
+ch1, ch2 = st.columns([1.2, 5])
+with ch1:
+    st.markdown("<div class='tpanel'><div class='hd'><span>📊 LIVE CHART</span>"
+                "</div></div>", unsafe_allow_html=True)
+    chart_sym = st.selectbox("chart symbol", chart_syms,
+                             index=chart_syms.index(_default) if _default in chart_syms else 0,
+                             label_visibility="collapsed")
+    st.markdown("<div class='small'>▬ entry &nbsp;╌ TP/SL &nbsp;▲▼ trade markers<br>"
+                "your bot trades are drawn live on this chart</div>",
+                unsafe_allow_html=True)
+with ch2:
+    chart_asset = next(a for a in config.WATCHLIST if a["symbol"] == chart_sym)
+    ccandles, csrc = feeds.get_candles(chart_asset, S.get("interval", "5m"), 180)
+    plan_line = None
+    if fs and fs["symbol"] == chart_sym:
+        plan_line = {"symbol": chart_sym, "side": fs["side"], "entry": fs["entry"],
+                     "tp": fs["tp"], "sl": fs["sl"]}
+    html = chart.chart_html(chart_sym, ccandles,
+                            positions=S["open_positions"],
+                            journal=JRN["journal"],
+                            plan=plan_line, height=380,
+                            interval=S.get("interval", "5m") + " · " + csrc)
+    components.html(html, height=392)
 
 # ================================================================== #
 #  SIGNAL DECK - one-click trading, front and center
