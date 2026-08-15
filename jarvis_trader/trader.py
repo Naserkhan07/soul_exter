@@ -68,6 +68,7 @@ class TradingEngine:
         self.auto_trade = config.AUTO_TRADE
         self.min_conf = config.MIN_CONFIDENCE_TO_TRADE
         self.risk_pct = config.RISK_PER_TRADE_PCT
+        self.trade_capital = config.TRADE_CAPITAL   # 0 = use full balance
         self.market = {}                 # symbol -> latest quote/mini-analysis
         self.last_analysis = {}          # symbol -> latest full council verdict
         self.signals = {}                # symbol -> scanned trade setup awaiting YOUR click
@@ -613,12 +614,17 @@ class TradingEngine:
         # shift TP/SL by the slippage between scan price and live price
         drift = entry - sig["entry"]
         tp, sl = tp + drift, sl + drift
-        risk_amount = self.broker.equity * self.risk_pct / 100
+        # trading capital: if you set an amount (e.g. 1000), all sizing
+        # uses ONLY that amount - never more than you decided to trade with
+        capital = self.trade_capital if self.trade_capital > 0 else self.broker.equity
+        capital = min(capital, self.broker.equity)   # can't trade more than you have
+        risk_amount = capital * self.risk_pct / 100
         stop_dist = abs(entry - sl)
         if stop_dist <= 0:
             return {"ok": False, "error": "invalid stop distance"}
         qty = max(risk_amount / stop_dist, 1e-9)
-        max_qty = (self.broker.equity * 0.2 * 10) / entry
+        # cap notional exposure to the trading capital (with modest leverage)
+        max_qty = (capital * 0.2 * 10) / entry
         qty = min(qty, max_qty)
 
         pid = self.broker.open(symbol, side, qty, entry, tp, sl, meta={
@@ -714,6 +720,7 @@ class TradingEngine:
                 "auto_trade": self.auto_trade,
                 "min_confidence": self.min_conf,
                 "risk_pct": self.risk_pct,
+                "trade_capital": self.trade_capital,
                 "balance": round(self.broker.balance, 2),
                 "equity": round(self.broker.equity, 2),
                 "open_positions": copy.deepcopy(list(self.broker.positions.values())),

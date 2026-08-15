@@ -167,6 +167,7 @@ button.danger{background:#2b0f16;border-color:var(--red);color:var(--red)}
   <div class="kpi"><div class="v purple" id="k-brain">--</div><div class="l">Jarvis</div></div>
   <div class="kpi"><div class="v purple" id="k-acc">--</div><div class="l">Accuracy</div></div>
   <div class="kpi"><div class="v" id="k-open">--</div><div class="l">Mkts open</div></div>
+  <div class="kpi"><div class="v gold" id="k-cap">FULL</div><div class="l">Trading with</div></div>
   <div id="controls">
     <span class="dim" style="font-size:9px">LAYOUT</span>
     <select id="layoutSel">
@@ -176,11 +177,16 @@ button.danger{background:#2b0f16;border-color:var(--red);color:var(--red)}
     </select>
     <span class="dim" style="font-size:9px">BOT TF</span>
     <select id="botTf"></select>
-    <label class="toggle"><input type="checkbox" id="autoTrade"/> AUTO</label>
+    <label class="toggle" id="autoWrap" style="border:1px solid var(--border2);border-radius:3px;
+      padding:3px 8px"><input type="checkbox" id="autoTrade"/> <b>AUTO-TRADE</b></label>
     <span class="dim" style="font-size:9px">CONF</span>
     <input type="number" id="minConf" style="width:52px" min="0" max="100" step="5"/>
     <span class="dim" style="font-size:9px">RISK%</span>
     <input type="number" id="riskPct" style="width:52px" min="0.1" max="5" step="0.1"/>
+    <span class="gold" style="font-size:9px;font-weight:700">💰 MY CAPITAL</span>
+    <input type="number" id="tradeCap" style="width:80px;border-color:var(--gold)"
+      min="0" step="100" placeholder="full bal" title="How much money you want to trade with (e.g. 1000). Empty/0 = full balance. All trade sizes are calculated from ONLY this amount."/>
+    <button onclick="setCapital()" style="border-color:var(--gold);color:var(--gold)">SET</button>
     <button onclick="openVault()">🔐 KEYS</button>
   </div>
 </div>
@@ -446,7 +452,12 @@ async function refreshStatus(){
     if(document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='SELECT'){
       $('autoTrade').checked=s.auto_trade;$('minConf').value=s.min_confidence;
       $('riskPct').value=s.risk_pct;$('botTf').value=s.interval;
+      $('tradeCap').value=s.trade_capital>0?s.trade_capital:'';
     }
+    /* capital KPI + auto-trade highlight */
+    $('k-cap').textContent=s.trade_capital>0?Number(s.trade_capital).toLocaleString():'FULL';
+    $('autoWrap').style.borderColor=s.auto_trade?'var(--green)':'var(--border2)';
+    $('autoWrap').style.color=s.auto_trade?'var(--green)':'var(--dim2)';
     /* jarvis says */
     let say=[];
     if(s.jarvis.bootstrapping)say.push('Training my brain on history…');
@@ -773,9 +784,17 @@ $('layoutSel').onchange=()=>{const n=+$('layoutSel').value;
   const saved=loadGrid();buildGrid(n,saved&&saved.panes);};
 $('botTf').onchange=async()=>{await jpost('/api/interval/'+$('botTf').value);
   toast('bot timeframe → '+$('botTf').value);};
-$('autoTrade').onchange=()=>jpost('/api/settings',{auto_trade:$('autoTrade').checked});
+$('autoTrade').onchange=()=>{jpost('/api/settings',{auto_trade:$('autoTrade').checked});
+  toast($('autoTrade').checked?'🤖 AUTO-TRADE ON — bot will keep placing buy/sell trades with TP/SL':'AUTO-TRADE off — signals wait for your click');};
 $('minConf').onchange=()=>jpost('/api/settings',{min_confidence:+$('minConf').value});
 $('riskPct').onchange=()=>jpost('/api/settings',{risk_pct:+$('riskPct').value});
+async function setCapital(){
+  const v=parseFloat($('tradeCap').value)||0;
+  await jpost('/api/settings',{trade_capital:v});
+  toast(v>0?`💰 Trading capital set: ${v.toLocaleString()} — every trade is sized from ONLY this amount`:'💰 Trading with FULL balance');
+  refreshStatus();
+}
+$('tradeCap').addEventListener('keydown',e=>{if(e.key==='Enter')setCapital();});
 
 /* ================= boot ================= */
 (async function boot(){

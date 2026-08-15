@@ -29,7 +29,10 @@ MT5_SERVER = os.getenv("MT5_SERVER", "")
 PAPER_START_BALANCE = float(os.getenv("PAPER_START_BALANCE", "10000"))
 RISK_PER_TRADE_PCT = float(os.getenv("RISK_PER_TRADE_PCT", "1.0"))
 MIN_CONFIDENCE_TO_TRADE = float(os.getenv("MIN_CONFIDENCE_TO_TRADE", "35"))
-AUTO_TRADE = os.getenv("AUTO_TRADE", "false").lower() in ("1", "true", "yes")
+AUTO_TRADE = os.getenv("AUTO_TRADE", "true").lower() in ("1", "true", "yes")
+# TRADE_CAPITAL: the amount of money you actually want to trade with
+# (e.g. 1000). 0 = use the full account balance.
+TRADE_CAPITAL = float(os.getenv("TRADE_CAPITAL", "0"))
 SCAN_INTERVAL_SEC = int(os.getenv("SCAN_INTERVAL_SEC", "20"))
 SIGNAL_TTL_SEC = int(os.getenv("SIGNAL_TTL_SEC", "900"))                   # signal freshness
 

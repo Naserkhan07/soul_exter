@@ -193,8 +193,22 @@ async def api_settings(req: Request):
         ENGINE.min_conf = float(body["min_confidence"])
     if "risk_pct" in body:
         ENGINE.risk_pct = float(body["risk_pct"])
+    if "trade_capital" in body:
+        ENGINE.trade_capital = max(0.0, float(body["trade_capital"]))
+        cap = ENGINE.trade_capital
+        ENGINE.log(f"Trading capital set to {cap if cap > 0 else 'FULL BALANCE'}"
+                   + (f" - all position sizing now uses only {cap}" if cap > 0 else ""))
     ENGINE.log(f"Settings updated: auto_trade={ENGINE.auto_trade} "
-               f"min_conf={ENGINE.min_conf} risk={ENGINE.risk_pct}%")
+               f"min_conf={ENGINE.min_conf} risk={ENGINE.risk_pct}% "
+               f"capital={ENGINE.trade_capital or 'full'}")
+    # persist so settings survive restarts
+    try:
+        vault.write_env({"AUTO_TRADE": "true" if ENGINE.auto_trade else "false",
+                         "TRADE_CAPITAL": str(ENGINE.trade_capital),
+                         "MIN_CONFIDENCE_TO_TRADE": str(ENGINE.min_conf),
+                         "RISK_PER_TRADE_PCT": str(ENGINE.risk_pct)})
+    except Exception:
+        pass
     return {"ok": True}
 
 
