@@ -54,12 +54,26 @@ class PaperBroker:
             return None
         d = 1 if p["side"] == "BUY" else -1
         pnl = (price - p["entry"]) * d * p["qty"]
+        pnl += p.get("banked_pnl", 0.0)          # include partial-TP profits
         self.balance += pnl
         p.update({"exit": price, "pnl": round(pnl, 4), "closed": time.time(),
                   "reason": reason})
         self.history.append(p)
         self.history = self.history[-300:]
         return p
+
+    def partial_close(self, pid, price, fraction):
+        """Bank `fraction` of the position at `price`. Returns banked pnl."""
+        p = self.positions.get(pid)
+        if not p or fraction <= 0 or fraction >= 1:
+            return 0.0
+        d = 1 if p["side"] == "BUY" else -1
+        qty_out = p["qty"] * fraction
+        realized = (price - p["entry"]) * d * qty_out
+        p["qty"] -= qty_out
+        p["banked_pnl"] = p.get("banked_pnl", 0.0) + realized
+        p["partial_done"] = True
+        return realized
 
 
 class TradingEngine:
@@ -89,6 +103,7 @@ class TradingEngine:
         self.final_setup = None          # the ONE best trade setup right now
         self.symbol_cooldown = {}        # symbol -> ts until which no re-entry
         self.confirm_count = {}          # symbol -> (side, consecutive confirmations)
+        self.pending_orders = {}         # symbol -> pullback limit order dict
         self.loss_streak = 0             # consecutive losses (risk throttle)
         self.day_pnl = 0.0               # realized PnL today
         self.day_stamp = time.strftime("%Y-%m-%d")
@@ -240,6 +255,7 @@ class TradingEngine:
                         }
                     if mh["open"]:
                         self._manage_positions(asset["symbol"], price, candles)
+                        self._check_pending_order(asset["symbol"], price)
                 except Exception as e:
                     self.log(f"price loop error {asset['symbol']}: {e}")
             self.broker.equity = self.broker.balance + sum(
@@ -264,31 +280,56 @@ class TradingEngine:
             d = 1 if p["side"] == "BUY" else -1
             r_dist = abs(p["entry"] - p["initial_sl"])
             move = (price - p["entry"]) * d
-            # breakeven+ at +1.3R (was +1R - too early, normal pullbacks
-            # kept tagging the entry). Locks in a small +0.2R profit.
-            if not p["be_moved"] and r_dist > 0 and move >= 1.3 * r_dist:
-                p["sl"] = p["entry"] + d * 0.2 * r_dist
+
+            # ---- PARTIAL TP at +1R: bank 50%, SL -> entry ----
+            # This is the single biggest SL-hit killer: once price reaches
+            # +1R we take half profit and the rest rides risk-free. A trade
+            # that later reverses shows as a WIN (+0.5R), not an SL hit.
+            if not p.get("partial_done") and r_dist > 0 and move >= 1.0 * r_dist:
+                banked = self.broker.partial_close(p["id"], price, 0.5)
+                p["sl"] = p["entry"]
                 p["be_moved"] = True
-                self.log(f"{symbol} {p['side']} SL -> breakeven+0.2R @ {p['sl']:.5g}")
-            # ATR trail only after 1.8R, with a looser 1.8*ATR gap so the
-            # trail doesn't choke winners on the first red candle
+                self.log(f"{symbol} {p['side']} PARTIAL TP: banked {banked:+.2f} "
+                         f"(50% @ +1R), SL -> entry, rest rides risk-free")
+                self.act("trade", f"{symbol} partial profit {banked:+.2f} banked "
+                         f"@ +1R - remainder is a free trade")
+
+            # after partial, lock more as price advances
+            if p.get("partial_done") and r_dist > 0 and move >= 1.6 * r_dist:
+                lock = p["entry"] + d * 0.6 * r_dist
+                if (d == 1 and lock > p["sl"]) or (d == -1 and lock < p["sl"]):
+                    p["sl"] = lock
+            # ATR trail after 1.8R with a loose 1.8*ATR gap
             if r_dist > 0 and move >= 1.8 * r_dist:
                 new_sl = price - d * 1.8 * a
                 if (d == 1 and new_sl > p["sl"]) or (d == -1 and new_sl < p["sl"]):
                     p["sl"] = new_sl
+
+            # ---- SMART EARLY EXIT: council flipped hard against us ----
+            # Losing the full 1R when the market has clearly turned is
+            # donation. If the latest council verdict is STRONGLY opposite
+            # (conf >= 55) and we're still in the loss zone, cut at ~-0.3R.
+            an = self.last_analysis.get(symbol)
+            if an and time.time() - an["ts"] < 240 and move < 0:
+                av = an["verdict"]
+                opposite = (av["direction"] == "DOWN") if p["side"] == "BUY" \
+                    else (av["direction"] == "UP")
+                if opposite and av["confidence"] >= 55 and move <= -0.25 * r_dist:
+                    to_close.append((p["id"], price, "Early exit (council flipped)"))
+                    continue
             # TP / SL hits
+            stop_reason = ("Partial TP + stop at entry" if p.get("partial_done")
+                           else ("Breakeven stop hit" if p["be_moved"] else "SL hit"))
             if d == 1:
                 if price >= p["tp"]:
                     to_close.append((p["id"], p["tp"], "TP hit"))
                 elif price <= p["sl"]:
-                    to_close.append((p["id"], p["sl"],
-                                     "Breakeven stop hit" if p["be_moved"] else "SL hit"))
+                    to_close.append((p["id"], p["sl"], stop_reason))
             else:
                 if price <= p["tp"]:
                     to_close.append((p["id"], p["tp"], "TP hit"))
                 elif price >= p["sl"]:
-                    to_close.append((p["id"], p["sl"],
-                                     "Breakeven stop hit" if p["be_moved"] else "SL hit"))
+                    to_close.append((p["id"], p["sl"], stop_reason))
         for pid, px, reason in to_close:
             self._close_and_learn(pid, px, reason)
 
@@ -341,6 +382,11 @@ class TradingEngine:
             "Breakeven stop hit": "Trade went 1R in profit, stop moved to entry, "
                                   "then price came back - closed at ~breakeven",
             "manual close": "You closed it manually from the dashboard",
+            "Early exit (council flipped)": "The AI council flipped strongly "
+                "against this trade while it was losing - cut at ~-0.3R instead "
+                "of donating the full -1R",
+            "Partial TP + stop at entry": "Half was banked at +1R, then price "
+                "returned to entry - net result is still a profit (~+0.5R)",
         }.get(reason, reason)
         entry = {
             "id": p["id"],
@@ -544,7 +590,48 @@ class TradingEngine:
                 self.act("skip", f"{sym}: waiting for confirmation scan "
                          f"({streak}/2) before AUTO entry")
             else:
-                self.place_trade(sym, source="auto")
+                # PULLBACK ENTRY: instead of chasing at market, queue a limit
+                # order at a 0.35*ATR retracement. Better entry = SL further
+                # from noise + TP effectively closer = both hit rates improve.
+                atr_p = abs(plan["entry"] - plan["sl"]) / 2.2
+                pull = 0.35 * atr_p
+                limit_px = plan["entry"] - pull if side == "BUY" \
+                    else plan["entry"] + pull
+                with self.lock:
+                    self.pending_orders[sym] = {
+                        "symbol": sym, "side": side, "limit": limit_px,
+                        "created": time.time(), "expires": time.time() + 600,
+                        "signal_id": self.signals[sym]["id"],
+                    }
+                self.act("signal", f"{sym}: pullback limit {side} @ {limit_px:.6g} "
+                         f"queued (entry improves by {pull:.6g}); fills if price "
+                         "retraces within 10min, else market entry")
+
+    def _check_pending_order(self, symbol, price):
+        """Fill pullback limit orders; on expiry take market entry if the
+        signal is still valid."""
+        with self.lock:
+            po = self.pending_orders.get(symbol)
+        if not po:
+            return
+        filled = (price <= po["limit"]) if po["side"] == "BUY" \
+            else (price >= po["limit"])
+        expired = time.time() > po["expires"]
+        if not filled and not expired:
+            return
+        with self.lock:
+            self.pending_orders.pop(symbol, None)
+            sig = self.signals.get(symbol)
+            if not sig or sig["status"] != "waiting" or sig["id"] != po["signal_id"]:
+                return   # signal gone/placed/changed - drop the pending order
+        if filled:
+            self.act("trade", f"{symbol}: pullback limit FILLED @ {price:.6g} "
+                     "- better entry than chasing")
+            self.place_trade(symbol, source="auto")
+        elif expired:
+            # no pullback came - momentum is strong; enter at market
+            self.act("trade", f"{symbol}: no pullback in 10min, taking market entry")
+            self.place_trade(symbol, source="auto")
 
     def _update_final_setup(self):
         """
