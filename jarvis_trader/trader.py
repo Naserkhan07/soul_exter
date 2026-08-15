@@ -299,20 +299,33 @@ class TradingEngine:
             r_dist = abs(p["entry"] - p["initial_sl"])
             move = (price - p["entry"]) * d
 
-            # ---- PARTIAL TP at +1R: bank 50%, SL -> entry ----
-            # This is the single biggest SL-hit killer: once price reaches
-            # +1R we take half profit and the rest rides risk-free. A trade
-            # that later reverses shows as a WIN (+0.5R), not an SL hit.
-            if not p.get("partial_done") and r_dist > 0 and move >= 1.0 * r_dist:
+            # ---- PROFIT LADDER (regime-adaptive multi-level exits) ----
+            # Level 1: bank 50% at +partial_at_r (regime decides: 0.7R in
+            #          high-vol, 0.8R ranging, 1.0-1.2R in trends), SL->entry.
+            # Level 2: bank another 25% at +2R, lock SL at +1R.
+            # Rest rides the ATR trail toward full TP.
+            partial_r = p["meta"].get("partial_at_r", 1.0)
+            if not p.get("partial_done") and r_dist > 0 and move >= partial_r * r_dist:
                 banked = self.broker.partial_close(p["id"], price, 0.5)
                 p["sl"] = p["entry"]
                 p["be_moved"] = True
-                self.log(f"{symbol} {p['side']} PARTIAL TP: banked {banked:+.2f} "
-                         f"(50% @ +1R), SL -> entry, rest rides risk-free")
-                self.act("trade", f"{symbol} partial profit {banked:+.2f} banked "
-                         f"@ +1R - remainder is a free trade")
+                self.log(f"{symbol} {p['side']} LADDER 1: banked {banked:+.2f} "
+                         f"(50% @ +{partial_r}R), SL -> entry, rest risk-free")
+                self.act("trade", f"{symbol} ladder-1 profit {banked:+.2f} banked "
+                         f"@ +{partial_r}R - remainder is a free trade")
+            if p.get("partial_done") and not p.get("partial2_done") \
+                    and r_dist > 0 and move >= 2.0 * r_dist:
+                banked2 = self.broker.partial_close(p["id"], price, 0.5)  # 50% of rest = 25% of orig
+                p["partial2_done"] = True
+                lock = p["entry"] + d * 1.0 * r_dist
+                if (d == 1 and lock > p["sl"]) or (d == -1 and lock < p["sl"]):
+                    p["sl"] = lock
+                self.log(f"{symbol} {p['side']} LADDER 2: banked {banked2:+.2f} "
+                         f"(25% @ +2R), SL locked at +1R")
+                self.act("trade", f"{symbol} ladder-2 profit {banked2:+.2f} banked "
+                         f"@ +2R - stop locked at +1R")
 
-            # after partial, lock more as price advances
+            # after ladder-1, lock more as price advances
             if p.get("partial_done") and r_dist > 0 and move >= 1.6 * r_dist:
                 lock = p["entry"] + d * 0.6 * r_dist
                 if (d == 1 and lock > p["sl"]) or (d == -1 and lock < p["sl"]):
@@ -403,8 +416,8 @@ class TradingEngine:
             "Early exit (council flipped)": "The AI council flipped strongly "
                 "against this trade while it was losing - cut at ~-0.3R instead "
                 "of donating the full -1R",
-            "Partial TP + stop at entry": "Half was banked at +1R, then price "
-                "returned to entry - net result is still a profit (~+0.5R)",
+            "Partial TP + stop at entry": "Profit ladder banked partials, then "
+                "price returned to the locked stop - net result is still a profit",
         }.get(reason, reason)
         entry = {
             "id": p["id"],
@@ -425,6 +438,8 @@ class TradingEngine:
             "held_human": f"{int(held//3600)}h {int(held%3600//60)}m" if held >= 3600
                           else f"{int(held//60)}m {int(held%60)}s",
             "placed_by": meta.get("placed_by", "auto"),
+            "regime_at_entry": meta.get("regime"),
+            "size_mult_used": meta.get("size_mult_used"),
             "confidence_at_entry": meta.get("confidence"),
             "council_score_at_entry": meta.get("score"),
             "member_votes_at_entry": meta.get("members"),
@@ -567,6 +582,7 @@ class TradingEngine:
                 "side": side, "entry": plan["entry"], "tp": plan["tp"],
                 "sl": plan["sl"], "rr": plan.get("rr"), "tp_source": plan.get("tp_source"),
                 "confidence": v["confidence"], "score": v["score"],
+                "regime": v.get("regime"),
                 "reasons": top_reasons,
                 "members": {k: m["score"] for k, m in verdict["members"].items()},
                 "features": verdict.get("features"),
@@ -788,6 +804,14 @@ class TradingEngine:
         capital = self.trade_capital if self.trade_capital > 0 else self.broker.equity
         capital = min(capital, self.broker.equity)   # can't trade more than you have
         risk_amount = capital * self.risk_pct / 100
+        # CONFIDENCE-BASED SIZING: borderline setups risk 0.5x, monsters 1.5x
+        from . import regime as regime_mod
+        conf_mult = regime_mod.confidence_size_mult(
+            sig.get("confidence", self.min_conf), self.min_conf)
+        risk_amount *= conf_mult
+        # REGIME SIZE MULTIPLIER: high-volatility regimes trade half size
+        reg_info = sig.get("regime") or {}
+        risk_amount *= reg_info.get("size_mult", 1.0)
         # after 2+ consecutive losses, halve size until a winner resets it
         if self.loss_streak >= 2:
             risk_amount *= 0.5
@@ -807,6 +831,9 @@ class TradingEngine:
             "reasons": sig.get("reasons"), "signal_id": sig["id"],
             "placed_by": source, "signal_ts": sig["ts"],
             "asset_type": sig.get("type"),
+            "regime": (sig.get("regime") or {}).get("name"),
+            "partial_at_r": (sig.get("regime") or {}).get("partial_at_r", 1.0),
+            "size_mult_used": round(conf_mult * reg_info.get("size_mult", 1.0), 2),
         })
         with self.lock:
             sig["status"] = "placed"

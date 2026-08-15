@@ -480,7 +480,7 @@ function renderSignals(sig,s){
   const fs=s.final_setup;
   $('finalBox').innerHTML = fs?`
     <div class="sig final ${fs.side==='BUY'?'buy':'sell'}">
-      <div class="grade">🎯 FINAL TRADE SETUP [${fs.interval}] · ${fs.grade}</div>
+      <div class="grade">🎯 FINAL TRADE SETUP [${fs.interval}] · ${fs.grade}${fs.regime?` · ${fs.regime.name||fs.regime}`:''}</div>
       <div class="head ${fs.side==='BUY'?'up':'down'}">${fs.side} ${fs.symbol}
         <span style="font-size:10px;color:var(--dim2)"> conf ${Math.round(fs.confidence)}% · score ${fs.score>0?'+':''}${Math.round(fs.score)}</span>
         <span style="float:right">
@@ -596,6 +596,7 @@ async function askCouncil(){
     if(a.abcd)extra+=`<div class="why" style="font-size:9.5px">ABCD ▸ ${a.abcd.direction} D=(B×C)÷A=<b class="gold">${fmt(a.abcd.D)}</b></div>`;
     const htf=v.htf||{};
     if(htf.bias)extra+=`<div class="why" style="font-size:9.5px">HTF ${htf.tf} ▸ ${htf.aligned?'<b class="up">CONFIRMS ✓</b>':'<b class="down">against ✗ (confidence cut)</b>'} strength ${htf.strength}</div>`;
+    if(v.regime)extra+=`<div class="why" style="font-size:9.5px">REGIME ▸ <b class="gold">${v.regime.name}</b> — ${v.regime.why} · TP ${v.regime.tp_r}R · partial @${v.regime.partial_at_r}R · size ×${v.regime.size_mult}</div>`;
     const p=a.plan;
     $('council').innerHTML=`
       <div style="font-size:15px;font-weight:800" class="${v.direction==='UP'?'up':'down'}">

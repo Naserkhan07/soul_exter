@@ -19,7 +19,7 @@ import time
 
 import requests
 
-from . import config, feeds, indicators, strategies, patterns, news, jarvis
+from . import config, feeds, indicators, strategies, patterns, news, jarvis, regime
 from .knowledge import as_prompt_context
 
 TIMEOUT = 25
@@ -51,7 +51,7 @@ def _extract_json(text):
             return None
 
 
-def _build_llm_prompt(asset, snap, strat, pat, news_score, news_titles, jarvis_score, interval="5m"):
+def _build_llm_prompt(asset, snap, strat, pat, news_score, news_titles, jarvis_score, interval="5m", reg=None):
     ctx = as_prompt_context(3400)
     ind_lines = json.dumps({k: v for k, v in snap.items() if k not in ("votes",)},
                            default=lambda o: round(o, 5) if isinstance(o, float) else str(o))[:900]
@@ -78,6 +78,7 @@ TASK: Analyze {asset['name']} ({asset['symbol']}, type={asset['type']}) and deci
 CURRENT TECHNICALS ({interval} candles): {ind_lines}
 STRATEGY SIGNALS: {strat_lines}{abcd_line}
 LIVE CANDLESTICK & CHART PATTERNS DETECTED: {pat_lines} (aggregate pattern score {pat['pattern_score']})
+MARKET REGIME: {(reg or {}).get('regime', 'unknown')} - {(reg or {}).get('why', '')} (adapt: trend-follow in trends, fade extremes in ranges, reduce exposure in high volatility)
 NEWS SENTIMENT SCORE: {news_score} (-100 bearish .. +100 bullish)
 RECENT HEADLINES: {titles}
 JARVIS ML MODEL SCORE: {jarvis_score}
@@ -215,6 +216,20 @@ def analyze(asset, use_llms=True, interval="5m"):
     swings = strategies.find_swings(candles)
     pat = patterns.scan(candles, swings)
 
+    # ---- MARKET REGIME: classify condition, bias strategy votes ----
+    # (trend engines matter in trends, mean-reversion matters in ranges;
+    #  a strategy voting outside its regime gets its voice reduced)
+    reg = regime.detect(candles, snap)
+    bias = reg["params"]["bias"]
+    for s in strat["strategies"]:
+        mult = bias.get(s["name"])
+        if mult:
+            s["score"] = int(max(-100, min(100, s["score"] * mult)))
+            s["regime_biased"] = mult
+    strat["strategy_score"] = round(
+        sum(s["score"] for s in strat["strategies"]) /
+        max(len(strat["strategies"]), 1), 1)
+
     # refresh news in background (news loop keeps it warm); read current cache
     threading.Thread(target=news.ENGINE.refresh, daemon=True).start()
     news_score, n_rel, titles = news.ENGINE.asset_sentiment(asset["symbol"])
@@ -261,7 +276,7 @@ def analyze(asset, use_llms=True, interval="5m"):
 
     gem_reason = groq_reason = None
     if use_llms:
-        prompt = _build_llm_prompt(asset, snap, strat, pat, news_score, titles, jarvis_score, interval)
+        prompt = _build_llm_prompt(asset, snap, strat, pat, news_score, titles, jarvis_score, interval, reg)
         results = {}
 
         def run(name, fn):
@@ -367,14 +382,14 @@ def analyze(asset, use_llms=True, interval="5m"):
         sl = min(price - 1.6 * a, max(struct_sl, price - 3.0 * a))
         sl = min(sl, price - min_dist)          # enforce noise floor
         risk = price - sl
-        entry, tp = price, price + 2.0 * risk
+        entry, tp = price, price + reg["params"]["tp_r"] * risk
     else:
         swing_highs = [s["price"] for s in swings if s["type"] == "H"][-2:]
         struct_sl = max(swing_highs) + buffer_ if swing_highs else price + 2.2 * a
         sl = max(price + 1.6 * a, min(struct_sl, price + 3.0 * a))
         sl = max(sl, price + min_dist)          # enforce noise floor
         risk = sl - price
-        entry, tp = price, price - 2.0 * risk
+        entry, tp = price, price - reg["params"]["tp_r"] * risk
 
     # If a valid A-B-C-D projection agrees with the verdict, use D as the
     # take-profit target (capped so R:R never drops below ~1.2).
@@ -397,7 +412,11 @@ def analyze(asset, use_llms=True, interval="5m"):
                     "confidence": confidence,
                     "htf": {"tf": htf, "bias": htf_bias,
                             "aligned": htf_aligned,
-                            "strength": round(htf_strength, 2)}},
+                            "strength": round(htf_strength, 2)},
+                    "regime": {"name": reg["regime"], "why": reg["why"],
+                               "tp_r": reg["params"]["tp_r"],
+                               "partial_at_r": reg["params"]["partial_at_r"],
+                               "size_mult": reg["params"]["size_mult"]}},
         "members": members,
         "plan": {"entry": round(entry, 6), "tp": round(tp, 6), "sl": round(sl, 6),
                  "atr": round(a, 6),
