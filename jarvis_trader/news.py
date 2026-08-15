@@ -109,6 +109,26 @@ def sentiment_score(text):
     return max(-1.0, min(1.0, s / 6.0))
 
 
+def _apply_finbert(items):
+    """Upgrade keyword sentiment with FinBERT (HF finance model) when
+    available. Falls back silently to keyword scores."""
+    try:
+        from . import hf_models
+        if not hf_models.finbert_available():
+            return items
+        titles = [it["title"] for it in items]
+        scores = hf_models.finbert_sentiment(titles)
+        if scores:
+            for it, s in zip(items, scores):
+                # blend: FinBERT dominates (it reads sentences), keywords
+                # keep a say (they catch finance slang FinBERT may miss)
+                it["sentiment"] = round(0.75 * s + 0.25 * it["sentiment"], 3)
+                it["scored_by"] = "finbert"
+    except Exception:
+        pass
+    return items
+
+
 class NewsEngine:
     def __init__(self):
         self.headlines = []          # [{title, source, link, ts, sentiment}]
@@ -194,17 +214,21 @@ class NewsEngine:
                 fail.append(name)
 
         cal = self._fetch_calendar()
+        # dedupe + FinBERT scoring OUTSIDE the lock (model inference is slow)
+        scored = None
+        if all_items:
+            seen = set()
+            dedup = []
+            for it in all_items:
+                k = it["title"][:80].lower()
+                if k in seen:
+                    continue
+                seen.add(k)
+                dedup.append(it)
+            scored = _apply_finbert(dedup[:400])
         with self.lock:
-            if all_items:
-                seen = set()
-                dedup = []
-                for it in all_items:
-                    k = it["title"][:80].lower()
-                    if k in seen:
-                        continue
-                    seen.add(k)
-                    dedup.append(it)
-                self.headlines = dedup[:400]
+            if scored is not None:
+                self.headlines = scored
             if cal is not None:
                 self.calendar = cal
                 ok.append("ForexFactory-Calendar")

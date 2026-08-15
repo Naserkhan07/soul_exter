@@ -1,0 +1,9 @@
+# Optional AI upgrades from Hugging Face (free, run locally on CPU)
+#   pip install -r requirements-ai.txt
+# First run downloads ~600MB of weights into the HF cache, then fully offline.
+#
+# FinBERT  (ProsusAI/finbert)          -> finance-tuned news sentiment
+# Chronos  (amazon/chronos-bolt-small) -> time-series FORECASTER council member
+torch --index-url https://download.pytorch.org/whl/cpu
+transformers>=4.40
+chronos-forecasting>=1.4

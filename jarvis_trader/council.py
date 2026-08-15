@@ -32,6 +32,7 @@ WEIGHTS = {
     "jarvis": 1.4,
     "gemini": 1.1,
     "groq": 1.1,
+    "forecaster": 1.2,     # Chronos time-series foundation model (HF, local)
 }
 
 _llm_status = {"gemini": "untested", "groq": "untested"}
@@ -241,6 +242,22 @@ def analyze(asset, use_llms=True, interval="5m"):
                               "live_feedback": jarvis.BRAIN.live_feedback,
                               "accuracy": jarvis.BRAIN.accuracy}},
     }
+
+    # FORECASTER: Chronos time-series foundation model (HF, runs locally).
+    # Only votes when installed - degrades gracefully otherwise.
+    try:
+        from . import hf_models
+        if hf_models.chronos_available():
+            fc = hf_models.chronos_forecast([c["c"] for c in candles], horizon=12)
+            if fc:
+                members["forecaster"] = {
+                    "score": fc["score"],
+                    "detail": {"prob_up": fc["prob_up"],
+                               "exp_move_pct": fc["exp_move"],
+                               "model": "amazon/chronos-bolt-small",
+                               "horizon": f"12x{interval}"}}
+    except Exception:
+        pass
 
     gem_reason = groq_reason = None
     if use_llms:

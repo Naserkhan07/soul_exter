@@ -15,6 +15,16 @@ python run.py
 
 API keys live in `.env` (Gemini + Groq only — all market data comes from free, unlimited sources: Binance, OKX, Kraken, Coinbase, Yahoo Finance, Stooq).
 
+### 🤗 Optional Hugging Face AI upgrades (free, local, no API limits)
+
+```bash
+pip install -r requirements-ai.txt   # ~2GB torch CPU + ~600MB weights on first run
+```
+
+Unlocks two extra intelligence sources (bot runs fine without them):
+- **FinBERT** (`ProsusAI/finbert`) — finance-tuned news sentiment replaces the keyword scorer; the NEWS vote now understands sentences ("Fed holds rates but signals cuts" = bullish).
+- **Chronos** (`amazon/chronos-bolt-small`) — Amazon's time-series foundation model becomes the **FORECASTER council member**: probabilistic forecast of the next 12 candles with prob_up + expected move, voting −100..+100 alongside Jarvis/Gemini/Groq.
+
 ## How it works
 
 ```

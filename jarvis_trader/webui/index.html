@@ -575,8 +575,8 @@ async function askCouncil(){
   try{
     const a=await jpost('/api/analyze/'+encodeURIComponent(sym));
     const v=a.verdict;
-    const names={jarvis:'JARVIS',gemini:'GEMINI',groq:'GROQ',indicators:'INDIC',
-      strategies:'STRAT',patterns:'PATTRN',news:'NEWS'};
+    const names={jarvis:'JARVIS',gemini:'GEMINI',groq:'GROQ',forecaster:'FORECAST',
+      indicators:'INDIC',strategies:'STRAT',patterns:'PATTRN',news:'NEWS'};
     let bars='';
     for(const k of Object.keys(names)){
       const m=a.members[k]; if(!m)continue;

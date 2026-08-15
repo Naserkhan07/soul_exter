@@ -23,6 +23,14 @@ STATE_PATH = config.DATA_DIR / "trader_state.json"
 JOURNAL_PATH = config.DATA_DIR / "trade_journal.json"
 
 
+def _hf_status():
+    try:
+        from . import hf_models
+        return hf_models.status()
+    except Exception:
+        return {"finbert": "module missing", "chronos": "module missing"}
+
+
 class PaperBroker:
     def __init__(self, balance):
         self.balance = balance
@@ -173,6 +181,16 @@ class TradingEngine:
         threading.Thread(target=self._council_loop, daemon=True).start()
         threading.Thread(target=self._news_loop, daemon=True).start()
         threading.Thread(target=self._live_learn_loop, daemon=True).start()
+        # HF models (FinBERT sentiment + Chronos forecaster) load in the
+        # background if installed; the bot runs fine without them
+        try:
+            from . import hf_models
+            hf_models.warmup_async()
+            self.log("HF models warming up in background (FinBERT news "
+                     "sentiment + Chronos forecaster) - install with "
+                     "'pip install -r requirements-ai.txt' if missing")
+        except Exception:
+            pass
         self.log("Engine started: live tracking " +
                  f"{len(config.WATCHLIST)} assets across crypto/stocks/forex/futures/indices/funds")
 
@@ -891,6 +909,7 @@ class TradingEngine:
                     "bootstrapping": self.jarvis_bootstrapping,
                 },
                 "llm_status": council.llm_status(),
+                "hf_status": _hf_status(),
                 "news_sources_ok": news.ENGINE.sources_ok,
                 "news_sources_fail": news.ENGINE.sources_fail,
             }
