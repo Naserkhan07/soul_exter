@@ -161,6 +161,74 @@ def api_activity():
     return ENGINE.get_activity()
 
 
+import threading as _threading
+
+_backtest_state = {"running": False, "last": None}
+
+
+@app.post("/api/backtest")
+async def api_backtest(req: Request):
+    """Run the self-healing backtest. Body: {symbols?, interval?, apply_weights?}"""
+    from . import backtest
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    if _backtest_state["running"]:
+        return JSONResponse({"error": "backtest already running"}, status_code=409)
+
+    symbols = body.get("symbols") or None
+    interval = body.get("interval") or ENGINE.interval
+    apply_w = bool(body.get("apply_weights", False))
+
+    def _run():
+        _backtest_state["running"] = True
+        try:
+            ENGINE.act("analyze", f"BACKTEST started: {symbols or 'open-market assets'} "
+                       f"on {interval} - replaying history through all engines")
+            summary = backtest.run(symbols=symbols, interval=interval,
+                                   log=lambda m: ENGINE.log(m))
+            if apply_w and summary.get("tuned_weights"):
+                backtest.apply_tuned_weights(summary["tuned_weights"])
+                ENGINE.log(f"SELF-HEAL: council weights tuned from backtest "
+                           f"{summary['run_id']}: {summary['tuned_weights']}")
+                ENGINE.act("jarvis", "self-healing: council weights re-tuned "
+                           "from backtest evidence")
+            _backtest_state["last"] = summary
+        except Exception as e:
+            _backtest_state["last"] = {"error": str(e)[:200]}
+        finally:
+            _backtest_state["running"] = False
+
+    _threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "started": True, "interval": interval,
+            "symbols": symbols or "all open-market"}
+
+
+@app.get("/api/backtest")
+def api_backtest_status():
+    return {"running": _backtest_state["running"],
+            "last": _backtest_state["last"]}
+
+
+@app.get("/api/scoreboard")
+def api_scoreboard(source: str = None):
+    """Per-member/symbol/regime performance from SQLite trade memory."""
+    from . import memory
+    return memory.scoreboard(source=source or None)
+
+
+@app.post("/api/apply_tuned_weights")
+def api_apply_weights():
+    """Apply self-healed weights from ALL recorded trades (live+backtest)."""
+    from . import memory, backtest
+    tuned, notes = memory.tuned_weights(council.WEIGHTS)
+    backtest.apply_tuned_weights(tuned)
+    memory.save_tuning(tuned, reason="manual apply from scoreboard")
+    ENGINE.log(f"SELF-HEAL: weights applied {tuned}")
+    return {"ok": True, "weights": tuned, "notes": notes}
+
+
 @app.get("/api/reference")
 def api_reference():
     """Detailed description of every indicator and strategy engine."""

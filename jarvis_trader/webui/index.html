@@ -230,6 +230,13 @@ button.danger{background:#2b0f16;border-color:var(--red);color:var(--red)}
     <div id="sessions" class="feed" style="max-height:110px"></div>
     <div class="hd" style="margin-top:8px"><span>📰 NEWS WIRE</span><span id="newsCount">--</span></div>
     <div id="news" class="feed" style="max-height:130px"></div>
+    <div class="hd" style="margin-top:8px"><span>🧪 BACKTEST + SELF-HEAL</span>
+      <span><button onclick="runBacktest()" id="btBtn" style="padding:2px 8px;font-size:9.5px">▶ RUN</button>
+      <button onclick="applyWeights()" style="padding:2px 8px;font-size:9.5px" title="tune council weights from all recorded trades">⚡ TUNE</button></span></div>
+    <div id="backtest" class="feed" style="max-height:220px">
+      <span class="dim">RUN replays history through all engines (no LLM cost),
+      journals every simulated trade, then shows win rate / profit factor per
+      strategy. TUNE applies self-healed council weights from the evidence.</span></div>
   </div>
 </div>
 
@@ -757,6 +764,59 @@ async function refreshViewer(){
   }catch(e){}
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeViewer();});
+
+/* ================= backtest + scoreboard ================= */
+let btPoll=null;
+async function runBacktest(){
+  $('btBtn').textContent='RUNNING…';$('btBtn').disabled=true;
+  await jpost('/api/backtest',{apply_weights:true});
+  toast('🧪 backtest started — replaying history through all engines');
+  clearInterval(btPoll);
+  btPoll=setInterval(async()=>{
+    const d=await jget('/api/backtest');
+    if(!d.running&&d.last){clearInterval(btPoll);renderBacktest(d.last);
+      $('btBtn').textContent='▶ RUN';$('btBtn').disabled=false;
+      toast('🧪 backtest done: '+(d.last.trades??'?')+' trades, wr '+(d.last.win_rate??'?')+'%');}
+  },3000);
+}
+function renderBacktest(s){
+  if(s.error){$('backtest').innerHTML=`<span class="down">error: ${s.error}</span>`;return;}
+  let html=`<div><b class="gold">RUN ${s.run_id}</b> · ${s.interval} · ${s.trades} trades ·
+    <b class="${s.win_rate>=50?'up':'down'}">${s.win_rate}% WR</b> ·
+    PnL <b class="${s.total_pnl>=0?'up':'down'}">${s.total_pnl>=0?'+':''}${s.total_pnl}</b> ·
+    PF ${s.profit_factor??'--'} · expect ${s.expectancy??'--'}/trade</div>`;
+  if(s.tuning_notes&&s.tuning_notes.length){
+    html+=`<div class="dim" style="margin-top:4px">SELF-HEAL:</div>`;
+    for(const n of s.tuning_notes)html+=`<div class="f-jarvis">▸ ${n}</div>`;
+  }
+  html+=`<div class="dim" style="margin-top:4px">loading member scoreboard…</div>`;
+  $('backtest').innerHTML=html;
+  loadScoreboard();
+}
+async function loadScoreboard(){
+  const sb=await jget('/api/scoreboard');
+  if(!sb.total)return;
+  let html=$('backtest').innerHTML.replace('<div class="dim" style="margin-top:4px">loading member scoreboard…</div>','');
+  html+=`<div class="dim" style="margin-top:4px">MEMBER HIT-RATES (all ${sb.total} recorded trades):</div>`;
+  const ms=Object.entries(sb.members).sort((a,b)=>(b[1].hit_rate||0)-(a[1].hit_rate||0));
+  for(const [m,st] of ms){
+    if(st.hit_rate==null)continue;
+    html+=`<div>${st.hit_rate>=50?'🟢':'🔴'} <b>${m}</b> ${st.hit_rate}% over ${st.n} ·
+      pnl ${st.pnl_when_agreed>=0?'+':''}${st.pnl_when_agreed}</div>`;
+  }
+  const rs=Object.entries(sb.regimes||{});
+  if(rs.length){html+=`<div class="dim" style="margin-top:3px">BY REGIME:</div>`;
+    for(const [r,st] of rs)html+=`<div>▸ ${r}: ${st.win_rate}% wr, ${st.n} trades, pnl ${st.pnl>=0?'+':''}${st.pnl}</div>`;}
+  $('backtest').innerHTML=html;
+}
+async function applyWeights(){
+  const d=await jpost('/api/apply_tuned_weights');
+  toast('⚡ council weights self-healed from evidence');
+  let html=`<div class="gold">WEIGHTS TUNED:</div>`;
+  for(const n of (d.notes||[]))html+=`<div class="f-jarvis">▸ ${n}</div>`;
+  if(!(d.notes||[]).length)html+=`<div class="dim">not enough samples yet (need 10+ per member) — run a backtest first</div>`;
+  $('backtest').innerHTML=html;
+}
 
 /* ================= vault ================= */
 async function openVault(){

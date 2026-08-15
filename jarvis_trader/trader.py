@@ -448,6 +448,15 @@ class TradingEngine:
         with self.lock:
             self.journal.append(entry)
             self.journal = self.journal[-500:]
+        # persist to SQLite trade memory (scalable analytics + training data)
+        try:
+            from . import memory
+            entry2 = dict(entry)
+            entry2["asset_type"] = meta.get("asset_type", "")
+            entry2["interval"] = self.interval
+            memory.record_trade(entry2, source="live")
+        except Exception:
+            pass
 
     # -------------------------------------------------------------- #
     def _live_learn_loop(self):

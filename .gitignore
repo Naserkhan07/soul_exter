@@ -5,3 +5,4 @@ data_store/
 *.db
 *.pkl
 .venv/
+training/jarvis_dataset.jsonl
