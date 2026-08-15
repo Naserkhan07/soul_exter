@@ -19,8 +19,9 @@ API keys live in `.env` (Gemini + Groq only — all market data comes from free,
    Live data feeds ───► │        AI COUNCIL        │
    (Binance, Yahoo,     │  ─ Indicators  (vote)    │
     Stooq, OKX, Kraken, │  ─ Strategies  (vote)    │      Auto-trader
-    Coinbase - all free │  ─ News sent.  (vote)    │ ───► entry + TP + SL
-    unlimited sources)  │  ─ JARVIS ML   (vote)    │      breakeven @1R
+    Coinbase - all free │  ─ Patterns    (vote)    │ ───► entry + TP + SL
+    unlimited sources)  │  ─ News sent.  (vote)    │      breakeven @1R
+                        │  ─ JARVIS ML   (vote)    │
                         │  ─ Gemini      (vote)    │      ATR trailing
    News scraping ─────► │  ─ Groq        (vote)    │            │
    (Yahoo, CNBC,        └──────────────────────────┘            ▼
@@ -33,6 +34,10 @@ API keys live in `.env` (Gemini + Groq only — all market data comes from free,
 
 - **Ask the Council**: pick any asset in the dashboard and press *ASK THE COUNCIL* — it asks Gemini, Groq and Jarvis in detail "will this go up or down", collects a −100..+100 score from **every** member (indicators, strategies, news, Jarvis, Gemini, Groq) and shows the weighted verdict + trade plan.
 - **Auto-trade**: when confidence ≥ threshold it places a paper trade with ATR-based TP (2R) and SL (1.5×ATR), moves SL to breakeven at +1R and trails with ATR after +1.5R. When a valid A-B-C-D projection agrees with the verdict, the **D level is used as the take-profit target**.
+- **Live pattern recognition** (`patterns.py`) — a dedicated council member scans every asset's live chart for **~50 candlestick + chart patterns**:
+  - *Candlestick*: Hammer, Inverted Hammer, Hanging Man, Shooting Star, Doji / Gravestone / Dragonfly, Bullish & Bearish Engulfing, Piercing Line, Dark Cloud Cover, Morning/Evening Star (+ Doji Star variants), Three White Soldiers, Three Black Crows, Harami & Harami Cross, Inside Bars, Tweezer Top/Bottom, Bullish/Bearish Kicker, Rising/Falling Windows (gaps), Upside/Downside Tasuki Gap, Side-by-Side White Lines, Rising/Falling Three Methods, Separating Lines.
+  - *Chart*: Double & Triple Top/Bottom, Head & Shoulders + Inverse, Rising/Falling Wedge, Ascending/Descending/Symmetrical Triangle, Bullish/Bearish Flag & Pennant, Rectangles, Cup & Handle, Rounding Bottom, Broadening Formation, Diamond Top/Bottom.
+  - Each hit carries direction, strength (−100..+100), recency, and a note; the aggregate becomes the **PATTERNS vote** in the council, the detected list is shown in the dashboard, and every detected structure is described to Gemini & Groq in their prompts.
 - **Strategies tracked live** on every asset: Trend Following (EMA stack + ADX), Mean Reversion (RSI + Bollinger), Momentum Breakout (Donchian + volume), MACD Cross, VWAP Pullback, and the **A-B-C → D price projection**:
   - swing detector finds pivots A (start swing), B (major swing), C (pullback);
   - projects `D = (B × C) ÷ A` as a reaction/target level (Gann/Fibonacci style);

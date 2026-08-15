@@ -19,7 +19,7 @@ import time
 
 import requests
 
-from . import config, feeds, indicators, strategies, news, jarvis
+from . import config, feeds, indicators, strategies, patterns, news, jarvis
 from .knowledge import as_prompt_context
 
 TIMEOUT = 25
@@ -27,6 +27,7 @@ TIMEOUT = 25
 WEIGHTS = {
     "indicators": 1.0,
     "strategies": 1.0,
+    "patterns": 1.1,
     "news": 0.8,
     "jarvis": 1.4,
     "gemini": 1.1,
@@ -49,12 +50,16 @@ def _extract_json(text):
             return None
 
 
-def _build_llm_prompt(asset, snap, strat, news_score, news_titles, jarvis_score):
-    ctx = as_prompt_context(1800)
+def _build_llm_prompt(asset, snap, strat, pat, news_score, news_titles, jarvis_score):
+    ctx = as_prompt_context(3400)
     ind_lines = json.dumps({k: v for k, v in snap.items() if k not in ("votes",)},
                            default=lambda o: round(o, 5) if isinstance(o, float) else str(o))[:900]
     strat_lines = "; ".join(f"{s['name']}={s['score']} ({s['reason'][:60]})"
                             for s in strat["strategies"])
+    pat_lines = "; ".join(f"{p['name']}({p['direction']},{p['score']:+d} bars_ago={p.get('age',0)})"
+                          if isinstance(p['score'], int) else
+                          f"{p['name']}({p['direction']},{p['score']:+.0f})"
+                          for p in pat["patterns"][:10]) or "none detected"
     abcd = strat.get("abcd")
     abcd_line = ""
     if abcd:
@@ -71,6 +76,7 @@ TASK: Analyze {asset['name']} ({asset['symbol']}, type={asset['type']}) and deci
 
 CURRENT TECHNICALS (5m candles): {ind_lines}
 STRATEGY SIGNALS: {strat_lines}{abcd_line}
+LIVE CANDLESTICK & CHART PATTERNS DETECTED: {pat_lines} (aggregate pattern score {pat['pattern_score']})
 NEWS SENTIMENT SCORE: {news_score} (-100 bearish .. +100 bullish)
 RECENT HEADLINES: {titles}
 JARVIS ML MODEL SCORE: {jarvis_score}
@@ -161,11 +167,13 @@ def analyze(asset, use_llms=True):
     candles, source = feeds.get_candles(asset, "5m", 220)
     snap = indicators.snapshot(candles)
     strat = strategies.run_all(candles, snap)
+    swings = strategies.find_swings(candles)
+    pat = patterns.scan(candles, swings)
 
     news.ENGINE.refresh()
     news_score, n_rel, titles = news.ENGINE.asset_sentiment(asset["symbol"])
 
-    f = jarvis.build_features(snap, strat, news_score)
+    f = jarvis.build_features(snap, strat, news_score, pat)
     jarvis.add_price_features(f, candles)
     jarvis_score, prob_up = jarvis.BRAIN.predict(f)
 
@@ -173,6 +181,13 @@ def analyze(asset, use_llms=True):
         "indicators": {"score": snap["indicator_score"], "detail": snap["votes"]},
         "strategies": {"score": strat["strategy_score"],
                        "detail": {s["name"]: s["score"] for s in strat["strategies"]}},
+        "patterns": {"score": pat["pattern_score"],
+                     "detail": {"found": [{"name": p["name"], "dir": p["direction"],
+                                           "score": p["score"], "bars_ago": p.get("age", 0),
+                                           "note": p.get("note", "")}
+                                          for p in pat["patterns"]],
+                                "bullish": pat["bullish_count"],
+                                "bearish": pat["bearish_count"]}},
         "news": {"score": news_score,
                  "detail": {"relevant_headlines": n_rel, "titles": titles[:3]}},
         "jarvis": {"score": jarvis_score,
@@ -184,7 +199,7 @@ def analyze(asset, use_llms=True):
 
     gem_reason = groq_reason = None
     if use_llms:
-        prompt = _build_llm_prompt(asset, snap, strat, news_score, titles, jarvis_score)
+        prompt = _build_llm_prompt(asset, snap, strat, pat, news_score, titles, jarvis_score)
         results = {}
 
         def run(name, fn):

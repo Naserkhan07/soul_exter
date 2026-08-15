@@ -27,11 +27,12 @@ FEATURES = [
     "stoch_k", "adx_strength", "dmi_dir", "vwap_dist", "supertrend",
     "strat_trend", "strat_meanrev", "strat_breakout", "strat_macd", "strat_vwap",
     "strat_abcd", "abcd_dist",
+    "pat_score", "pat_candle", "pat_chart", "pat_agreement",
     "news_sent", "vol_ratio", "ret_5", "ret_20", "ret_60", "range_pos", "bias",
 ]
 
 
-def build_features(snap, strat, news_score):
+def build_features(snap, strat, news_score, pat=None):
     """Map raw analysis into normalized features (-1..1)."""
     f = {}
     r = snap.get("rsi14")
@@ -71,6 +72,21 @@ def build_features(snap, strat, news_score):
         f["abcd_dist"] = max(-1, min(1, (abcd["D"] - price) / price * 100))
     else:
         f["abcd_dist"] = 0.0
+
+    # candlestick + chart pattern features
+    if pat:
+        f["pat_score"] = max(-1, min(1, pat["pattern_score"] / 100))
+        candle_hits = [p for p in pat["patterns"] if p["kind"] == "candle"]
+        chart_hits = [p for p in pat["patterns"] if p["kind"] == "chart"]
+        f["pat_candle"] = max(-1, min(1, sum(p["score"] for p in candle_hits) / 150)) \
+            if candle_hits else 0.0
+        f["pat_chart"] = max(-1, min(1, sum(p["score"] for p in chart_hits) / 150)) \
+            if chart_hits else 0.0
+        total = pat["bullish_count"] + pat["bearish_count"]
+        f["pat_agreement"] = ((pat["bullish_count"] - pat["bearish_count"]) / total) \
+            if total else 0.0
+    else:
+        f["pat_score"] = f["pat_candle"] = f["pat_chart"] = f["pat_agreement"] = 0.0
 
     f["news_sent"] = max(-1, min(1, news_score / 100))
     f["vol_ratio"] = 0.0
@@ -128,6 +144,7 @@ class JarvisBrain:
             "vwap_dist": 0.15, "strat_trend": 0.5, "strat_meanrev": 0.3,
             "strat_breakout": 0.4, "strat_macd": 0.35, "strat_vwap": 0.25,
             "strat_abcd": 0.35, "abcd_dist": 0.15,
+            "pat_score": 0.45, "pat_candle": 0.3, "pat_chart": 0.4, "pat_agreement": 0.25,
             "news_sent": 0.5, "vol_ratio": 0.05, "ret_5": 0.15, "ret_20": 0.2,
             "ret_60": 0.15, "range_pos": 0.1, "bias": 0.0,
         }
@@ -201,6 +218,7 @@ class JarvisBrain:
         """
         from . import indicators as ind
         from . import strategies as strat_mod
+        from . import patterns as pat_mod
 
         total = 0
         plans = [("5m", 300, (3, 6, 12)),      # short/medium/longer intraday moves
@@ -220,7 +238,9 @@ class JarvisBrain:
                         try:
                             snap = ind.snapshot(window)
                             st = strat_mod.run_all(window, snap)
-                            f = build_features(snap, st, 0.0)
+                            sw = strat_mod.find_swings(window)
+                            pt = pat_mod.scan(window, sw)
+                            f = build_features(snap, st, 0.0, pt)
                             add_price_features(f, window)
                             went_up = candles[i + horizon - 1]["c"] > window[-1]["c"]
                             self.train_sample(f, went_up)

@@ -207,7 +207,7 @@ input[type=number]{background:var(--panel2);border:1px solid var(--border);color
     <h2>Live Markets <span class="tag" id="mktCount">--</span></h2>
     <div class="scroll">
     <table id="mktTable">
-      <thead><tr><th>Asset</th><th>Type</th><th>Price</th><th>Chg%</th><th>Verdict</th></tr></thead>
+      <thead><tr><th>Asset</th><th>Type</th><th>Price</th><th>Chg%</th><th>Verdict</th><th>Live Pattern</th></tr></thead>
       <tbody></tbody>
     </table>
     </div>
@@ -266,10 +266,22 @@ function renderCouncil(a){
   const v=a.verdict;
   const col=v.direction==='UP'?'var(--green)':'var(--red)';
   const m=a.members||{};
-  const names={indicators:'INDICATORS',strategies:'STRATEGIES',news:'NEWS',jarvis:'JARVIS ML',gemini:'GEMINI',groq:'GROQ'};
+  const names={indicators:'INDICATORS',strategies:'STRATEGIES',patterns:'PATTERNS',news:'NEWS',jarvis:'JARVIS ML',gemini:'GEMINI',groq:'GROQ'};
   let bars='';
-  for(const k of ['jarvis','gemini','groq','indicators','strategies','news']){
+  for(const k of ['jarvis','gemini','groq','indicators','strategies','patterns','news']){
     if(m[k])bars+=memberBar(names[k],m[k].score,m[k].detail);
+  }
+  let patHtml='';
+  if(m.patterns&&m.patterns.detail&&m.patterns.detail.found&&m.patterns.detail.found.length){
+    const pf=m.patterns.detail.found;
+    patHtml=`<h2 style="margin-top:10px">Patterns Detected Live <span class="tag">${m.patterns.detail.bullish}&#9650; / ${m.patterns.detail.bearish}&#9660;</span></h2>
+      <div class="scroll" style="max-height:130px">`+pf.map(p=>{
+        const pc=p.score>0?'var(--green)':p.score<0?'var(--red)':'var(--dim)';
+        return `<div style="padding:3px 0;border-bottom:1px solid #131e33;font-size:11px">
+          <span style="color:${pc};font-weight:600">${p.score>0?'&#9650;':p.score<0?'&#9660;':'&#9654;'} ${p.name}</span>
+          <span class="sub">${p.bars_ago?p.bars_ago+' bars ago':'now'}${p.note?' - '+p.note:''}</span>
+          <span style="float:right;color:${pc}">${p.score>0?'+':''}${Math.round(p.score)}</span></div>`;
+      }).join('')+'</div>';
   }
   let reasons='';
   if(m.gemini&&m.gemini.detail&&m.gemini.detail.reason)reasons+=`<div class="reason">Gemini: ${m.gemini.detail.reason}</div>`;
@@ -294,7 +306,7 @@ function renderCouncil(a){
         <span class="sub">confidence ${v.confidence}%</span></div>
       <div class="sub">price ${fmt(a.price)} &bull; src: ${a.data_source} &bull; ${a.elapsed_sec}s</div>
     </div>
-    ${bars}${reasons}${abcdHtml}
+    ${bars}${reasons}${patHtml}${abcdHtml}
     <h2 style="margin-top:10px">Auto Trade Plan</h2>
     <table class="plan"><tr><th>Entry</th><th>Take Profit</th><th>Stop Loss</th><th>R:R</th></tr>
     <tr><td>${fmt(p.entry)}</td><td class="up">${fmt(p.tp)}</td><td class="down">${fmt(p.sl)}</td><td>${p.rr}:1</td></tr></table>
@@ -325,12 +337,19 @@ async function refreshMarket(){
   $('mktTable').querySelector('tbody').innerHTML=rows.map(m=>{
     if(m.source==='SIMULATED')sim=true;
     const a=analysis[m.symbol];const v=a?a.verdict:null;
+    let pat='<span class="sub">--</span>';
+    const pf=a&&a.members&&a.members.patterns&&a.members.patterns.detail&&a.members.patterns.detail.found;
+    if(pf&&pf.length){
+      const p=pf[0];const pc=p.score>0?'var(--green)':p.score<0?'var(--red)':'var(--dim)';
+      pat=`<span style="color:${pc};font-size:10px">${p.score>0?'&#9650;':p.score<0?'&#9660;':'&#9654;'} ${p.name}</span>`;
+    }
     return `<tr class="row ${m.symbol===selected?'sel':''}" data-sym="${m.symbol}" onclick="selectAsset('${m.symbol}','${m.name}')">
       <td><span class="dot" style="background:${m.tick==='up'?'var(--green)':'var(--red)'}"></span>${m.name}</td>
       <td><span class="tag">${m.type}</span></td>
       <td>${fmt(m.price)}</td>
       <td class="${m.change_pct>=0?'up':'down'}">${m.change_pct>=0?'+':''}${m.change_pct}%</td>
-      <td>${v?`<span class="pill ${v.direction}" style="font-size:10px">${v.direction} ${Math.round(v.confidence)}</span>`:'<span class="sub">--</span>'}</td></tr>`;
+      <td>${v?`<span class="pill ${v.direction}" style="font-size:10px">${v.direction} ${Math.round(v.confidence)}</span>`:'<span class="sub">--</span>'}</td>
+      <td>${pat}</td></tr>`;
   }).join('');
   $('simWarn').style.display=sim?'block':'none';
 }

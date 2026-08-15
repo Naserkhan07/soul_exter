@@ -35,6 +35,21 @@ KNOWLEDGE = {
         "Swing structure: a pivot high/low confirmed by lower highs/higher lows either side defines A-B-C legs; invalid if the pullback C leaves the A-B range.",
         "Session timing: forex moves most in London/NY overlap; indices at cash open; crypto is 24/7 but follows US hours.",
     ],
+    "candlestick_patterns": [
+        "Reversal candles need context: Hammer/Dragonfly Doji/Piercing/Morning Star/Tweezer Bottom matter AFTER a decline; Shooting Star/Hanging Man/Gravestone/Dark Cloud/Evening Star/Tweezer Top matter AFTER a rise.",
+        "Engulfing and Kicker patterns are the strongest 1-2 bar signals - a full body takeover or gap-flip in sentiment. Harami and Inside Bars signal compression; trade the breakout of their range.",
+        "Three White Soldiers / Three Black Crows show sustained conviction; Rising/Falling Three Methods and Separating Lines are continuation - the prior trend usually resumes.",
+        "Gaps (Rising/Falling Windows) act as support/resistance; Tasuki Gaps and Side-by-Side White Lines confirm the gap holds and trend continues.",
+        "A Doji alone means indecision, not reversal - after a strong jump it warns 'confusion, upside only slightly preferred'.",
+    ],
+    "chart_patterns": [
+        "Double/Triple Tops and Head & Shoulders are reversal patterns - confirmed only when the neckline breaks; target = pattern height projected from the break.",
+        "Double/Triple Bottoms and Inverse H&S mirror that to the upside.",
+        "Rising Wedge is bearish, Falling Wedge is bullish; Ascending Triangle (flat top, rising lows) breaks up, Descending Triangle breaks down, Symmetrical Triangle breaks either way - wait for the break.",
+        "Flags and Pennants are continuation: sharp pole, tight counter-drift, then continuation in the pole's direction; measure the pole for the target.",
+        "Rectangles: trade the range break; Cup & Handle and Rounding Bottom are bullish accumulation bases.",
+        "Diamond Tops (bearish) and Diamond Bottoms (bullish) show volatility expanding then contracting around a turn; Broadening Formations mean instability - reduce size.",
+    ],
     "risk_management": [
         "Risk a fixed % of equity per trade (0.5-2%). Position size = risk_amount / stop_distance.",
         "Always set SL and TP at order time. Minimum reward:risk of 1.5:1, prefer 2:1.",
@@ -53,7 +68,7 @@ KNOWLEDGE = {
 }
 
 
-def as_prompt_context(max_chars=2600):
+def as_prompt_context(max_chars=3600):
     """Flatten knowledge into a compact expert-context block for LLM prompts."""
     lines = []
     for section, tips in KNOWLEDGE.items():
