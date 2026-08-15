@@ -54,6 +54,18 @@ STATUS = {"finbert": "not loaded", "chronos": "not loaded"}
 # ------------------------------------------------------------------ #
 #  FinBERT - financial news sentiment
 # ------------------------------------------------------------------ #
+def _cap_torch_threads():
+    """In eco/balanced mode keep torch off most CPU cores (heat control)."""
+    try:
+        from . import config as _cfg
+        n = _cfg.PERF.get("torch_threads", 1)
+        if n > 0:
+            import torch
+            torch.set_num_threads(n)
+    except Exception:
+        pass
+
+
 def _load_finbert():
     global _finbert
     with _lock:
@@ -62,6 +74,7 @@ def _load_finbert():
         try:
             if not _hub_reachable():
                 raise RuntimeError("HF hub unreachable and no cached weights")
+            _cap_torch_threads()
             from transformers import (AutoTokenizer,
                                       AutoModelForSequenceClassification)
             import torch  # noqa: F401
@@ -116,6 +129,7 @@ def _load_chronos():
         try:
             if not _hub_reachable():
                 raise RuntimeError("HF hub unreachable and no cached weights")
+            _cap_torch_threads()
             from chronos import BaseChronosPipeline
             import torch
             _chronos = BaseChronosPipeline.from_pretrained(

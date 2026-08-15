@@ -227,7 +227,7 @@ class TradingEngine:
                              "- sentiment neutral until they respond")
             except Exception as e:
                 self.log(f"news error: {e}")
-            time.sleep(240)
+            time.sleep(config.PERF["news_every"])
 
     def _price_loop(self):
         """Fast loop: track every asset's live price + manage open positions."""
@@ -284,7 +284,7 @@ class TradingEngine:
                          f"prices ({open_n}/{len(config.WATCHLIST)} markets open, "
                          f"closed markets not scanned), managing "
                          f"{len(self.broker.positions)} positions")
-            time.sleep(4)
+            time.sleep(config.PERF["price_sleep"])
 
     def _manage_positions(self, symbol, price, candles):
         """Auto TP/SL hit detection + breakeven + ATR trailing."""
@@ -561,7 +561,7 @@ class TradingEngine:
                 self._register_prediction(verdict)
                 self._maybe_signal(asset, verdict)
                 self._update_final_setup()
-                time.sleep(2)
+                time.sleep(config.PERF["council_sleep"])
             except Exception as e:
                 self.log(f"council error {asset['symbol']}: {e}")
                 time.sleep(1)

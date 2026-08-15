@@ -177,6 +177,11 @@ button.danger{background:#2b0f16;border-color:var(--red);color:var(--red)}
     </select>
     <span class="dim" style="font-size:9px">BOT TF</span>
     <select id="botTf"></select>
+    <span class="dim" style="font-size:9px" title="eco = cool laptop / low CPU; max = fastest scanning, high heat">🌡 PERF</span>
+    <select id="perfSel">
+      <option value="eco">ECO</option><option value="balanced">BALANCED</option>
+      <option value="max">MAX</option>
+    </select>
     <label class="toggle" id="autoWrap" style="border:1px solid var(--border2);border-radius:3px;
       padding:3px 8px"><input type="checkbox" id="autoTrade"/> <b>AUTO-TRADE</b></label>
     <span class="dim" style="font-size:9px">CONF</span>
@@ -701,7 +706,8 @@ function openViewer(sym){
     height:$('v-chart').clientHeight}),50);
   refreshViewer();
   clearInterval(V.timer);
-  V.timer=setInterval(refreshViewer,2000);
+  const vr=($('perfSel').value==='eco')?6000:($('perfSel').value==='balanced'?4000:2000);
+  V.timer=setInterval(refreshViewer,vr);
 }
 function viewerTf(iv){V.tf=iv;V.fitted=false;
   $('v-tfs').querySelectorAll('.tfbtn').forEach(b=>b.classList.toggle('on',b.textContent===iv));
@@ -855,6 +861,20 @@ $('layoutSel').onchange=()=>{const n=+$('layoutSel').value;
   const saved=loadGrid();buildGrid(n,saved&&saved.panes);};
 $('botTf').onchange=async()=>{await jpost('/api/interval/'+$('botTf').value);
   toast('bot timeframe → '+$('botTf').value);};
+$('perfSel').onchange=async()=>{const m=$('perfSel').value;
+  await jpost('/api/perf/'+m);
+  toast(m==='eco'?'🌡 ECO mode — low CPU, cool laptop':(m==='max'?'🔥 MAX mode — fastest scanning, high CPU':'⚖ BALANCED mode'));
+  setPollRates(m);};
+let pollTimers=[];
+function setPollRates(mode){
+  pollTimers.forEach(clearInterval);pollTimers=[];
+  const r=mode==='eco'?{status:10000,panes:12000,news:180000}
+         :mode==='balanced'?{status:6000,panes:6000,news:120000}
+         :{status:4000,panes:2500,news:60000};
+  pollTimers.push(setInterval(refreshStatus,r.status));
+  pollTimers.push(setInterval(()=>panes.forEach(p=>refreshPane(p,false)),r.panes));
+  pollTimers.push(setInterval(refreshNews,r.news));
+}
 $('autoTrade').onchange=()=>{jpost('/api/settings',{auto_trade:$('autoTrade').checked});
   toast($('autoTrade').checked?'🤖 AUTO-TRADE ON — bot will keep placing buy/sell trades with TP/SL':'AUTO-TRADE off — signals wait for your click');};
 $('minConf').onchange=()=>jpost('/api/settings',{min_confidence:+$('minConf').value});
@@ -879,9 +899,9 @@ $('tradeCap').addEventListener('keydown',e=>{if(e.key==='Enter')setCapital();});
   $('layoutSel').value=n;
   buildGrid(n,saved&&saved.panes);
   refreshStatus();refreshNews();
-  setInterval(refreshStatus,4000);
-  setInterval(()=>panes.forEach(p=>refreshPane(p,false)),2500);
-  setInterval(refreshNews,60000);
+  try{const pf=await jget('/api/perf');$('perfSel').value=pf.mode||'eco';
+      setPollRates(pf.mode||'eco');}
+  catch(e){setPollRates('eco');}
 })();
 </script>
 </body>

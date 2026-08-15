@@ -146,6 +146,45 @@ def api_journal():
     return ENGINE.get_journal()
 
 
+@app.post("/api/perf/{mode}")
+def api_perf(mode: str):
+    """Switch performance mode: eco | balanced | max. Applies to loops+cache."""
+    mode = mode.lower()
+    presets = {
+        "eco":      {"price_sleep": 12, "council_sleep": 8, "news_every": 600,
+                     "cache_ttl": 15, "learn_sleep": 60, "torch_threads": 1},
+        "balanced": {"price_sleep": 6, "council_sleep": 4, "news_every": 300,
+                     "cache_ttl": 8, "learn_sleep": 30, "torch_threads": 2},
+        "max":      {"price_sleep": 4, "council_sleep": 2, "news_every": 240,
+                     "cache_ttl": 4, "learn_sleep": 20, "torch_threads": 0},
+    }
+    if mode not in presets:
+        return JSONResponse({"error": "mode must be eco|balanced|max"},
+                            status_code=400)
+    config.PERF.update(presets[mode])
+    import jarvis_trader.config as _c
+    _c.PERF_MODE = mode
+    try:
+        import jarvis_trader.feeds as _f
+        _f.CACHE_TTL = presets[mode]["cache_ttl"]
+    except Exception:
+        pass
+    try:
+        vault.write_env({"PERF_MODE": mode})
+    except Exception:
+        pass
+    ENGINE.log(f"Performance mode -> {mode.upper()} "
+               f"(price loop {presets[mode]['price_sleep']}s, council "
+               f"{presets[mode]['council_sleep']}s/asset)")
+    return {"ok": True, "mode": mode, "perf": presets[mode]}
+
+
+@app.get("/api/perf")
+def api_perf_get():
+    import jarvis_trader.config as _c
+    return {"mode": _c.PERF_MODE, "perf": dict(config.PERF)}
+
+
 @app.post("/api/interval/{interval}")
 def api_interval(interval: str):
     """Switch the analysis timeframe: 1m 2m 5m 10m 15m 30m 1h."""

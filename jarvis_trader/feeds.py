@@ -23,7 +23,8 @@ TIMEOUT = 6
 
 _cache = {}          # symbol -> (ts, candles, source)
 _cache_lock = threading.Lock()
-CACHE_TTL = 4        # seconds - fresh ticks for live-running charts
+from . import config as _cfg
+CACHE_TTL = _cfg.PERF["cache_ttl"]   # perf-mode dependent feed cache
 
 # --------------------------------------------------------------------------- #
 #  Timeframe support: native + resampled intervals

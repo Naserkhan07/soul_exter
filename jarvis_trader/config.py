@@ -33,6 +33,23 @@ AUTO_TRADE = os.getenv("AUTO_TRADE", "true").lower() in ("1", "true", "yes")
 # TRADE_CAPITAL: the amount of money you actually want to trade with
 # (e.g. 1000). 0 = use the full account balance.
 TRADE_CAPITAL = float(os.getenv("TRADE_CAPITAL", "0"))
+
+# PERF_MODE: eco | balanced | max
+#   eco      = laptop-friendly: slow loops, low CPU, low heat (default)
+#   balanced = moderate scanning speed
+#   max      = fastest scanning, high CPU (desktops / good cooling only)
+PERF_MODE = os.getenv("PERF_MODE", "eco").lower()
+
+PERF = {
+    "eco":      {"price_sleep": 12, "council_sleep": 8,  "news_every": 600,
+                 "cache_ttl": 15, "learn_sleep": 60, "torch_threads": 1},
+    "balanced": {"price_sleep": 6,  "council_sleep": 4,  "news_every": 300,
+                 "cache_ttl": 8,  "learn_sleep": 30, "torch_threads": 2},
+    "max":      {"price_sleep": 4,  "council_sleep": 2,  "news_every": 240,
+                 "cache_ttl": 4,  "learn_sleep": 20, "torch_threads": 0},
+}.get(PERF_MODE, None) or {"price_sleep": 12, "council_sleep": 8,
+                           "news_every": 600, "cache_ttl": 15,
+                           "learn_sleep": 60, "torch_threads": 1}
 SCAN_INTERVAL_SEC = int(os.getenv("SCAN_INTERVAL_SEC", "20"))
 SIGNAL_TTL_SEC = int(os.getenv("SIGNAL_TTL_SEC", "900"))                   # signal freshness
 
