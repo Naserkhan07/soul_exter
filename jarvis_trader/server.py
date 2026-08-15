@@ -112,11 +112,18 @@ def api_news():
     import threading as _t
     _t.Thread(target=news.ENGINE.refresh, daemon=True).start()
     import copy
+    try:
+        import feedparser as _fp
+        fp_ok = True
+    except ImportError:
+        fp_ok = False
     with news.ENGINE.lock:
         return {"headlines": copy.deepcopy(news.ENGINE.headlines[:60]),
                 "calendar_high_impact": copy.deepcopy(news.ENGINE.high_impact_soon()),
                 "sources_ok": list(news.ENGINE.sources_ok),
-                "sources_fail": list(news.ENGINE.sources_fail)}
+                "sources_fail": list(news.ENGINE.sources_fail),
+                "source_errors": dict(news.ENGINE.source_errors),
+                "feedparser_installed": fp_ok}
 
 
 @app.get("/api/signals")

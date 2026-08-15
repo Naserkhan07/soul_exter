@@ -571,8 +571,18 @@ async function refreshNews(){
     $('news').innerHTML=d.headlines.slice(0,18).map(h=>{
       const dot=h.sentiment>0.05?'🟢':h.sentiment<-0.05?'🔴':'⚪';
       return `<div class="newsrow">${dot} ${h.title.slice(0,95)} <span class="dim">— ${h.source}</span></div>`;
-    }).join('')||'<span class="dim">news sources unreachable on this network — they connect on your PC</span>';
+    }).join('')||diagNews(d);
   }catch(e){}
+}
+function diagNews(d){
+  let h='<span class="dim">no headlines yet — diagnostics:</span>';
+  if(d.feedparser_installed===false)
+    h+='<div class="down">▸ feedparser NOT installed — run: pip install feedparser (then restart)</div>';
+  const errs=Object.entries(d.source_errors||{}).slice(0,6);
+  if(errs.length){for(const [s,e] of errs)h+=`<div class="dim">▸ ${s}: ${e}</div>`;}
+  else if(d.feedparser_installed!==false)
+    h+='<div class="dim">▸ all sources timed out — check internet/firewall/VPN; retries every 4 min</div>';
+  return h;
 }
 
 /* ================= council ================= */

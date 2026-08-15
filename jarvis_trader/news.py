@@ -137,6 +137,7 @@ class NewsEngine:
         self.lock = threading.RLock()   # re-entrant: nested reads can't deadlock
         self.sources_ok = []
         self.sources_fail = []
+        self.source_errors = {}         # source -> last error (diagnostics)
 
     # ---------------------------------------------------------------- #
     def _fetch_feed(self, name, url):
@@ -161,14 +162,21 @@ class NewsEngine:
                         "sentiment": round(sentiment_score(title), 3),
                     })
             else:
-                for m in re.finditer(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>",
-                                     r.text)[1:26]:
+                # fallback regex parser (used when feedparser isn't installed)
+                matches = list(re.finditer(
+                    r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>",
+                    r.text, re.S))[1:26]
+                for m in matches:
                     title = m.group(1).strip()
+                    if not title:
+                        continue
                     items.append({"title": title, "source": name, "link": "",
                                   "ts": time.time(),
                                   "sentiment": round(sentiment_score(title), 3)})
             return items
-        except Exception:
+        except Exception as e:
+            with self.lock:
+                self.source_errors[name] = f"{type(e).__name__}: {str(e)[:80]}"
             return None
 
     def _fetch_calendar(self):
