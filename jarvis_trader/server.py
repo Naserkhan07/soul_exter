@@ -219,7 +219,7 @@ async def tradingview_webhook(req: Request):
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     if WEBUI.exists():
-        return WEBUI.read_text()
+        return WEBUI.read_text(encoding="utf-8")
     return DASHBOARD_HTML
 
 

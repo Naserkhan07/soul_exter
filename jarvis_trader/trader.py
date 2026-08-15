@@ -120,13 +120,13 @@ class TradingEngine:
 
     def _load(self):
         try:
-            d = json.loads(STATE_PATH.read_text())
+            d = json.loads(STATE_PATH.read_text(encoding="utf-8"))
             self.broker.balance = d.get("balance", self.broker.balance)
             self.broker.history = d.get("history", [])
         except Exception:
             pass
         try:
-            self.journal = json.loads(JOURNAL_PATH.read_text())
+            self.journal = json.loads(JOURNAL_PATH.read_text(encoding="utf-8"))
         except Exception:
             self.journal = []
 
@@ -135,8 +135,9 @@ class TradingEngine:
             STATE_PATH.write_text(json.dumps({
                 "balance": self.broker.balance,
                 "history": self.broker.history[-200:],
-            }, indent=1))
-            JOURNAL_PATH.write_text(json.dumps(self.journal[-500:], indent=1))
+            }, indent=1), encoding="utf-8")
+            JOURNAL_PATH.write_text(json.dumps(self.journal[-500:], indent=1),
+                                    encoding="utf-8")
         except Exception:
             pass
 

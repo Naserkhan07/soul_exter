@@ -155,7 +155,7 @@ class JarvisBrain:
 
     def _load(self):
         try:
-            data = json.loads(BRAIN_PATH.read_text())
+            data = json.loads(BRAIN_PATH.read_text(encoding="utf-8"))
             # brain version = the feature set; if features changed, retrain fresh
             if data.get("features") != FEATURES:
                 return
@@ -177,7 +177,7 @@ class JarvisBrain:
                 "live_feedback": self.live_feedback,
                 "correct": self.correct, "total_scored": self.total_scored,
                 "knowledge_rules": len(all_rules()),
-            }, indent=1))
+            }, indent=1), encoding="utf-8")
 
     # ------------------------------------------------------------- #
     def predict(self, f):

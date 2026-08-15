@@ -52,7 +52,7 @@ def read_env():
     """Read .env into a dict (raw)."""
     out = {}
     if ENV_PATH.exists():
-        for line in ENV_PATH.read_text().splitlines():
+        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
@@ -63,7 +63,7 @@ def read_env():
 
 def write_env(updates: dict):
     """Merge updates into .env, preserving comments/unknown keys."""
-    lines = ENV_PATH.read_text().splitlines() if ENV_PATH.exists() else []
+    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
     seen = set()
     new_lines = []
     for line in lines:
@@ -78,7 +78,7 @@ def write_env(updates: dict):
     for k, v in updates.items():
         if k not in seen:
             new_lines.append(f"{k}={v}")
-    ENV_PATH.write_text("\n".join(new_lines) + "\n")
+    ENV_PATH.write_text("\n".join(new_lines, encoding="utf-8") + "\n")
     # apply into the running process too
     import os
     for k, v in updates.items():
