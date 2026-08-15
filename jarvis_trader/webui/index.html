@@ -335,12 +335,22 @@ function buildGrid(n, saved){
 async function refreshPane(p, full){
   try{
     const d=await jget(`/api/candles/${encodeURIComponent(p.sym)}?interval=${p.tf}&limit=280`);
-    if(!d.candles)return;
+    if(!d.candles||!d.candles.length)return;
     const data=d.candles.map(c=>({time:Math.floor(c.t),open:c.o,high:c.h,low:c.l,close:c.c}));
     const vols=d.candles.map(c=>({time:Math.floor(c.t),value:c.v,
       color:c.c>=c.o?'#1c4d3a':'#4d1c28'}));
-    p.series.setData(data); p.vol.setData(vols);
-    if(!p.fitted){p.chart.timeScale().fitContent();p.fitted=true;}
+    if(full||!p.loadedSym||p.loadedSym!==p.sym+p.tf){
+      /* full reload only when symbol/timeframe changed */
+      p.series.setData(data); p.vol.setData(vols);
+      p.loadedSym=p.sym+p.tf;
+      p.chart.timeScale().fitContent(); p.fitted=true;
+    }else{
+      /* STREAMING update: only the last (ticking) candles - keeps the chart
+         running live without resetting zoom/scroll */
+      const tail=data.slice(-3), vtail=vols.slice(-3);
+      for(const bar of tail)p.series.update(bar);
+      for(const vb of vtail)p.vol.update(vb);
+    }
     /* ticker strip flash */
     const last=d.candles[d.candles.length-1].c;
     const prev=lastPx[p.sym+p.tf];
@@ -573,6 +583,8 @@ async function askCouncil(){
     const pats=((a.members.patterns||{}).detail||{}).found||[];
     if(pats.length)extra+=`<div class="why" style="font-size:9.5px">PATTERNS ▸ ${pats.slice(0,5).map(p=>(p.score>0?'▲':p.score<0?'▼':'▶')+p.name).join(' · ')}</div>`;
     if(a.abcd)extra+=`<div class="why" style="font-size:9.5px">ABCD ▸ ${a.abcd.direction} D=(B×C)÷A=<b class="gold">${fmt(a.abcd.D)}</b></div>`;
+    const htf=v.htf||{};
+    if(htf.bias)extra+=`<div class="why" style="font-size:9.5px">HTF ${htf.tf} ▸ ${htf.aligned?'<b class="up">CONFIRMS ✓</b>':'<b class="down">against ✗ (confidence cut)</b>'} strength ${htf.strength}</div>`;
     const p=a.plan;
     $('council').innerHTML=`
       <div style="font-size:15px;font-weight:800" class="${v.direction==='UP'?'up':'down'}">
@@ -660,7 +672,7 @@ function openViewer(sym){
     height:$('v-chart').clientHeight}),50);
   refreshViewer();
   clearInterval(V.timer);
-  V.timer=setInterval(refreshViewer,3000);
+  V.timer=setInterval(refreshViewer,2000);
 }
 function viewerTf(iv){V.tf=iv;V.fitted=false;
   $('v-tfs').querySelectorAll('.tfbtn').forEach(b=>b.classList.toggle('on',b.textContent===iv));
@@ -673,11 +685,19 @@ async function refreshViewer(){
   if(!V.sym||!$('viewer').classList.contains('on'))return;
   try{
     const d=await jget(`/api/candles/${encodeURIComponent(V.sym)}?interval=${V.tf}&limit=350`);
-    if(!d.candles)return;
-    V.series.setData(d.candles.map(c=>({time:Math.floor(c.t),open:c.o,high:c.h,low:c.l,close:c.c})));
-    V.vol.setData(d.candles.map(c=>({time:Math.floor(c.t),value:c.v,
-      color:c.c>=c.o?'#1c4d3a':'#4d1c28'})));
-    if(!V.fitted){V.chart.timeScale().fitContent();V.fitted=true;}
+    if(!d.candles||!d.candles.length)return;
+    const vdata=d.candles.map(c=>({time:Math.floor(c.t),open:c.o,high:c.h,low:c.l,close:c.c}));
+    const vvols=d.candles.map(c=>({time:Math.floor(c.t),value:c.v,
+      color:c.c>=c.o?'#1c4d3a':'#4d1c28'}));
+    if(!V.loadedKey||V.loadedKey!==V.sym+V.tf){
+      V.series.setData(vdata); V.vol.setData(vvols);
+      V.loadedKey=V.sym+V.tf;
+      V.chart.timeScale().fitContent(); V.fitted=true;
+    }else{
+      /* streaming: update ticking candles only - chart keeps RUNNING */
+      for(const bar of vdata.slice(-3))V.series.update(bar);
+      for(const vb of vvols.slice(-3))V.vol.update(vb);
+    }
     const last=d.candles[d.candles.length-1].c;
     const el=$('v-px');
     el.textContent=fmt(last);
@@ -770,7 +790,7 @@ $('riskPct').onchange=()=>jpost('/api/settings',{risk_pct:+$('riskPct').value});
   buildGrid(n,saved&&saved.panes);
   refreshStatus();refreshNews();
   setInterval(refreshStatus,4000);
-  setInterval(()=>panes.forEach(p=>refreshPane(p,false)),5000);
+  setInterval(()=>panes.forEach(p=>refreshPane(p,false)),2500);
   setInterval(refreshNews,60000);
 })();
 </script>

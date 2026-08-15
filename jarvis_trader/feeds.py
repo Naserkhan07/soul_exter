@@ -23,7 +23,7 @@ TIMEOUT = 6
 
 _cache = {}          # symbol -> (ts, candles, source)
 _cache_lock = threading.Lock()
-CACHE_TTL = 12       # seconds
+CACHE_TTL = 4        # seconds - fresh ticks for live-running charts
 
 # --------------------------------------------------------------------------- #
 #  Timeframe support: native + resampled intervals

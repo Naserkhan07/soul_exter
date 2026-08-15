@@ -424,7 +424,7 @@ class TradingEngine:
                         self.act("skip", f"{asset['symbol']} and other CLOSED markets "
                                  "skipped - scanning OPEN markets only")
                     continue
-                use_llms = (self.scan_idx % 3 == 1)   # LLM votes every 3rd pass per asset
+                use_llms = (self.scan_idx % 2 == 1)   # LLM votes every 2nd pass per asset
                 self.act("analyze", f"{asset['symbol']} [{self.interval}]: running AI "
                          f"council (indicators + 8 strategies + patterns + news + Jarvis"
                          + (" + Gemini + Groq" if use_llms else "") + ")")
@@ -449,7 +449,7 @@ class TradingEngine:
                 self._register_prediction(verdict)
                 self._maybe_signal(asset, verdict)
                 self._update_final_setup()
-                time.sleep(3)
+                time.sleep(2)
             except Exception as e:
                 self.log(f"council error {asset['symbol']}: {e}")
                 time.sleep(1)
@@ -559,6 +559,13 @@ class TradingEngine:
         m = verdict.get("members", {})
         v = verdict["verdict"]
         d = v["direction"]
+        htf = v.get("htf") or {}
+        if htf.get("bias"):
+            if htf.get("aligned"):
+                reasons.append(f"HTF {htf['tf']} trend CONFIRMS {d} "
+                               f"(strength {htf.get('strength', 0):.1f})")
+            else:
+                reasons.append(f"⚠ counter-trend vs {htf['tf']} - reduced confidence")
         for name in ("jarvis", "gemini", "groq", "patterns", "strategies",
                      "indicators", "news"):
             mem = m.get(name)

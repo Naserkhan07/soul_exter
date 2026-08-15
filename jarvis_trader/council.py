@@ -179,6 +179,32 @@ def _llm_vote(js):
     return max(-100, min(100, score))
 
 
+HTF_MAP = {"1m": "15m", "2m": "15m", "5m": "30m", "10m": "1h",
+           "15m": "1h", "30m": "1h", "1h": "1h"}
+
+
+def _htf_bias(asset, interval):
+    """Higher-timeframe trend bias: +1 up / -1 down / 0 flat, with strength."""
+    htf = HTF_MAP.get(interval, "30m")
+    if htf == interval:
+        return 0, 0.0, htf
+    try:
+        candles, _ = feeds.get_candles(asset, htf, 120)
+        snap = indicators.snapshot(candles)
+        e20, e50 = snap.get("ema20"), snap.get("ema50")
+        price = snap["price"]
+        score = 0.0
+        if e20 and e50:
+            score += 1.0 if e20 > e50 else -1.0
+            score += 0.5 if price > e20 else -0.5
+        ax = snap.get("adx")
+        strength = min(1.0, (ax["adx"] / 30) if ax else 0.5)
+        bias = 1 if score > 0 else (-1 if score < 0 else 0)
+        return bias, strength, htf
+    except Exception:
+        return 0, 0.0, htf
+
+
 def analyze(asset, use_llms=True, interval="5m"):
     """Full council analysis for one asset on the chosen timeframe."""
     t0 = time.time()
@@ -255,6 +281,11 @@ def analyze(asset, use_llms=True, interval="5m"):
     final = num / den if den else 0.0
     direction = "UP" if final >= 0 else "DOWN"
 
+    # ---- higher-timeframe confirmation (accuracy filter) ----
+    htf_bias, htf_strength, htf = _htf_bias(asset, interval)
+    htf_aligned = (htf_bias > 0 and direction == "UP") or \
+                  (htf_bias < 0 and direction == "DOWN")
+
     # ---- confidence calibration ----
     # raw |weighted avg| under-reads conviction when many members agree
     # mildly. Blend magnitude with AGREEMENT (how many members point the
@@ -265,7 +296,20 @@ def analyze(asset, use_llms=True, interval="5m"):
         agree_ratio = len(same) / len(votes)
         strongest = max((abs(v) for v in same), default=0)
         confidence = base * 0.55 + agree_ratio * 32 + strongest * 0.22
-        confidence = min(96.0, confidence)
+        # HTF confluence: trading WITH the higher timeframe = boost,
+        # AGAINST it = cut (counter-trend trades are lower probability)
+        if htf_bias != 0:
+            if htf_aligned:
+                confidence += 8 * htf_strength
+            else:
+                confidence -= 14 * htf_strength
+        # quality gates: chop filter + minimum agreement
+        adx_v = (snap.get("adx") or {}).get("adx", 20)
+        if adx_v < 13 and agree_ratio < 0.8:
+            confidence *= 0.75          # dead chop, weak consensus
+        if agree_ratio < 0.5:
+            confidence *= 0.7           # council split down the middle
+        confidence = max(0.0, min(96.0, confidence))
     else:
         confidence = base
     confidence = round(confidence, 1)
@@ -295,7 +339,10 @@ def analyze(asset, use_llms=True, interval="5m"):
         "symbol": asset["symbol"], "name": asset["name"], "type": asset["type"],
         "price": price, "data_source": source, "interval": interval,
         "verdict": {"direction": direction, "score": round(final, 1),
-                    "confidence": confidence},
+                    "confidence": confidence,
+                    "htf": {"tf": htf, "bias": htf_bias,
+                            "aligned": htf_aligned,
+                            "strength": round(htf_strength, 2)}},
         "members": members,
         "plan": {"entry": round(entry, 6), "tp": round(tp, 6), "sl": round(sl, 6),
                  "atr": round(a, 6),
