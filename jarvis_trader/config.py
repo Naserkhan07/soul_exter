@@ -31,7 +31,6 @@ RISK_PER_TRADE_PCT = float(os.getenv("RISK_PER_TRADE_PCT", "1.0"))
 MIN_CONFIDENCE_TO_TRADE = float(os.getenv("MIN_CONFIDENCE_TO_TRADE", "35"))
 AUTO_TRADE = os.getenv("AUTO_TRADE", "false").lower() in ("1", "true", "yes")
 SCAN_INTERVAL_SEC = int(os.getenv("SCAN_INTERVAL_SEC", "20"))
-MAX_TRADE_HOLD_SEC = int(os.getenv("MAX_TRADE_HOLD_SEC", str(4 * 3600)))   # timeout close
 SIGNAL_TTL_SEC = int(os.getenv("SIGNAL_TTL_SEC", "900"))                   # signal freshness
 
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")

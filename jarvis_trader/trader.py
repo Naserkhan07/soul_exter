@@ -242,11 +242,6 @@ class TradingEngine:
                 elif price >= p["sl"]:
                     to_close.append((p["id"], p["sl"],
                                      "Breakeven stop hit" if p["be_moved"] else "SL hit"))
-            # timeout: held too long without hitting TP or SL
-            max_hold = p["meta"].get("max_hold_sec", config.MAX_TRADE_HOLD_SEC)
-            if time.time() - p["opened"] > max_hold and \
-                    not any(c[0] == p["id"] for c in to_close):
-                to_close.append((p["id"], price, "Timeout"))
         for pid, px, reason in to_close:
             self._close_and_learn(pid, px, reason)
 
@@ -283,8 +278,6 @@ class TradingEngine:
             "SL hit": "Price hit the stop-loss - setup failed",
             "Breakeven stop hit": "Trade went 1R in profit, stop moved to entry, "
                                   "then price came back - closed at ~breakeven",
-            "Timeout": f"Held longer than {int(meta.get('max_hold_sec', config.MAX_TRADE_HOLD_SEC)/3600)}h "
-                       "without hitting TP or SL - time-based exit",
             "manual close": "You closed it manually from the dashboard",
         }.get(reason, reason)
         entry = {
@@ -532,7 +525,6 @@ class TradingEngine:
             "features": sig.get("features"), "members": sig.get("members"),
             "reasons": sig.get("reasons"), "signal_id": sig["id"],
             "placed_by": source, "signal_ts": sig["ts"],
-            "max_hold_sec": config.MAX_TRADE_HOLD_SEC,
         })
         with self.lock:
             sig["status"] = "placed"

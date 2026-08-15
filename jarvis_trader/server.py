@@ -505,7 +505,7 @@ async function refreshJournal(){
           <div class="sub" style="margin-top:4px"><b style="color:var(--cyan)">Votes at entry:</b> ${j.member_votes_at_entry?Object.entries(j.member_votes_at_entry).map(([k,v])=>`${k}: ${v==null?'--':(v>0?'+':'')+Math.round(v)}`).join(' &bull; '):'-'}</div>
         </div></td></tr>`;
     }).join('')+'</tbody></table>'
-    :'<div class="sub">Closed trades will appear here with the full story: entry, TP, SL, exit price, PnL, R-multiple, hold time, and exactly WHY the trade closed (TP hit / SL hit / breakeven stop / timeout / manual).</div>';
+    :'<div class="sub">Closed trades will appear here with the full story: entry, TP, SL, exit price, PnL, R-multiple, hold time, and exactly WHY the trade closed (TP hit / SL hit / breakeven stop / manual).</div>';
 }
 function toggleJrn(id){const r=document.getElementById('jrn-'+id);if(r)r.style.display=r.style.display==='none'?'':'none';}
 
