@@ -11,6 +11,7 @@ Execution engine.
     * MT5 Expert Advisor bridge (polls /mt5/commands)
   so the same signals can drive real accounts when you connect them.
 """
+import copy
 import json
 import threading
 import time
@@ -668,14 +669,14 @@ class TradingEngine:
             for s in self.signals.values():
                 if s["status"] == "waiting" and now > s["expires"]:
                     s["status"] = "expired"
-            sigs = sorted(self.signals.values(),
+            sigs = sorted((copy.deepcopy(s) for s in self.signals.values()),
                           key=lambda s: (-abs(s["confidence"]), s["symbol"]))
             return {"signals": sigs, "total_scanned": self.signals_scanned,
                     "auto_trade": self.auto_trade}
 
     def get_journal(self, limit=100):
         with self.lock:
-            entries = self.journal[-limit:][::-1]
+            entries = copy.deepcopy(self.journal[-limit:][::-1])
             wins = [j for j in self.journal if j["outcome"] == "WIN"]
             losses = [j for j in self.journal if j["outcome"] == "LOSS"]
             stats = {
@@ -693,7 +694,7 @@ class TradingEngine:
 
     def get_activity(self):
         with self.lock:
-            return {"activity": self.activity[-120:][::-1],
+            return {"activity": copy.deepcopy(self.activity[-120:][::-1]),
                     "counters": dict(self.counters),
                     "markets": {s: {"open": m.get("market_open"),
                                     "venue": m.get("venue"),
@@ -706,7 +707,7 @@ class TradingEngine:
             return {
                 "running": self.running,
                 "interval": self.interval,
-                "final_setup": self.final_setup,
+                "final_setup": copy.deepcopy(self.final_setup),
                 "signals_waiting": len(waiting),
                 "signals_scanned": self.signals_scanned,
                 "counters": dict(self.counters),
@@ -715,8 +716,8 @@ class TradingEngine:
                 "risk_pct": self.risk_pct,
                 "balance": round(self.broker.balance, 2),
                 "equity": round(self.broker.equity, 2),
-                "open_positions": list(self.broker.positions.values()),
-                "closed_trades": self.broker.history[-40:][::-1],
+                "open_positions": copy.deepcopy(list(self.broker.positions.values())),
+                "closed_trades": copy.deepcopy(self.broker.history[-40:][::-1]),
                 "jarvis": {
                     "samples_trained": jarvis.BRAIN.samples_trained,
                     "live_feedback": jarvis.BRAIN.live_feedback,

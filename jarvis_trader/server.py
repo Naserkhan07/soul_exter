@@ -35,8 +35,10 @@ def _startup():
 
 @app.get("/api/market")
 def api_market():
+    import copy
     with ENGINE.lock:
-        return {"market": list(ENGINE.market.values()), "ts": time.time()}
+        return {"market": copy.deepcopy(list(ENGINE.market.values())),
+                "ts": time.time()}
 
 
 @app.get("/api/status")
@@ -46,8 +48,9 @@ def api_status():
 
 @app.get("/api/analysis")
 def api_analysis():
+    import copy
     with ENGINE.lock:
-        return {"analysis": ENGINE.last_analysis}
+        return {"analysis": copy.deepcopy(ENGINE.last_analysis)}
 
 
 @app.post("/api/analyze/{symbol}")
@@ -108,11 +111,12 @@ def api_news():
     # refresh in the background; serve whatever we have instantly
     import threading as _t
     _t.Thread(target=news.ENGINE.refresh, daemon=True).start()
+    import copy
     with news.ENGINE.lock:
-        return {"headlines": news.ENGINE.headlines[:60],
-                "calendar_high_impact": news.ENGINE.high_impact_soon(),
-                "sources_ok": news.ENGINE.sources_ok,
-                "sources_fail": news.ENGINE.sources_fail}
+        return {"headlines": copy.deepcopy(news.ENGINE.headlines[:60]),
+                "calendar_high_impact": copy.deepcopy(news.ENGINE.high_impact_soon()),
+                "sources_ok": list(news.ENGINE.sources_ok),
+                "sources_fail": list(news.ENGINE.sources_fail)}
 
 
 @app.get("/api/signals")
@@ -145,7 +149,10 @@ def api_interval(interval: str):
 @app.get("/api/final")
 def api_final():
     """The ONE final trade setup generated from all scores."""
-    return {"final_setup": ENGINE.final_setup, "interval": ENGINE.interval}
+    import copy
+    with ENGINE.lock:
+        return {"final_setup": copy.deepcopy(ENGINE.final_setup),
+                "interval": ENGINE.interval}
 
 
 @app.get("/api/activity")
@@ -166,8 +173,9 @@ def api_reference():
 
 @app.get("/api/logs")
 def api_logs():
+    import copy
     with ENGINE.lock:
-        return {"logs": ENGINE.logs[-120:][::-1]}
+        return {"logs": copy.deepcopy(ENGINE.logs[-120:][::-1])}
 
 
 @app.post("/api/close/{pid}")

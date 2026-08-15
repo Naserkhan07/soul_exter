@@ -78,7 +78,7 @@ def write_env(updates: dict):
     for k, v in updates.items():
         if k not in seen:
             new_lines.append(f"{k}={v}")
-    ENV_PATH.write_text("\n".join(new_lines, encoding="utf-8") + "\n")
+    ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     # apply into the running process too
     import os
     for k, v in updates.items():
