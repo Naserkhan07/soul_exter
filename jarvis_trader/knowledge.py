@@ -31,6 +31,8 @@ KNOWLEDGE = {
         "Mean reversion: fade RSI extremes at Bollinger bands ONLY in ranging markets (ADX<20).",
         "Breakout: trade Donchian/40-bar range breaks with volume; place stop inside the broken range.",
         "News momentum: strong headlines + technical alignment = highest probability trades. Never fade fresh high-impact news.",
+        "A-B-C-D price projection (Gann/Fibonacci style): find swing A, swing B, pullback C; project D = (B x C) / A. D is a reaction/target zone - price often reaches and reacts there. The level alone is NOT a signal: wait for price behavior at D plus confirmation, and always use a stop-loss.",
+        "Swing structure: a pivot high/low confirmed by lower highs/higher lows either side defines A-B-C legs; invalid if the pullback C leaves the A-B range.",
         "Session timing: forex moves most in London/NY overlap; indices at cash open; crypto is 24/7 but follows US hours.",
     ],
     "risk_management": [

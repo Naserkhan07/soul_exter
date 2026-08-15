@@ -74,6 +74,8 @@ class TradingEngine:
         self.running = False
         self.scan_idx = 0
         self.jarvis_bootstrapping = False
+        self.pending_predictions = []    # live-learning: predictions awaiting resolution
+        self.live_lessons = 0
         self._load()
 
     # -------------------------------------------------------------- #
@@ -109,6 +111,7 @@ class TradingEngine:
         threading.Thread(target=self._price_loop, daemon=True).start()
         threading.Thread(target=self._council_loop, daemon=True).start()
         threading.Thread(target=self._news_loop, daemon=True).start()
+        threading.Thread(target=self._live_learn_loop, daemon=True).start()
         self.log("Engine started: live tracking " +
                  f"{len(config.WATCHLIST)} assets across crypto/stocks/forex/futures/indices/funds")
 
@@ -216,6 +219,58 @@ class TradingEngine:
         self.save()
 
     # -------------------------------------------------------------- #
+    def _live_learn_loop(self):
+        """
+        Continuous live-market training: every council analysis registers a
+        prediction (features + direction + price). ~30 minutes later Jarvis
+        checks what the live market actually did and trains on the outcome -
+        so Jarvis keeps learning from real market movements even when no
+        trade was placed.
+        """
+        while self.running:
+            now = time.time()
+            due = []
+            with self.lock:
+                still_waiting = []
+                for pr in self.pending_predictions:
+                    if now - pr["ts"] >= pr["horizon_sec"]:
+                        due.append(pr)
+                    else:
+                        still_waiting.append(pr)
+                self.pending_predictions = still_waiting[-200:]
+            for pr in due:
+                q = self.market.get(pr["symbol"])
+                if not q:
+                    continue
+                went_up = q["price"] > pr["price"]
+                pred_up = pr["direction"] == "UP"
+                jarvis.BRAIN.feedback(pr["features"], went_up, pred_up)
+                self.live_lessons += 1
+                move = (q["price"] / pr["price"] - 1) * 100
+                hit = "correct" if went_up == pred_up else "wrong"
+                self.log(f"Jarvis live-lesson #{self.live_lessons}: {pr['symbol']} "
+                         f"predicted {pr['direction']}, market moved {move:+.2f}% "
+                         f"({hit}) - accuracy now {jarvis.BRAIN.accuracy}%")
+            time.sleep(20)
+
+    def _register_prediction(self, verdict):
+        """Queue a council prediction for later outcome-checking."""
+        if not verdict.get("features"):
+            return
+        v = verdict["verdict"]
+        if v["confidence"] < 10:      # skip no-conviction calls
+            return
+        with self.lock:
+            # one pending prediction per symbol at a time
+            if any(p["symbol"] == verdict["symbol"] for p in self.pending_predictions):
+                return
+            self.pending_predictions.append({
+                "symbol": verdict["symbol"], "direction": v["direction"],
+                "price": verdict["price"], "features": verdict["features"],
+                "ts": time.time(), "horizon_sec": 1800,
+            })
+
+    # -------------------------------------------------------------- #
     def _council_loop(self):
         """Slow loop: run full AI-council analysis asset-by-asset, auto trade."""
         time.sleep(8)
@@ -236,6 +291,7 @@ class TradingEngine:
                 v = verdict["verdict"]
                 self.log(f"Council {asset['symbol']}: {v['direction']} "
                          f"score={v['score']} conf={v['confidence']}")
+                self._register_prediction(verdict)
                 if self.auto_trade:
                     self._maybe_trade(asset, verdict)
             except Exception as e:
@@ -312,6 +368,8 @@ class TradingEngine:
                 "jarvis": {
                     "samples_trained": jarvis.BRAIN.samples_trained,
                     "live_feedback": jarvis.BRAIN.live_feedback,
+                    "live_lessons": self.live_lessons,
+                    "pending_predictions": len(self.pending_predictions),
                     "accuracy": jarvis.BRAIN.accuracy,
                     "bootstrapping": self.jarvis_bootstrapping,
                 },

@@ -21,10 +21,6 @@ _load_env()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY", "")
-POLYGON_KEY = os.getenv("POLYGON_KEY", "")
-TWELVE_DATA_KEY = os.getenv("TWELVE_DATA_KEY", "")
-FRED_KEY = os.getenv("FRED_KEY", "")
 
 MT5_LOGIN = os.getenv("MT5_LOGIN", "")
 MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")

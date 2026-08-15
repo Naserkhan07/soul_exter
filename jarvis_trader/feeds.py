@@ -1,11 +1,9 @@
 """
 Live market data feeds with multi-source fallback.
 
-Priority chains:
+Priority chains (free / unlimited sources only):
   crypto : Binance -> Binance.Vision -> OKX -> Kraken -> Coinbase -> Yahoo -> SIM
-  stock  : Yahoo -> Stooq -> Twelve Data -> Alpha Vantage -> SIM
-  forex  : Yahoo -> Stooq -> Twelve Data -> Alpha Vantage -> SIM
-  index/futures/fund : Yahoo -> Stooq -> SIM
+  stock/forex/index/futures/fund : Yahoo -> Stooq -> SIM
 
 If every real source is unreachable (offline / firewalled sandbox) the feed
 drops into a realistic random-walk SIMULATOR so the whole bot keeps running,
@@ -113,43 +111,6 @@ def _stooq(stooq_symbol, interval="5m", limit=200):
     return out
 
 
-def _twelve_data(symbol, interval="5m", limit=200):
-    if not config.TWELVE_DATA_KEY:
-        raise RuntimeError("no key")
-    iv = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h", "1d": "1day"}.get(interval, "5min")
-    r = requests.get("https://api.twelvedata.com/time_series",
-                     params={"symbol": symbol, "interval": iv, "outputsize": limit,
-                             "apikey": config.TWELVE_DATA_KEY},
-                     headers=UA, timeout=TIMEOUT)
-    r.raise_for_status()
-    vals = r.json().get("values", [])
-    out = [{"t": time.mktime(time.strptime(v["datetime"][:19].ljust(19, "0").replace("T", " ")
-                                           if " " in v["datetime"] or "T" in v["datetime"]
-                                           else v["datetime"] + " 00:00:00", "%Y-%m-%d %H:%M:%S")),
-            "o": float(v["open"]), "h": float(v["high"]), "l": float(v["low"]),
-            "c": float(v["close"]), "v": float(v.get("volume") or 0)} for v in vals]
-    return list(reversed(out))
-
-
-def _alpha_vantage(symbol, interval="5m", limit=200):
-    if not config.ALPHA_VANTAGE_KEY:
-        raise RuntimeError("no key")
-    r = requests.get("https://www.alphavantage.co/query",
-                     params={"function": "TIME_SERIES_INTRADAY", "symbol": symbol,
-                             "interval": "5min", "outputsize": "compact",
-                             "apikey": config.ALPHA_VANTAGE_KEY},
-                     headers=UA, timeout=TIMEOUT)
-    r.raise_for_status()
-    series = r.json().get("Time Series (5min)", {})
-    out = []
-    for k in sorted(series):
-        v = series[k]
-        out.append({"t": time.mktime(time.strptime(k, "%Y-%m-%d %H:%M:%S")),
-                    "o": float(v["1. open"]), "h": float(v["2. high"]),
-                    "l": float(v["3. low"]), "c": float(v["4. close"]),
-                    "v": float(v["5. volume"])})
-    return out[-limit:]
-
 # --------------------------------------------------------------------------- #
 #  Simulator (only used when every real source is unreachable)
 # --------------------------------------------------------------------------- #
@@ -240,9 +201,6 @@ def get_candles(asset, interval="5m", limit=200):
         chain.append(("yahoo", lambda: _yahoo(yh, interval, limit)))
     if st:
         chain.append(("stooq", lambda: _stooq(st, interval, limit)))
-    if typ in ("stock", "forex"):
-        chain.append(("twelvedata", lambda: _twelve_data(sym, interval, limit)))
-        chain.append(("alphavantage", lambda: _alpha_vantage(sym, interval, limit)))
 
     for name, fn in chain:
         try:

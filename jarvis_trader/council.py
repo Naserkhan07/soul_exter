@@ -55,6 +55,12 @@ def _build_llm_prompt(asset, snap, strat, news_score, news_titles, jarvis_score)
                            default=lambda o: round(o, 5) if isinstance(o, float) else str(o))[:900]
     strat_lines = "; ".join(f"{s['name']}={s['score']} ({s['reason'][:60]})"
                             for s in strat["strategies"])
+    abcd = strat.get("abcd")
+    abcd_line = ""
+    if abcd:
+        abcd_line = (f"\nA-B-C-D PROJECTION: {abcd['direction']} structure, "
+                     f"A={abcd['A']} B={abcd['B']} C={abcd['C']} -> projected D level = {abcd['D']} "
+                     f"(D=(BxC)/A; a reaction/target zone, not an automatic signal)")
     titles = " | ".join(news_titles[:4]) if news_titles else "no fresh relevant headlines"
     return f"""You are JARVIS, an elite quantitative trading analyst.
 
@@ -64,7 +70,7 @@ EXPERT KNOWLEDGE:
 TASK: Analyze {asset['name']} ({asset['symbol']}, type={asset['type']}) and decide if price will go UP or DOWN in the next 30-60 minutes.
 
 CURRENT TECHNICALS (5m candles): {ind_lines}
-STRATEGY SIGNALS: {strat_lines}
+STRATEGY SIGNALS: {strat_lines}{abcd_line}
 NEWS SENTIMENT SCORE: {news_score} (-100 bearish .. +100 bullish)
 RECENT HEADLINES: {titles}
 JARVIS ML MODEL SCORE: {jarvis_score}
@@ -221,6 +227,20 @@ def analyze(asset, use_llms=True):
     else:
         entry, sl, tp = price, price + 1.5 * a, price - 3.0 * a
 
+    # If a valid A-B-C-D projection agrees with the verdict, use D as the
+    # take-profit target (capped so R:R never drops below ~1.2).
+    abcd = strat.get("abcd")
+    tp_source = "ATR x2R"
+    if abcd:
+        D = abcd["D"]
+        risk = abs(entry - sl)
+        if direction == "UP" and abcd["direction"] == "bullish" and D > entry + 1.2 * risk:
+            tp = min(D, entry + 4.0 * a)
+            tp_source = f"ABCD D-level {D:.6g}"
+        elif direction == "DOWN" and abcd["direction"] == "bearish" and D < entry - 1.2 * risk:
+            tp = max(D, entry - 4.0 * a)
+            tp_source = f"ABCD D-level {D:.6g}"
+
     return {
         "symbol": asset["symbol"], "name": asset["name"], "type": asset["type"],
         "price": price, "data_source": source,
@@ -228,7 +248,10 @@ def analyze(asset, use_llms=True):
                     "confidence": confidence},
         "members": members,
         "plan": {"entry": round(entry, 6), "tp": round(tp, 6), "sl": round(sl, 6),
-                 "atr": round(a, 6), "rr": 2.0},
+                 "atr": round(a, 6),
+                 "rr": round(abs(tp - entry) / max(abs(entry - sl), 1e-9), 2),
+                 "tp_source": tp_source},
+        "abcd": abcd,
         "features": f,
         "elapsed_sec": round(time.time() - t0, 2),
         "ts": time.time(),

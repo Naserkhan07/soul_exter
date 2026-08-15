@@ -10,7 +10,7 @@ python run.py
 # open http://localhost:8000
 ```
 
-API keys live in `.env` (Gemini + Groq already filled in; add Alpha Vantage / Twelve Data / Polygon keys for extra data sources).
+API keys live in `.env` (Gemini + Groq only — all market data comes from free, unlimited sources: Binance, OKX, Kraken, Coinbase, Yahoo Finance, Stooq).
 
 ## How it works
 
@@ -19,8 +19,8 @@ API keys live in `.env` (Gemini + Groq already filled in; add Alpha Vantage / Tw
    Live data feeds ───► │        AI COUNCIL        │
    (Binance, Yahoo,     │  ─ Indicators  (vote)    │
     Stooq, OKX, Kraken, │  ─ Strategies  (vote)    │      Auto-trader
-    Coinbase, TwelveData│  ─ News sent.  (vote)    │ ───► entry + TP + SL
-    AlphaVantage...)    │  ─ JARVIS ML   (vote)    │      breakeven @1R
+    Coinbase - all free │  ─ News sent.  (vote)    │ ───► entry + TP + SL
+    unlimited sources)  │  ─ JARVIS ML   (vote)    │      breakeven @1R
                         │  ─ Gemini      (vote)    │      ATR trailing
    News scraping ─────► │  ─ Groq        (vote)    │            │
    (Yahoo, CNBC,        └──────────────────────────┘            ▼
@@ -32,11 +32,15 @@ API keys live in `.env` (Gemini + Groq already filled in; add Alpha Vantage / Tw
 ```
 
 - **Ask the Council**: pick any asset in the dashboard and press *ASK THE COUNCIL* — it asks Gemini, Groq and Jarvis in detail "will this go up or down", collects a −100..+100 score from **every** member (indicators, strategies, news, Jarvis, Gemini, Groq) and shows the weighted verdict + trade plan.
-- **Auto-trade**: when confidence ≥ threshold it places a paper trade with ATR-based TP (2R) and SL (1.5×ATR), moves SL to breakeven at +1R and trails with ATR after +1.5R.
-- **Jarvis auto-training**:
-  1. Boots with a built-in knowledge base (market structure, indicators, strategies, risk management, market movement causes) encoded as model priors and injected into every LLM prompt.
-  2. Bootstrap-trains on historical candles of the whole watchlist ("did price rise N bars later?").
-  3. Learns online from every closed trade — its brain is persisted in `data_store/jarvis_brain.json`.
+- **Auto-trade**: when confidence ≥ threshold it places a paper trade with ATR-based TP (2R) and SL (1.5×ATR), moves SL to breakeven at +1R and trails with ATR after +1.5R. When a valid A-B-C-D projection agrees with the verdict, the **D level is used as the take-profit target**.
+- **Strategies tracked live** on every asset: Trend Following (EMA stack + ADX), Mean Reversion (RSI + Bollinger), Momentum Breakout (Donchian + volume), MACD Cross, VWAP Pullback, and the **A-B-C → D price projection**:
+  - swing detector finds pivots A (start swing), B (major swing), C (pullback);
+  - projects `D = (B × C) ÷ A` as a reaction/target level (Gann/Fibonacci style);
+  - the level alone is *not* an automatic signal — it votes toward D as a magnet while price travels, goes neutral ("wait & watch") when price reaches D, and the council + confirmation decide the trade.
+- **Jarvis auto-training** (3 layers):
+  1. Boots with a built-in knowledge base (market structure, indicators, strategies incl. A-B-C-D, risk management, market movement causes) encoded as model priors and injected into every LLM prompt.
+  2. Bootstrap-trains on historical candles of the whole watchlist across **multiple timeframes (5m + 15m) and horizons** ("did price rise N bars later?").
+  3. **Live-lesson loop**: every council prediction is registered and re-checked against the real market ~30 min later — Jarvis trains on what actually happened, even when no trade was placed. Closed trades feed back too. Brain persisted in `data_store/jarvis_brain.json`.
 
 ## Endpoints
 

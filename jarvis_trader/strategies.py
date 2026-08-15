@@ -125,10 +125,115 @@ def vwap_pullback(candles, snap):
     return {"name": "VWAPPullback", "score": score, "reason": "; ".join(reason)}
 
 
-ALL_STRATEGIES = [trend_following, mean_reversion, momentum_breakout, macd_cross, vwap_pullback]
+def find_swings(candles, k=3, max_swings=12):
+    """
+    Detect swing highs/lows using fractal pivots:
+    a swing high is a candle whose high is the highest of k candles either side
+    (swing low is the mirror). Returns newest-last list of
+    {"type": "H"|"L", "price", "idx", "t"}.
+    """
+    swings = []
+    n = len(candles)
+    for i in range(k, n - k):
+        hi = candles[i]["h"]
+        lo = candles[i]["l"]
+        if all(hi >= candles[j]["h"] for j in range(i - k, i + k + 1) if j != i):
+            swings.append({"type": "H", "price": hi, "idx": i, "t": candles[i]["t"]})
+        elif all(lo <= candles[j]["l"] for j in range(i - k, i + k + 1) if j != i):
+            swings.append({"type": "L", "price": lo, "idx": i, "t": candles[i]["t"]})
+    # collapse consecutive same-type swings, keep the more extreme one
+    clean = []
+    for s in swings:
+        if clean and clean[-1]["type"] == s["type"]:
+            if (s["type"] == "H" and s["price"] > clean[-1]["price"]) or \
+               (s["type"] == "L" and s["price"] < clean[-1]["price"]):
+                clean[-1] = s
+        else:
+            clean.append(s)
+    return clean[-max_swings:]
+
+
+def abcd_projection(candles, snap):
+    """
+    Mathematical price-projection strategy (A-B-C -> D).
+
+    From live swing structure pick:
+      A = starting swing point, B = next major swing, C = pullback after B
+    then project the 4th level:   D = (B x C) / A
+    and mark it as a reaction / target zone.
+
+    Bullish structure  (A=low, B=high, C=higher-low pullback): D projects above.
+    Bearish structure  (A=high, B=low, C=lower-high pullback): D projects below.
+
+    Scoring (level is NOT an automatic signal - it needs confirmation):
+      - valid structure and price still travelling toward D  -> vote WITH the
+        structure direction (D acts as target / draw on liquidity)
+      - price within 0.15% of D                              -> expect a
+        reaction: vote fades to ~0 (wait & watch, per the strategy rules)
+      - price cleanly beyond D                                -> level burned,
+        small momentum vote only
+    """
+    swings = find_swings(candles)
+    price = snap["price"]
+    if len(swings) < 3:
+        return {"name": "ABCD_Projection", "score": 0,
+                "reason": "no clear A-B-C swing structure yet", "abcd": None}
+
+    A, B, C = swings[-3], swings[-2], swings[-1]
+
+    bullish = A["type"] == "L" and B["type"] == "H" and C["type"] == "L"
+    bearish = A["type"] == "H" and B["type"] == "L" and C["type"] == "H"
+    if not (bullish or bearish):
+        return {"name": "ABCD_Projection", "score": 0,
+                "reason": "swing sequence not an A-B-C structure", "abcd": None}
+
+    # validate the pullback: C must sit between A and B (a real retracement)
+    lo, hi = min(A["price"], B["price"]), max(A["price"], B["price"])
+    if not (lo < C["price"] < hi) or A["price"] <= 0:
+        return {"name": "ABCD_Projection", "score": 0,
+                "reason": "pullback C not inside A-B range, structure invalid", "abcd": None}
+
+    D = (B["price"] * C["price"]) / A["price"]
+    abcd = {"A": round(A["price"], 6), "B": round(B["price"], 6),
+            "C": round(C["price"], 6), "D": round(D, 6),
+            "direction": "bullish" if bullish else "bearish"}
+
+    dist = (D - price) / price          # signed distance to the projected level
+    near = abs(dist) < 0.0015           # within 0.15% of D = reaction zone
+
+    if bullish:
+        if near:
+            score = 5
+            reason = f"price AT bullish D level {D:.6g} - watch for reaction, need confirmation"
+        elif price < D:
+            # still travelling up toward D; closer = stronger conviction (cap)
+            score = int(min(65, 20 + 4500 * min(abs(dist), 0.01)))
+            reason = (f"bullish A-B-C ({A['price']:.6g}->{B['price']:.6g}->{C['price']:.6g}), "
+                      f"projected D={D:.6g} above, price magnetized toward it")
+        else:
+            score = 15
+            reason = f"price broke above D {D:.6g}, projection met - momentum only"
+    else:
+        if near:
+            score = -5
+            reason = f"price AT bearish D level {D:.6g} - watch for reaction, need confirmation"
+        elif price > D:
+            score = -int(min(65, 20 + 4500 * min(abs(dist), 0.01)))
+            reason = (f"bearish A-B-C ({A['price']:.6g}->{B['price']:.6g}->{C['price']:.6g}), "
+                      f"projected D={D:.6g} below, price drawn toward it")
+        else:
+            score = -15
+            reason = f"price broke below D {D:.6g}, projection met - momentum only"
+
+    return {"name": "ABCD_Projection", "score": score, "reason": reason, "abcd": abcd}
+
+
+ALL_STRATEGIES = [trend_following, mean_reversion, momentum_breakout, macd_cross,
+                  vwap_pullback, abcd_projection]
 
 
 def run_all(candles, snap):
     results = [fn(candles, snap) for fn in ALL_STRATEGIES]
     avg = sum(r["score"] for r in results) / max(len(results), 1)
-    return {"strategies": results, "strategy_score": round(avg, 1)}
+    abcd = next((r.get("abcd") for r in results if r["name"] == "ABCD_Projection"), None)
+    return {"strategies": results, "strategy_score": round(avg, 1), "abcd": abcd}

@@ -26,7 +26,8 @@ FEATURES = [
     "rsi_norm", "macd_hist_norm", "ema_trend", "price_vs_ema200", "bb_pos",
     "stoch_k", "adx_strength", "dmi_dir", "vwap_dist", "supertrend",
     "strat_trend", "strat_meanrev", "strat_breakout", "strat_macd", "strat_vwap",
-    "news_sent", "vol_ratio", "ret_5", "ret_20", "bias",
+    "strat_abcd", "abcd_dist",
+    "news_sent", "vol_ratio", "ret_5", "ret_20", "ret_60", "range_pos", "bias",
 ]
 
 
@@ -61,20 +62,40 @@ def build_features(snap, strat, news_score):
     f["strat_breakout"] = by_name.get("Breakout", 0)
     f["strat_macd"] = by_name.get("MACDCross", 0)
     f["strat_vwap"] = by_name.get("VWAPPullback", 0)
+    f["strat_abcd"] = by_name.get("ABCD_Projection", 0)
+
+    # signed, normalized distance to the projected A-B-C-D level (if any):
+    # positive = D above price (upside magnet), negative = D below.
+    abcd = strat.get("abcd")
+    if abcd and price:
+        f["abcd_dist"] = max(-1, min(1, (abcd["D"] - price) / price * 100))
+    else:
+        f["abcd_dist"] = 0.0
 
     f["news_sent"] = max(-1, min(1, news_score / 100))
     f["vol_ratio"] = 0.0
     f["ret_5"] = 0.0
     f["ret_20"] = 0.0
+    f["ret_60"] = 0.0
+    f["range_pos"] = 0.0
     f["bias"] = 1.0
     return f
 
 
 def add_price_features(f, candles):
+    """Market-movement features extracted from raw live candles."""
     cl = [c["c"] for c in candles]
     if len(cl) > 21:
         f["ret_5"] = max(-1, min(1, (cl[-1] / cl[-6] - 1) * 40))
         f["ret_20"] = max(-1, min(1, (cl[-1] / cl[-21] - 1) * 20))
+    if len(cl) > 61:
+        f["ret_60"] = max(-1, min(1, (cl[-1] / cl[-61] - 1) * 12))
+    # where price sits inside the recent 60-bar range (-1 = at low, +1 = at high)
+    window = candles[-60:]
+    hh = max(c["h"] for c in window)
+    ll = min(c["l"] for c in window)
+    if hh > ll:
+        f["range_pos"] = (cl[-1] - ll) / (hh - ll) * 2 - 1
     vols = [c["v"] for c in candles[-20:]]
     avg = sum(vols[:-1]) / max(len(vols) - 1, 1)
     if avg > 0:
@@ -106,14 +127,18 @@ class JarvisBrain:
             "rsi_norm": -0.15, "bb_pos": -0.10, "stoch_k": -0.05,
             "vwap_dist": 0.15, "strat_trend": 0.5, "strat_meanrev": 0.3,
             "strat_breakout": 0.4, "strat_macd": 0.35, "strat_vwap": 0.25,
+            "strat_abcd": 0.35, "abcd_dist": 0.15,
             "news_sent": 0.5, "vol_ratio": 0.05, "ret_5": 0.15, "ret_20": 0.2,
-            "bias": 0.0,
+            "ret_60": 0.15, "range_pos": 0.1, "bias": 0.0,
         }
         self.w.update(priors)
 
     def _load(self):
         try:
             data = json.loads(BRAIN_PATH.read_text())
+            # brain version = the feature set; if features changed, retrain fresh
+            if data.get("features") != FEATURES:
+                return
             self.w.update(data.get("w", {}))
             self.samples_trained = data.get("samples_trained", 0)
             self.bootstrap_done = data.get("bootstrap_done", False)
@@ -126,6 +151,7 @@ class JarvisBrain:
     def save(self):
         with self.lock:
             BRAIN_PATH.write_text(json.dumps({
+                "features": FEATURES,
                 "w": self.w, "samples_trained": self.samples_trained,
                 "bootstrap_done": self.bootstrap_done,
                 "live_feedback": self.live_feedback,
@@ -167,37 +193,42 @@ class JarvisBrain:
         return round(100 * self.correct / self.total_scored, 1) if self.total_scored else None
 
     # ------------------------------------------------------------- #
-    def bootstrap_train(self, get_candles_fn, watchlist, horizon=6, log=None):
+    def bootstrap_train(self, get_candles_fn, watchlist, log=None):
         """
         Auto-train on history: for each asset, slide a window through its
-        candles and learn "did close rise `horizon` bars later?".
+        candles on multiple timeframes and horizons and learn
+        "did close rise `horizon` bars later?".
         """
         from . import indicators as ind
         from . import strategies as strat_mod
 
         total = 0
+        plans = [("5m", 300, (3, 6, 12)),      # short/medium/longer intraday moves
+                 ("15m", 200, (4, 8))]
         for asset in watchlist:
-            try:
-                candles, src = get_candles_fn(asset, "5m", 300)
-            except Exception:
-                continue
-            if len(candles) < 120:
-                continue
-            step = max(1, (len(candles) - 80 - horizon) // 40)
-            for i in range(80, len(candles) - horizon, step):
-                window = candles[:i]
+            for interval, limit, horizons in plans:
                 try:
-                    snap = ind.snapshot(window)
-                    st = strat_mod.run_all(window, snap)
-                    f = build_features(snap, st, 0.0)
-                    add_price_features(f, window)
-                    went_up = candles[i + horizon - 1]["c"] > window[-1]["c"]
-                    self.train_sample(f, went_up)
-                    total += 1
+                    candles, src = get_candles_fn(asset, interval, limit)
                 except Exception:
                     continue
+                if len(candles) < 120:
+                    continue
+                for horizon in horizons:
+                    step = max(1, (len(candles) - 80 - horizon) // 30)
+                    for i in range(80, len(candles) - horizon, step):
+                        window = candles[:i]
+                        try:
+                            snap = ind.snapshot(window)
+                            st = strat_mod.run_all(window, snap)
+                            f = build_features(snap, st, 0.0)
+                            add_price_features(f, window)
+                            went_up = candles[i + horizon - 1]["c"] > window[-1]["c"]
+                            self.train_sample(f, went_up)
+                            total += 1
+                        except Exception:
+                            continue
             if log:
-                log(f"Jarvis bootstrap: trained on {asset['symbol']} ({src})")
+                log(f"Jarvis bootstrap: multi-timeframe training on {asset['symbol']}")
         with self.lock:
             self.bootstrap_done = True
         self.save()

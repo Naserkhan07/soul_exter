@@ -277,6 +277,16 @@ function renderCouncil(a){
   if(m.news&&m.news.detail&&m.news.detail.titles&&m.news.detail.titles.length)
     reasons+=`<div class="reason">News: ${m.news.detail.titles[0]}</div>`;
   const p=a.plan||{};
+  let abcdHtml='';
+  if(a.abcd){
+    const ab=a.abcd;
+    const acol=ab.direction==='bullish'?'var(--green)':'var(--red)';
+    abcdHtml=`<h2 style="margin-top:10px">A-B-C &rarr; D Projection <span class="tag" style="color:${acol}">${ab.direction}</span></h2>
+      <table class="plan"><tr><th>A</th><th>B</th><th>C</th><th>D = (B&times;C)&divide;A</th></tr>
+      <tr><td>${fmt(ab.A)}</td><td>${fmt(ab.B)}</td><td>${fmt(ab.C)}</td>
+      <td style="color:${acol};font-weight:700">${fmt(ab.D)}</td></tr></table>
+      <div class="sub" style="margin-top:3px">projected reaction/target level from live swing structure - needs price-action confirmation</div>`;
+  }
   $('councilBody').innerHTML=`
     <div class="flex" style="justify-content:space-between;margin-bottom:8px">
       <div><span class="pill ${v.direction}">${v.direction}</span>
@@ -284,10 +294,11 @@ function renderCouncil(a){
         <span class="sub">confidence ${v.confidence}%</span></div>
       <div class="sub">price ${fmt(a.price)} &bull; src: ${a.data_source} &bull; ${a.elapsed_sec}s</div>
     </div>
-    ${bars}${reasons}
-    <h2 style="margin-top:10px">Auto Trade Plan (ATR-based)</h2>
+    ${bars}${reasons}${abcdHtml}
+    <h2 style="margin-top:10px">Auto Trade Plan</h2>
     <table class="plan"><tr><th>Entry</th><th>Take Profit</th><th>Stop Loss</th><th>R:R</th></tr>
     <tr><td>${fmt(p.entry)}</td><td class="up">${fmt(p.tp)}</td><td class="down">${fmt(p.sl)}</td><td>${p.rr}:1</td></tr></table>
+    <div class="sub" style="margin-top:3px">TP from: ${p.tp_source||'ATR x2R'}</div>
     <div class="sub" style="margin-top:6px">Jarvis: ${m.jarvis?.detail?.samples_trained??'--'} samples trained,
       ${m.jarvis?.detail?.live_feedback??0} live feedbacks${m.jarvis?.detail?.accuracy?(', accuracy '+m.jarvis.detail.accuracy+'%'):''}</div>`;
 }
@@ -336,7 +347,7 @@ async function refreshStatus(){
   $('equity').textContent='$'+fmt(s.equity,2);
   $('equity').style.color=s.equity>=s.balance?'var(--green)':'var(--red)';
   $('jarvisAcc').textContent=s.jarvis.accuracy!=null?s.jarvis.accuracy+'%':(s.jarvis.bootstrapping?'training...':'--');
-  $('jarvisN').textContent=s.jarvis.samples_trained;
+  $('jarvisN').textContent=s.jarvis.samples_trained+(s.jarvis.pending_predictions?(' (+'+s.jarvis.pending_predictions+' live)'):'');
   if(document.activeElement.tagName!=='INPUT'){
     $('autoTrade').checked=s.auto_trade;$('minConf').value=s.min_confidence;$('riskPct').value=s.risk_pct;
   }
