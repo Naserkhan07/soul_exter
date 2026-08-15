@@ -33,7 +33,9 @@ API keys live in `.env` (Gemini + Groq only — all market data comes from free,
 ```
 
 - **Ask the Council**: pick any asset in the dashboard and press *ASK THE COUNCIL* — it asks Gemini, Groq and Jarvis in detail "will this go up or down", collects a −100..+100 score from **every** member (indicators, strategies, news, Jarvis, Gemini, Groq) and shows the weighted verdict + trade plan.
-- **Auto-trade**: when confidence ≥ threshold it places a paper trade with ATR-based TP (2R) and SL (1.5×ATR), moves SL to breakeven at +1R and trails with ATR after +1.5R. When a valid A-B-C-D projection agrees with the verdict, the **D level is used as the take-profit target**.
+- **Signals → click to place**: every setup the bot finds (confidence ≥ threshold) is published in the **Scanned Trade Signals** panel with side, entry, TP, SL, R:R and the top reasons. Nothing is placed until **you click PLACE** (signals stay clickable for `SIGNAL_TTL_SEC`, default 15 min, and execute at the live price with drift-adjusted TP/SL). Flip `AUTO_TRADE=true` in `.env` (or the dashboard toggle) and the bot places them itself.
+- **Trade management**: ATR-based TP/SL at order time, SL→breakeven at +1R, ATR trailing after +1.5R, and a **timeout exit** (`MAX_TRADE_HOLD_SEC`, default 4h) if neither TP nor SL is hit. When a valid A-B-C-D projection agrees with the verdict, the **D level is used as the take-profit target**.
+- **Trade journal**: every closed trade is written to `data_store/trade_journal.json` and shown in the dashboard's journal table — outcome (WIN/LOSS), entry & exit price, TP, SL, PnL, R-multiple, hold time, **why it closed** (TP hit / SL hit / breakeven stop / timeout / manual) and **why it was entered** (member votes + reasons at entry). Click any row to expand the full story.
 - **Live pattern recognition** (`patterns.py`) — a dedicated council member scans every asset's live chart for **~50 candlestick + chart patterns**:
   - *Candlestick*: Hammer, Inverted Hammer, Hanging Man, Shooting Star, Doji / Gravestone / Dragonfly, Bullish & Bearish Engulfing, Piercing Line, Dark Cloud Cover, Morning/Evening Star (+ Doji Star variants), Three White Soldiers, Three Black Crows, Harami & Harami Cross, Inside Bars, Tweezer Top/Bottom, Bullish/Bearish Kicker, Rising/Falling Windows (gaps), Upside/Downside Tasuki Gap, Side-by-Side White Lines, Rising/Falling Three Methods, Separating Lines.
   - *Chart*: Double & Triple Top/Bottom, Head & Shoulders + Inverse, Rising/Falling Wedge, Ascending/Descending/Symmetrical Triangle, Bullish/Bearish Flag & Pennant, Rectangles, Cup & Handle, Rounding Bottom, Broadening Formation, Diamond Top/Bottom.
@@ -55,6 +57,9 @@ API keys live in `.env` (Gemini + Groq only — all market data comes from free,
 | `GET /api/market` | live quotes, all assets |
 | `POST /api/analyze/{symbol}` | full AI-council analysis |
 | `GET /api/news` | scraped headlines + high-impact economic calendar |
+| `GET /api/signals` | every trade setup scanned from the live market (click-to-place) |
+| `POST /api/place/{symbol}` | place a scanned signal — used by the PLACE button |
+| `GET /api/journal` | closed-trade journal: entry/TP/SL/exit, why it closed, stats |
 | `GET /api/status` | balance, equity, positions, Jarvis stats |
 | `POST /api/settings` | auto_trade / min_confidence / risk_pct |
 | `GET /mt5/commands` | MT5 EA polls this for live orders |

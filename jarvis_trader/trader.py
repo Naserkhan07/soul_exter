@@ -19,6 +19,7 @@ import uuid
 from . import config, feeds, council, jarvis, news
 
 STATE_PATH = config.DATA_DIR / "trader_state.json"
+JOURNAL_PATH = config.DATA_DIR / "trade_journal.json"
 
 
 class PaperBroker:
@@ -68,6 +69,9 @@ class TradingEngine:
         self.risk_pct = config.RISK_PER_TRADE_PCT
         self.market = {}                 # symbol -> latest quote/mini-analysis
         self.last_analysis = {}          # symbol -> latest full council verdict
+        self.signals = {}                # symbol -> scanned trade setup awaiting YOUR click
+        self.signals_scanned = 0         # total setups found since start
+        self.journal = []                # full closed-trade journal (persisted)
         self.logs = []
         self.commands = []               # queue for MT5 / TradingView executors
         self.lock = threading.Lock()
@@ -92,6 +96,10 @@ class TradingEngine:
             self.broker.history = d.get("history", [])
         except Exception:
             pass
+        try:
+            self.journal = json.loads(JOURNAL_PATH.read_text())
+        except Exception:
+            self.journal = []
 
     def save(self):
         try:
@@ -99,6 +107,7 @@ class TradingEngine:
                 "balance": self.broker.balance,
                 "history": self.broker.history[-200:],
             }, indent=1))
+            JOURNAL_PATH.write_text(json.dumps(self.journal[-500:], indent=1))
         except Exception:
             pass
 
@@ -191,12 +200,19 @@ class TradingEngine:
                 if price >= p["tp"]:
                     to_close.append((p["id"], p["tp"], "TP hit"))
                 elif price <= p["sl"]:
-                    to_close.append((p["id"], p["sl"], "SL hit"))
+                    to_close.append((p["id"], p["sl"],
+                                     "Breakeven stop hit" if p["be_moved"] else "SL hit"))
             else:
                 if price <= p["tp"]:
                     to_close.append((p["id"], p["tp"], "TP hit"))
                 elif price >= p["sl"]:
-                    to_close.append((p["id"], p["sl"], "SL hit"))
+                    to_close.append((p["id"], p["sl"],
+                                     "Breakeven stop hit" if p["be_moved"] else "SL hit"))
+            # timeout: held too long without hitting TP or SL
+            max_hold = p["meta"].get("max_hold_sec", config.MAX_TRADE_HOLD_SEC)
+            if time.time() - p["opened"] > max_hold and \
+                    not any(c[0] == p["id"] for c in to_close):
+                to_close.append((p["id"], price, "Timeout"))
         for pid, px, reason in to_close:
             self._close_and_learn(pid, px, reason)
 
@@ -204,9 +220,9 @@ class TradingEngine:
         p = self.broker.close(pid, price, reason)
         if not p:
             return
-        won = p["pnl"] > 0
         self.log(f"CLOSED {p['symbol']} {p['side']} @ {price:.5g} | {reason} | "
                  f"PnL {p['pnl']:+.2f} | balance {self.broker.balance:.2f}")
+        self._journal_trade(p, price, reason)
         # feed the outcome back into Jarvis (online self-training)
         feats = p["meta"].get("features")
         if feats:
@@ -217,6 +233,51 @@ class TradingEngine:
                      f"(live feedback #{jarvis.BRAIN.live_feedback}, "
                      f"accuracy {jarvis.BRAIN.accuracy}%)")
         self.save()
+
+    def _journal_trade(self, p, exit_price, reason):
+        """Write the complete story of a closed trade into the journal."""
+        meta = p.get("meta", {})
+        d = 1 if p["side"] == "BUY" else -1
+        risk = abs(p["entry"] - p["initial_sl"])
+        r_multiple = round(((exit_price - p["entry"]) * d) / risk, 2) if risk else None
+        held = p["closed"] - p["opened"]
+        outcome = "WIN" if p["pnl"] > 0 else ("LOSS" if p["pnl"] < 0 else "FLAT")
+        why_closed = {
+            "TP hit": "Price reached the take-profit target",
+            "SL hit": "Price hit the stop-loss - setup failed",
+            "Breakeven stop hit": "Trade went 1R in profit, stop moved to entry, "
+                                  "then price came back - closed at ~breakeven",
+            "Timeout": f"Held longer than {int(meta.get('max_hold_sec', config.MAX_TRADE_HOLD_SEC)/3600)}h "
+                       "without hitting TP or SL - time-based exit",
+            "manual close": "You closed it manually from the dashboard",
+        }.get(reason, reason)
+        entry = {
+            "id": p["id"],
+            "signal_id": meta.get("signal_id"),
+            "symbol": p["symbol"], "side": p["side"],
+            "outcome": outcome, "pnl": round(p["pnl"], 2),
+            "r_multiple": r_multiple,
+            "entry_price": round(p["entry"], 6),
+            "exit_price": round(exit_price, 6),
+            "tp": round(p["tp"], 6), "sl": round(p["sl"], 6),
+            "initial_sl": round(p["initial_sl"], 6),
+            "sl_moved_to_breakeven": p.get("be_moved", False),
+            "qty": round(p["qty"], 6),
+            "close_reason": reason,
+            "close_explanation": why_closed,
+            "opened_at": p["opened"], "closed_at": p["closed"],
+            "held_seconds": int(held),
+            "held_human": f"{int(held//3600)}h {int(held%3600//60)}m" if held >= 3600
+                          else f"{int(held//60)}m {int(held%60)}s",
+            "placed_by": meta.get("placed_by", "auto"),
+            "confidence_at_entry": meta.get("confidence"),
+            "council_score_at_entry": meta.get("score"),
+            "member_votes_at_entry": meta.get("members"),
+            "why_entered": meta.get("reasons", []),
+        }
+        with self.lock:
+            self.journal.append(entry)
+            self.journal = self.journal[-500:]
 
     # -------------------------------------------------------------- #
     def _live_learn_loop(self):
@@ -292,49 +353,136 @@ class TradingEngine:
                 self.log(f"Council {asset['symbol']}: {v['direction']} "
                          f"score={v['score']} conf={v['confidence']}")
                 self._register_prediction(verdict)
-                if self.auto_trade:
-                    self._maybe_trade(asset, verdict)
+                self._maybe_signal(asset, verdict)
             except Exception as e:
                 self.log(f"council error {asset['symbol']}: {e}")
             time.sleep(max(4, config.SCAN_INTERVAL_SEC // len(config.WATCHLIST)))
 
-    def _maybe_trade(self, asset, verdict):
+    def _maybe_signal(self, asset, verdict):
+        """Council found a setup -> publish it as a clickable SIGNAL.
+        If auto_trade is ON it is also placed immediately."""
         v = verdict["verdict"]
         sym = asset["symbol"]
         if v["confidence"] < self.min_conf:
+            with self.lock:
+                # confidence dropped below threshold -> retire stale signal
+                if sym in self.signals and self.signals[sym]["status"] == "waiting":
+                    if v["confidence"] < self.min_conf * 0.7:
+                        self.signals.pop(sym, None)
             return
-        with self.lock:
-            open_same = [p for p in self.broker.positions.values() if p["symbol"] == sym]
-            if open_same:
-                return
-            if len(self.broker.positions) >= 6:
-                return
         plan = verdict["plan"]
         side = "BUY" if v["direction"] == "UP" else "SELL"
-        entry, tp, sl = plan["entry"], plan["tp"], plan["sl"]
+        top_reasons = self._signal_reasons(verdict)
+        with self.lock:
+            existing = self.signals.get(sym)
+            fresh = (existing is None or existing["status"] != "waiting"
+                     or existing["side"] != side)
+            self.signals[sym] = {
+                "id": uuid.uuid4().hex[:8] if fresh else existing["id"],
+                "symbol": sym, "name": asset["name"], "type": asset["type"],
+                "side": side, "entry": plan["entry"], "tp": plan["tp"],
+                "sl": plan["sl"], "rr": plan.get("rr"), "tp_source": plan.get("tp_source"),
+                "confidence": v["confidence"], "score": v["score"],
+                "reasons": top_reasons,
+                "members": {k: m["score"] for k, m in verdict["members"].items()},
+                "features": verdict.get("features"),
+                "ts": time.time() if fresh else existing["ts"],
+                "updated": time.time(),
+                "expires": time.time() + config.SIGNAL_TTL_SEC,
+                "status": "waiting",           # waiting -> placed / expired
+            }
+            if fresh:
+                self.signals_scanned += 1
+        if fresh:
+            self.log(f"SIGNAL #{self.signals_scanned} scanned: {side} {sym} "
+                     f"@ {plan['entry']:.6g} TP={plan['tp']:.6g} SL={plan['sl']:.6g} "
+                     f"(conf {v['confidence']}%) - waiting for your click"
+                     + (" [auto_trade ON -> placing]" if self.auto_trade else ""))
+        if self.auto_trade and fresh:
+            self.place_trade(sym, source="auto")
+
+    @staticmethod
+    def _signal_reasons(verdict):
+        """Human-readable 'why this trade' bullets from council members."""
+        reasons = []
+        m = verdict.get("members", {})
+        v = verdict["verdict"]
+        d = v["direction"]
+        for name in ("jarvis", "gemini", "groq", "patterns", "strategies",
+                     "indicators", "news"):
+            mem = m.get(name)
+            if not mem or mem.get("score") is None:
+                continue
+            sc = mem["score"]
+            agrees = (sc > 0) == (d == "UP")
+            det = mem.get("detail") or {}
+            if name in ("gemini", "groq") and det.get("reason"):
+                reasons.append(f"{name.title()}: {det['reason'][:110]}")
+            elif name == "patterns" and det.get("found"):
+                top = det["found"][0]
+                reasons.append(f"Pattern: {top['name']} ({top['dir']}, {top['score']:+.0f})")
+            elif name == "jarvis":
+                reasons.append(f"Jarvis ML: {'agrees' if agrees else 'disagrees'} "
+                               f"({sc:+.0f}, prob_up {det.get('prob_up', '?')})")
+            elif name == "news" and det.get("titles"):
+                reasons.append(f"News: {det['titles'][0][:100]}")
+            elif name in ("strategies", "indicators"):
+                reasons.append(f"{name.title()}: {sc:+.0f}")
+        return reasons[:6]
+
+    # -------------------------------------------------------------- #
+    def place_trade(self, symbol, source="manual"):
+        """Place the scanned signal for `symbol` - called when YOU click it."""
+        with self.lock:
+            sig = self.signals.get(symbol)
+            if not sig or sig["status"] != "waiting":
+                return {"ok": False, "error": "no waiting signal for this symbol"}
+            if time.time() > sig["expires"]:
+                sig["status"] = "expired"
+                return {"ok": False, "error": "signal expired - wait for a fresh scan"}
+            open_same = [p for p in self.broker.positions.values()
+                         if p["symbol"] == symbol]
+            if open_same:
+                return {"ok": False, "error": "position already open on this symbol"}
+            if len(self.broker.positions) >= 6:
+                return {"ok": False, "error": "max 6 open positions reached"}
+
+        # execute at CURRENT live price (not the scan price)
+        q = self.market.get(symbol)
+        entry = q["price"] if q else sig["entry"]
+        side, tp, sl = sig["side"], sig["tp"], sig["sl"]
+        # shift TP/SL by the slippage between scan price and live price
+        drift = entry - sig["entry"]
+        tp, sl = tp + drift, sl + drift
         risk_amount = self.broker.equity * self.risk_pct / 100
         stop_dist = abs(entry - sl)
         if stop_dist <= 0:
-            return
+            return {"ok": False, "error": "invalid stop distance"}
         qty = max(risk_amount / stop_dist, 1e-9)
-        # cap notional at 20% of equity for sanity
-        max_qty = (self.broker.equity * 0.2 * 10) / entry   # allow some leverage
+        max_qty = (self.broker.equity * 0.2 * 10) / entry
         qty = min(qty, max_qty)
-        pid = self.broker.open(sym, side, qty, entry, tp, sl, meta={
-            "confidence": v["confidence"], "score": v["score"],
-            "features": verdict.get("features"),
-            "members": {k: m["score"] for k, m in verdict["members"].items()},
+
+        pid = self.broker.open(symbol, side, qty, entry, tp, sl, meta={
+            "confidence": sig["confidence"], "score": sig["score"],
+            "features": sig.get("features"), "members": sig.get("members"),
+            "reasons": sig.get("reasons"), "signal_id": sig["id"],
+            "placed_by": source, "signal_ts": sig["ts"],
+            "max_hold_sec": config.MAX_TRADE_HOLD_SEC,
         })
-        self.log(f"AUTO-TRADE {side} {sym} qty={qty:.6g} @ {entry:.5g} "
-                 f"TP={tp:.5g} SL={sl:.5g} (conf {v['confidence']}%)")
-        # queue command for external executors (MT5 EA / TradingView bridge)
         with self.lock:
+            sig["status"] = "placed"
+            sig["position_id"] = pid
             self.commands.append({
-                "id": pid, "action": "OPEN", "symbol": sym, "side": side,
+                "id": pid, "action": "OPEN", "symbol": symbol, "side": side,
                 "qty": round(qty, 6), "entry": entry, "tp": tp, "sl": sl,
-                "confidence": v["confidence"], "ts": time.time(), "delivered": False,
+                "confidence": sig["confidence"], "ts": time.time(),
+                "delivered": False,
             })
             self.commands = self.commands[-100:]
+        self.log(f"TRADE PLACED ({source}): {side} {symbol} qty={qty:.6g} "
+                 f"@ {entry:.6g} TP={tp:.6g} SL={sl:.6g}")
+        return {"ok": True, "position_id": pid, "entry": entry, "tp": tp, "sl": sl,
+                "qty": qty}
 
     # -------------------------------------------------------------- #
     def manual_close(self, pid):
@@ -354,10 +502,43 @@ class TradingEngine:
                 c["delivered"] = True
             return out
 
+    def get_signals(self):
+        """All scanned setups: waiting (clickable), placed, expired."""
+        now = time.time()
+        with self.lock:
+            for s in self.signals.values():
+                if s["status"] == "waiting" and now > s["expires"]:
+                    s["status"] = "expired"
+            sigs = sorted(self.signals.values(),
+                          key=lambda s: (-abs(s["confidence"]), s["symbol"]))
+            return {"signals": sigs, "total_scanned": self.signals_scanned,
+                    "auto_trade": self.auto_trade}
+
+    def get_journal(self, limit=100):
+        with self.lock:
+            entries = self.journal[-limit:][::-1]
+            wins = [j for j in self.journal if j["outcome"] == "WIN"]
+            losses = [j for j in self.journal if j["outcome"] == "LOSS"]
+            stats = {
+                "total": len(self.journal),
+                "wins": len(wins), "losses": len(losses),
+                "win_rate": round(100 * len(wins) / len(self.journal), 1)
+                            if self.journal else None,
+                "total_pnl": round(sum(j["pnl"] for j in self.journal), 2),
+                "by_reason": {},
+            }
+            for j in self.journal:
+                stats["by_reason"][j["close_reason"]] = \
+                    stats["by_reason"].get(j["close_reason"], 0) + 1
+        return {"journal": entries, "stats": stats}
+
     def status(self):
         with self.lock:
+            waiting = [s for s in self.signals.values() if s["status"] == "waiting"]
             return {
                 "running": self.running,
+                "signals_waiting": len(waiting),
+                "signals_scanned": self.signals_scanned,
                 "auto_trade": self.auto_trade,
                 "min_confidence": self.min_conf,
                 "risk_pct": self.risk_pct,

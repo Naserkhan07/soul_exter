@@ -71,6 +71,26 @@ def api_news():
                 "sources_fail": news.ENGINE.sources_fail}
 
 
+@app.get("/api/signals")
+def api_signals():
+    """Every trade setup the bot scanned from the live market - click to place."""
+    return ENGINE.get_signals()
+
+
+@app.post("/api/place/{symbol}")
+def api_place(symbol: str):
+    """YOU clicked a signal -> place the trade with its TP/SL."""
+    res = ENGINE.place_trade(symbol, source="manual click")
+    code = 200 if res.get("ok") else 400
+    return JSONResponse(res, status_code=code)
+
+
+@app.get("/api/journal")
+def api_journal():
+    """Closed-trade journal: entry, TP, SL, exit, why it closed, stats."""
+    return ENGINE.get_journal()
+
+
 @app.get("/api/logs")
 def api_logs():
     with ENGINE.lock:
@@ -231,15 +251,22 @@ input[type=number]{background:var(--panel2);border:1px solid var(--border);color
     <div id="councilBody"><div class="sub">Click an asset on the left, then press ASK THE COUNCIL to query Jarvis + Gemini + Groq + indicators + strategies + news in detail.</div></div>
   </div>
 
-  <!-- RIGHT: positions + news -->
+  <!-- RIGHT: signals + positions + news -->
   <div class="panel">
-    <h2>Open Positions <span class="tag" id="posCount">0</span></h2>
-    <div id="positions" class="scroll" style="max-height:200px"></div>
-    <h2 style="margin-top:10px">Trade History</h2>
-    <div id="history" class="scroll" style="max-height:160px"></div>
+    <h2>&#9889; Scanned Trade Signals <span class="tag" id="sigCount">--</span></h2>
+    <div class="sub" style="margin-bottom:6px">Every setup the bot found in the live market. <b style="color:var(--gold)">Click PLACE to take the trade.</b></div>
+    <div id="signals" class="scroll" style="max-height:270px"></div>
+    <h2 style="margin-top:10px">Open Positions <span class="tag" id="posCount">0</span></h2>
+    <div id="positions" class="scroll" style="max-height:180px"></div>
     <h2 style="margin-top:10px">Live News <span class="tag" id="newsCount">--</span></h2>
-    <div id="newsList" class="scroll" style="max-height:230px"></div>
+    <div id="newsList" class="scroll" style="max-height:170px"></div>
   </div>
+</div>
+
+<!-- TRADE JOURNAL: full-width bottom panel -->
+<div class="panel" style="margin-top:12px">
+  <h2>&#128218; Trade Journal - why every trade closed <span class="tag" id="jrnStats">--</span></h2>
+  <div id="journal"></div>
 </div>
 
 <script>
@@ -381,12 +408,76 @@ async function refreshStatus(){
       <span class="sub">TP ${fmt(p.tp)} &bull; SL ${fmt(p.sl)}${p.be_moved?' (BE)':''}</span>
       <button class="btn" style="float:right;padding:1px 7px;font-size:9px" onclick="closePos('${p.id}')">close</button>
     </div>`).join(''):'<div class="sub">no open positions</div>';
-  $('history').innerHTML=s.closed_trades.length?s.closed_trades.map(t=>`
-    <div style="padding:4px 0;border-bottom:1px solid #131e33;font-size:11px">
-      ${t.symbol} ${t.side} <span class="sub">${t.reason}</span>
-      <span style="float:right" class="${t.pnl>=0?'up':'down'}">${t.pnl>=0?'+':''}${fmt(t.pnl,2)}</span></div>`).join('')
-    :'<div class="sub">no closed trades yet</div>';
 }
+
+async function refreshSignals(){
+  const d=await jget('/api/signals');
+  const waiting=d.signals.filter(s=>s.status==='waiting');
+  $('sigCount').textContent=waiting.length+' waiting / '+d.total_scanned+' scanned total';
+  $('signals').innerHTML=d.signals.length?d.signals.map(s=>{
+    const col=s.side==='BUY'?'var(--green)':'var(--red)';
+    const secs=Math.max(0,Math.round(s.expires-Date.now()/1000));
+    const stat=s.status==='waiting'
+      ?`<button class="btn primary" style="font-weight:700" onclick="placeTrade('${s.symbol}',this)">&#9658; PLACE</button>
+        <span class="sub">${Math.floor(secs/60)}m${secs%60}s left</span>`
+      :s.status==='placed'
+      ?'<span class="tag" style="color:var(--green);border-color:var(--green)">PLACED</span>'
+      :'<span class="tag">EXPIRED</span>';
+    const why=(s.reasons||[]).slice(0,2).map(r=>`<div class="reason">&bull; ${r}</div>`).join('');
+    return `<div style="padding:6px 0;border-bottom:1px solid #131e33;${s.status!=='waiting'?'opacity:.55':''}">
+      <b style="color:${col}">${s.side}</b> <b>${s.symbol}</b>
+      <span class="tag">${s.type}</span>
+      <span class="sub">conf ${Math.round(s.confidence)}%</span>
+      <span style="float:right">${stat}</span><br>
+      <span class="sub">Entry ${fmt(s.entry)} &bull; <span class="up">TP ${fmt(s.tp)}</span> &bull;
+      <span class="down">SL ${fmt(s.sl)}</span> &bull; R:R ${s.rr??'--'}</span>
+      ${why}</div>`;
+  }).join(''):'<div class="sub">scanning live market... signals appear here when confidence &ge; threshold</div>';
+}
+
+async function placeTrade(sym,btn){
+  btn.textContent='PLACING...';btn.disabled=true;
+  const r=await fetch('/api/place/'+sym,{method:'POST'});
+  const d=await r.json();
+  if(d.ok){btn.textContent='&#10003; PLACED';}
+  else{alert('Could not place: '+d.error);btn.textContent='&#9658; PLACE';btn.disabled=false;}
+  refreshSignals();refreshStatus();
+}
+
+async function refreshJournal(){
+  const d=await jget('/api/journal');
+  const st=d.stats;
+  $('jrnStats').textContent=st.total?`${st.total} trades &bull; ${st.wins}W/${st.losses}L (${st.win_rate}%) &bull; PnL ${st.total_pnl>=0?'+':''}${st.total_pnl}`:'no closed trades yet';
+  $('jrnStats').innerHTML=$('jrnStats').textContent;
+  $('journal').innerHTML=d.journal.length?`
+    <table><thead><tr><th>Closed</th><th>Symbol</th><th>Side</th><th>Outcome</th><th>Entry</th>
+    <th>Exit</th><th>TP</th><th>SL</th><th>PnL</th><th>R</th><th>Held</th><th>Why it closed</th><th>Placed by</th></tr></thead>
+    <tbody>`+d.journal.map(j=>{
+      const oc=j.outcome==='WIN'?'up':j.outcome==='LOSS'?'down':'';
+      const rc=j.close_reason==='TP hit'?'up':(j.close_reason==='SL hit'?'down':'');
+      return `<tr class="row" onclick="toggleJrn('${j.id}')">
+        <td class="sub">${new Date(j.closed_at*1000).toLocaleTimeString()}</td>
+        <td><b>${j.symbol}</b></td>
+        <td class="${j.side==='BUY'?'up':'down'}">${j.side}</td>
+        <td class="${oc}" style="font-weight:700">${j.outcome}</td>
+        <td>${fmt(j.entry_price)}</td><td>${fmt(j.exit_price)}</td>
+        <td class="up">${fmt(j.tp)}</td><td class="down">${fmt(j.initial_sl)}</td>
+        <td class="${j.pnl>=0?'up':'down'}">${j.pnl>=0?'+':''}${fmt(j.pnl,2)}</td>
+        <td>${j.r_multiple!=null?(j.r_multiple>=0?'+':'')+j.r_multiple+'R':'--'}</td>
+        <td class="sub">${j.held_human}</td>
+        <td class="${rc}">${j.close_reason}${j.sl_moved_to_breakeven?' <span class="tag">BE</span>':''}</td>
+        <td class="sub">${j.placed_by}</td></tr>
+      <tr id="jrn-${j.id}" style="display:none"><td colspan="13" style="background:var(--panel2)">
+        <div style="padding:6px 10px">
+          <div class="sub" style="margin-bottom:4px"><b style="color:var(--cyan)">Close explanation:</b> ${j.close_explanation}</div>
+          <div class="sub"><b style="color:var(--cyan)">Why it was entered</b> (conf ${j.confidence_at_entry}%, council score ${j.council_score_at_entry}):</div>
+          ${(j.why_entered||[]).map(r=>`<div class="reason">&bull; ${r}</div>`).join('')||'<div class="sub">-</div>'}
+          <div class="sub" style="margin-top:4px"><b style="color:var(--cyan)">Votes at entry:</b> ${j.member_votes_at_entry?Object.entries(j.member_votes_at_entry).map(([k,v])=>`${k}: ${v==null?'--':(v>0?'+':'')+Math.round(v)}`).join(' &bull; '):'-'}</div>
+        </div></td></tr>`;
+    }).join('')+'</tbody></table>'
+    :'<div class="sub">Closed trades will appear here with the full story: entry, TP, SL, exit price, PnL, R-multiple, hold time, and exactly WHY the trade closed (TP hit / SL hit / breakeven stop / timeout / manual).</div>';
+}
+function toggleJrn(id){const r=document.getElementById('jrn-'+id);if(r)r.style.display=r.style.display==='none'?'':'none';}
 
 async function refreshNews(){
   try{
@@ -410,10 +501,12 @@ async function saveSettings(){
 }
 async function closePos(id){await jpost('/api/close/'+id);refreshStatus();}
 
-refreshMarket();refreshStatus();refreshNews();refreshLogs();refreshAnalysis();
+refreshMarket();refreshStatus();refreshNews();refreshLogs();refreshAnalysis();refreshSignals();refreshJournal();
 setInterval(refreshMarket,4000);
 setInterval(refreshStatus,4000);
 setInterval(refreshAnalysis,9000);
+setInterval(refreshSignals,5000);
+setInterval(refreshJournal,8000);
 setInterval(refreshLogs,6000);
 setInterval(refreshNews,60000);
 </script>
