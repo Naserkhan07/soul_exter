@@ -1,11 +1,18 @@
 """
 Open-source news scraping + lightweight financial sentiment.
 
-Sources (all free / RSS / public JSON):
-  - Yahoo Finance RSS          - CNBC RSS                - MarketWatch RSS
-  - Investing.com RSS          - Nasdaq RSS              - CoinDesk / CoinTelegraph RSS
-  - ForexFactory calendar (ff JSON mirror)               - Economic Times markets RSS
-  - Google News RSS per-asset query
+Sources (all free / RSS / public JSON) - full list requested:
+  - Yahoo Finance RSS          - CNBC RSS (Markets+Finance) - MarketWatch RSS
+  - Investing.com RSS          - Nasdaq RSS                 - Bloomberg (via Google News RSS)
+  - NSE India news (via Google News + Economic Times NSE feed)
+  - BSE / Sensex news (via Google News + Business Standard) - Koyfin (via Google News)
+  - StockAnalysis.com (via Google News)                     - Moneycontrol RSS
+  - LiveMint Markets RSS       - CoinDesk / CoinTelegraph RSS
+  - ForexFactory calendar (ff JSON mirror)                  - Economic Times markets RSS
+  - Google News RSS aggregate market query
+
+Sites with no public RSS (Bloomberg, Koyfin, StockAnalysis, NSE, BSE) are
+scraped through Google News RSS `site:` / topic queries - free and unlimited.
 
 Every headline is scored with a finance-tuned keyword sentiment model
 (-1..+1). Per-asset relevance is matched by symbol/name keywords.
@@ -24,17 +31,32 @@ except ImportError:
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) JarvisTrader/1.0"}
 TIMEOUT = 8
 
+
+def _gnews(q):
+    """Google News RSS query URL (free scrape route for sites without RSS)."""
+    return ("https://news.google.com/rss/search?q=" + q.replace(" ", "+") +
+            "+when:1d&hl=en-US&gl=US&ceid=US:en")
+
+
 FEEDS = [
-    ("Yahoo Finance",  "https://finance.yahoo.com/news/rssindex"),
-    ("CNBC Markets",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258"),
-    ("CNBC Finance",   "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
-    ("MarketWatch",    "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
-    ("Investing.com",  "https://www.investing.com/rss/news.rss"),
-    ("Nasdaq",         "https://www.nasdaq.com/feed/rssoutbound?category=Markets"),
-    ("CoinDesk",       "https://www.coindesk.com/arc/outboundfeeds/rss/"),
-    ("CoinTelegraph",  "https://cointelegraph.com/rss"),
-    ("EconomicTimes",  "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"),
-    ("Reuters Biz",    "https://news.google.com/rss/search?q=markets+when:1d&hl=en-US&gl=US&ceid=US:en"),
+    ("Yahoo Finance",   "https://finance.yahoo.com/news/rssindex"),
+    ("CNBC Markets",    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258"),
+    ("CNBC Finance",    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
+    ("MarketWatch",     "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
+    ("Investing.com",   "https://www.investing.com/rss/news.rss"),
+    ("Nasdaq",          "https://www.nasdaq.com/feed/rssoutbound?category=Markets"),
+    ("Bloomberg",       _gnews("site:bloomberg.com markets")),
+    ("NSE India",       _gnews("NSE nifty india stock market")),
+    ("NSE-ET Feed",     "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
+    ("BSE Sensex",      _gnews("BSE sensex india shares")),
+    ("Koyfin",          _gnews("site:koyfin.com OR koyfin markets")),
+    ("StockAnalysis",   _gnews("site:stockanalysis.com OR stock analysis earnings")),
+    ("Moneycontrol",    "https://www.moneycontrol.com/rss/marketreports.xml"),
+    ("LiveMint",        "https://www.livemint.com/rss/markets"),
+    ("CoinDesk",        "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    ("CoinTelegraph",   "https://cointelegraph.com/rss"),
+    ("EconomicTimes",   "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"),
+    ("GoogleNews Mkts", _gnews("markets")),
 ]
 
 FF_CALENDAR = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -92,7 +114,7 @@ class NewsEngine:
         self.headlines = []          # [{title, source, link, ts, sentiment}]
         self.calendar = []           # forexfactory events
         self.last_fetch = 0
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()   # re-entrant: nested reads can't deadlock
         self.sources_ok = []
         self.sources_fail = []
 
@@ -108,6 +130,9 @@ class NewsEngine:
                     title = getattr(e, "title", "").strip()
                     if not title:
                         continue
+                    # Google News appends " - Publisher"; strip it for clean text
+                    if "news.google.com" in url and " - " in title:
+                        title = title.rsplit(" - ", 1)[0].strip()
                     items.append({
                         "title": title,
                         "source": name,
@@ -147,9 +172,21 @@ class NewsEngine:
                 return
             self.last_fetch = time.time()
 
+        # fetch all sources in parallel so 19 feeds take ~1 timeout, not 19
         all_items, ok, fail = [], [], []
-        for name, url in FEEDS:
-            items = self._fetch_feed(name, url)
+        results = {}
+
+        def worker(name, url):
+            results[name] = self._fetch_feed(name, url)
+
+        threads = [threading.Thread(target=worker, args=(n, u), daemon=True)
+                   for n, u in FEEDS]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=TIMEOUT + 4)
+        for name, _ in FEEDS:
+            items = results.get(name)
             if items:
                 all_items.extend(items)
                 ok.append(name)
@@ -167,7 +204,7 @@ class NewsEngine:
                         continue
                     seen.add(k)
                     dedup.append(it)
-                self.headlines = dedup[:250]
+                self.headlines = dedup[:400]
             if cal is not None:
                 self.calendar = cal
                 ok.append("ForexFactory-Calendar")

@@ -61,7 +61,9 @@ def api_analyze(symbol: str):
 
 @app.get("/api/news")
 def api_news():
-    news.ENGINE.refresh()
+    # refresh in the background; serve whatever we have instantly
+    import threading as _t
+    _t.Thread(target=news.ENGINE.refresh, daemon=True).start()
     with news.ENGINE.lock:
         return {"headlines": news.ENGINE.headlines[:60],
                 "calendar_high_impact": news.ENGINE.high_impact_soon(),

@@ -170,7 +170,8 @@ def analyze(asset, use_llms=True):
     swings = strategies.find_swings(candles)
     pat = patterns.scan(candles, swings)
 
-    news.ENGINE.refresh()
+    # refresh news in background (news loop keeps it warm); read current cache
+    threading.Thread(target=news.ENGINE.refresh, daemon=True).start()
     news_score, n_rel, titles = news.ENGINE.asset_sentiment(asset["symbol"])
 
     f = jarvis.build_features(snap, strat, news_score, pat)
