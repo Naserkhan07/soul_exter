@@ -50,6 +50,28 @@ KNOWLEDGE = {
         "Rectangles: trade the range break; Cup & Handle and Rounding Bottom are bullish accumulation bases.",
         "Diamond Tops (bearish) and Diamond Bottoms (bullish) show volatility expanding then contracting around a turn; Broadening Formations mean instability - reduce size.",
     ],
+    "order_flow": [
+        "Order flow = reading aggression: closes near the high of a bar on volume = buyers lifting offers; closes near the low = sellers hitting bids.",
+        "Cumulative delta (net buy-sell aggression) leading price = continuation; delta diverging from price = exhaustion.",
+        "Absorption: huge volume with tiny range means a passive side is soaking up aggression - the move often reverses.",
+        "Long wicks on high volume are stop hunts / rejection: the market swept liquidity then snapped back.",
+        "Imbalance flips (delta changing sign with force) mark the moment control changes hands.",
+    ],
+    "mathematical_models": [
+        "Linear regression channel: trade the slope; z-score of price vs the regression line measures statistical stretch.",
+        "Variance ratio: Var(k-bar returns)/(k*Var(1-bar)) > 1 = trending regime (ride momentum), < 1 = mean-reverting regime (fade extremes).",
+        "Momentum z-score above +/-2 = statistically unusual move; in trends it continues, in ranges it reverts.",
+        "Fibonacci retracements 38.2/50/61.8% of the last swing are confluence zones, strongest when they align with VWAP/EMA/structure.",
+        "A-B-C-D projection D=(BxC)/A and measured moves (target = pattern height) are price symmetry mathematics.",
+        "Position sizing is math too: qty = (equity x risk%) / stop distance. Expectancy = win% x avgWin - loss% x avgLoss must be > 0.",
+    ],
+    "market_timings": [
+        "Crypto trades 24/7. Forex trades 24/5 (Sun 22:00 UTC - Fri 21:00 UTC); most volume in London/NY overlap 12:00-16:00 UTC.",
+        "US stocks/ETFs/indices cash session: Mon-Fri 09:30-16:00 ET (13:30-20:00 UTC). NSE India: Mon-Fri 09:15-15:30 IST.",
+        "CME futures (gold, oil) run nearly 24h Sun 22:00 - Fri 21:00 UTC with a daily 21:00-22:00 UTC break.",
+        "Never analyze or place trades on a CLOSED market: prices are stale, gaps at reopen invalidate stops.",
+        "First/last 30 minutes of a cash session are the most volatile; midday is thin and choppy.",
+    ],
     "risk_management": [
         "Risk a fixed % of equity per trade (0.5-2%). Position size = risk_amount / stop_distance.",
         "Always set SL and TP at order time. Minimum reward:risk of 1.5:1, prefer 2:1.",

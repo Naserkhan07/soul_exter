@@ -228,8 +228,161 @@ def abcd_projection(candles, snap):
     return {"name": "ABCD_Projection", "score": score, "reason": reason, "abcd": abcd}
 
 
+def order_flow(candles, snap):
+    """
+    Order-flow proxy strategy (works from OHLCV without tick data).
+
+    Reads WHO is in control from candle anatomy + volume:
+      - Buying/selling pressure: close position inside each bar's range
+        weighted by volume  ->  cumulative delta proxy.
+      - Absorption: huge volume but tiny range = passive side absorbing
+        aggression (reversal warning).
+      - Imbalance: volume-weighted delta of last 10 bars vs prior 10.
+      - Wick rejection: long wicks on high volume = stop hunts / rejection.
+    """
+    if len(candles) < 30:
+        return {"name": "OrderFlow", "score": 0, "reason": "not enough data"}
+    score = 0.0
+    reason = []
+
+    # volume-weighted close-position delta (buying vs selling pressure)
+    def bar_delta(c):
+        rng = c["h"] - c["l"]
+        if rng <= 0:
+            return 0.0
+        pos = (2 * c["c"] - c["h"] - c["l"]) / rng     # -1 (close at low) .. +1
+        return pos * c["v"]
+
+    recent = candles[-10:]
+    prior = candles[-20:-10]
+    d_recent = sum(bar_delta(c) for c in recent)
+    d_prior = sum(bar_delta(c) for c in prior)
+    v_recent = sum(c["v"] for c in recent) or 1e-9
+
+    delta_norm = d_recent / v_recent                   # -1..1 net aggression
+    score += delta_norm * 55
+    if delta_norm > 0.15:
+        reason.append(f"buyers aggressive (delta {delta_norm:+.2f})")
+    elif delta_norm < -0.15:
+        reason.append(f"sellers aggressive (delta {delta_norm:+.2f})")
+
+    # delta shift: flow flipping direction
+    if d_prior != 0 and (d_recent > 0) != (d_prior > 0) and abs(d_recent) > abs(d_prior) * 0.7:
+        shift = 20 if d_recent > 0 else -20
+        score += shift
+        reason.append("order flow flipped " + ("bullish" if shift > 0 else "bearish"))
+
+    # absorption: last bar volume >2x avg but range <0.6x avg range
+    avg_v = sum(c["v"] for c in candles[-20:-1]) / 19 or 1e-9
+    avg_r = sum(c["h"] - c["l"] for c in candles[-20:-1]) / 19 or 1e-9
+    last = candles[-1]
+    if last["v"] > 2 * avg_v and (last["h"] - last["l"]) < 0.6 * avg_r:
+        # absorption against the recent move
+        absorb = -25 if delta_norm > 0 else 25
+        score += absorb
+        reason.append("absorption: big volume, tiny range - passive side defending")
+
+    # wick rejection on above-average volume
+    rng = last["h"] - last["l"]
+    if rng > 0 and last["v"] > 1.3 * avg_v:
+        up_wick = (last["h"] - max(last["c"], last["o"])) / rng
+        dn_wick = (min(last["c"], last["o"]) - last["l"]) / rng
+        if up_wick > 0.55:
+            score -= 20; reason.append("high-volume upper-wick rejection")
+        if dn_wick > 0.55:
+            score += 20; reason.append("high-volume lower-wick rejection")
+
+    if not reason:
+        reason.append("balanced two-sided flow")
+    return {"name": "OrderFlow", "score": int(max(-100, min(100, score))),
+            "reason": "; ".join(reason)}
+
+
+def math_model(candles, snap):
+    """
+    Pure-mathematics strategy bundle:
+      1. Linear regression channel: slope direction + z-score of price vs the
+         regression line (statistical stretch).
+      2. Momentum z-score: current return vs distribution of past returns.
+      3. Hurst-like persistence: variance ratio test - trending vs mean
+         reverting regime decides HOW the stretch is traded.
+      4. Fibonacci retracement confluence on the last major swing.
+    """
+    cl = [c["c"] for c in candles]
+    n = len(cl)
+    if n < 60:
+        return {"name": "MathModel", "score": 0, "reason": "not enough data"}
+    score = 0.0
+    reason = []
+
+    # 1) linear regression channel over last 60 closes
+    win = cl[-60:]
+    m_ = len(win)
+    xs = range(m_)
+    mx = (m_ - 1) / 2
+    my = sum(win) / m_
+    cov = sum((i - mx) * (y - my) for i, y in zip(xs, win))
+    varx = sum((i - mx) ** 2 for i in xs) or 1e-12
+    slope = cov / varx
+    resid = [y - (my + slope * (i - mx)) for i, y in zip(xs, win)]
+    sd = (sum(r * r for r in resid) / m_) ** 0.5 or 1e-12
+    z = resid[-1] / sd                              # price z-score vs regression
+    slope_norm = slope * m_ / my                     # % move over window
+
+    # 3) variance ratio (trend persistence): Var(5-bar) / (5 * Var(1-bar))
+    rets = [cl[i] - cl[i - 1] for i in range(1, n)]
+    r5 = [cl[i] - cl[i - 5] for i in range(5, n)]
+    v1 = sum(r * r for r in rets[-50:]) / min(50, len(rets)) or 1e-12
+    v5 = sum(r * r for r in r5[-46:]) / min(46, len(r5)) or 1e-12
+    vr = v5 / (5 * v1)                               # >1 trending, <1 mean-reverting
+    trending = vr > 1.1
+    reverting = vr < 0.85
+
+    trend_score = max(-40, min(40, slope_norm * 900))
+    score += trend_score
+    if abs(slope_norm) > 0.004:
+        reason.append(f"regression slope {'up' if slope>0 else 'down'} "
+                      f"({slope_norm*100:+.2f}%/60 bars)")
+
+    if trending:
+        # in trending regime, z-stretch is momentum: go WITH it mildly
+        score += max(-20, min(20, z * 8))
+        reason.append(f"variance ratio {vr:.2f} = trending regime")
+    elif reverting and abs(z) > 1.6:
+        # in mean-reverting regime fade the stretch
+        score += -z * 22
+        reason.append(f"z={z:+.1f} stretched in mean-reverting regime (VR {vr:.2f}) - fade")
+
+    # 2) momentum z-score of the last 5-bar return
+    mu = sum(rets[-50:]) / min(50, len(rets))
+    sdr = (sum((r - mu) ** 2 for r in rets[-50:]) / min(50, len(rets))) ** 0.5 or 1e-12
+    zmom = (cl[-1] - cl[-6]) / (5 ** 0.5 * sdr)
+    if abs(zmom) > 2.2:
+        score += max(-15, min(15, zmom * 5))
+        reason.append(f"momentum z-score {zmom:+.1f}")
+
+    # 4) fibonacci retracement of last major swing (60-bar high/low)
+    hh = max(c["h"] for c in candles[-60:])
+    ll = min(c["l"] for c in candles[-60:])
+    if hh > ll:
+        lvl = (cl[-1] - ll) / (hh - ll)
+        for fib, name in ((0.382, "38.2%"), (0.5, "50%"), (0.618, "61.8%")):
+            if abs(lvl - fib) < 0.03:
+                # bounce zone: direction depends on which end the swing started
+                up_swing = cl[-1] > (hh + ll) / 2 or slope > 0
+                fs = 18 if up_swing else -18
+                score += fs
+                reason.append(f"price at {name} fib retracement")
+                break
+
+    if not reason:
+        reason.append("no statistical edge detected")
+    return {"name": "MathModel", "score": int(max(-100, min(100, score))),
+            "reason": "; ".join(reason)}
+
+
 ALL_STRATEGIES = [trend_following, mean_reversion, momentum_breakout, macd_cross,
-                  vwap_pullback, abcd_projection]
+                  vwap_pullback, abcd_projection, order_flow, math_model]
 
 
 def run_all(candles, snap):

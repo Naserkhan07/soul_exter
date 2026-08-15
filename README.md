@@ -33,6 +33,10 @@ API keys live in `.env` (Gemini + Groq only — all market data comes from free,
 ```
 
 - **Ask the Council**: pick any asset in the dashboard and press *ASK THE COUNCIL* — it asks Gemini, Groq and Jarvis in detail "will this go up or down", collects a −100..+100 score from **every** member (indicators, strategies, news, Jarvis, Gemini, Groq) and shows the weighted verdict + trade plan.
+- **Market timings**: the bot knows every asset's session (crypto 24/7, forex 24/5, US cash 09:30–16:00 ET, NSE 09:15–15:30 IST, CME futures with the daily break) — it only analyzes/places trades on **OPEN** markets, skips closed ones (logged in the activity feed), and shows OPEN/CLOSED badges + a Market Timings panel.
+- **Bot Activity panel**: a live narration of everything the bot does — price tick cycles, council runs, news scrapes, patterns seen, signals found, trades placed/closed, Jarvis live-lessons, closed-market skips — with running counters.
+- **8 strategy engines**: TrendFollowing, MeanReversion, Breakout, MACDCross, VWAPPullback, ABCD_Projection, **OrderFlow** (volume-weighted delta, absorption, wick rejection, imbalance flips) and **MathModel** (linear-regression channel + z-scores, variance-ratio regime test, momentum z-score, Fibonacci confluence).
+- **Reference docs**: `GET /api/reference` describes every indicator (what it is, how it's scored, details) and every strategy engine.
 - **Signals → click to place**: every setup the bot finds (confidence ≥ threshold) is published in the **Scanned Trade Signals** panel with side, entry, TP, SL, R:R and the top reasons. Nothing is placed until **you click PLACE** (signals stay clickable for `SIGNAL_TTL_SEC`, default 15 min, and execute at the live price with drift-adjusted TP/SL). Flip `AUTO_TRADE=true` in `.env` (or the dashboard toggle) and the bot places them itself.
 - **Trade management**: ATR-based TP/SL at order time, SL→breakeven at +1R, ATR trailing after +1.5R, and a **timeout exit** (`MAX_TRADE_HOLD_SEC`, default 4h) if neither TP nor SL is hit. When a valid A-B-C-D projection agrees with the verdict, the **D level is used as the take-profit target**.
 - **Trade journal**: every closed trade is written to `data_store/trade_journal.json` and shown in the dashboard's journal table — outcome (WIN/LOSS), entry & exit price, TP, SL, PnL, R-multiple, hold time, **why it closed** (TP hit / SL hit / breakeven stop / timeout / manual) and **why it was entered** (member votes + reasons at entry). Click any row to expand the full story.
@@ -60,6 +64,8 @@ API keys live in `.env` (Gemini + Groq only — all market data comes from free,
 | `GET /api/signals` | every trade setup scanned from the live market (click-to-place) |
 | `POST /api/place/{symbol}` | place a scanned signal — used by the PLACE button |
 | `GET /api/journal` | closed-trade journal: entry/TP/SL/exit, why it closed, stats |
+| `GET /api/activity` | live feed of what the bot is doing + counters + market hours |
+| `GET /api/reference` | detailed description of every indicator & strategy engine |
 | `GET /api/status` | balance, equity, positions, Jarvis stats |
 | `POST /api/settings` | auto_trade / min_confidence / risk_pct |
 | `GET /mt5/commands` | MT5 EA polls this for live orders |

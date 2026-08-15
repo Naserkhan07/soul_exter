@@ -26,7 +26,7 @@ FEATURES = [
     "rsi_norm", "macd_hist_norm", "ema_trend", "price_vs_ema200", "bb_pos",
     "stoch_k", "adx_strength", "dmi_dir", "vwap_dist", "supertrend",
     "strat_trend", "strat_meanrev", "strat_breakout", "strat_macd", "strat_vwap",
-    "strat_abcd", "abcd_dist",
+    "strat_abcd", "abcd_dist", "strat_orderflow", "strat_math",
     "pat_score", "pat_candle", "pat_chart", "pat_agreement",
     "news_sent", "vol_ratio", "ret_5", "ret_20", "ret_60", "range_pos", "bias",
 ]
@@ -64,6 +64,8 @@ def build_features(snap, strat, news_score, pat=None):
     f["strat_macd"] = by_name.get("MACDCross", 0)
     f["strat_vwap"] = by_name.get("VWAPPullback", 0)
     f["strat_abcd"] = by_name.get("ABCD_Projection", 0)
+    f["strat_orderflow"] = by_name.get("OrderFlow", 0)
+    f["strat_math"] = by_name.get("MathModel", 0)
 
     # signed, normalized distance to the projected A-B-C-D level (if any):
     # positive = D above price (upside magnet), negative = D below.
@@ -144,6 +146,7 @@ class JarvisBrain:
             "vwap_dist": 0.15, "strat_trend": 0.5, "strat_meanrev": 0.3,
             "strat_breakout": 0.4, "strat_macd": 0.35, "strat_vwap": 0.25,
             "strat_abcd": 0.35, "abcd_dist": 0.15,
+            "strat_orderflow": 0.45, "strat_math": 0.4,
             "pat_score": 0.45, "pat_candle": 0.3, "pat_chart": 0.4, "pat_agreement": 0.25,
             "news_sent": 0.5, "vol_ratio": 0.05, "ret_5": 0.15, "ret_20": 0.2,
             "ret_60": 0.15, "range_pos": 0.1, "bias": 0.0,

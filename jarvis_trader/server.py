@@ -91,6 +91,22 @@ def api_journal():
     return ENGINE.get_journal()
 
 
+@app.get("/api/activity")
+def api_activity():
+    """Live feed of what the bot is doing right now + counters + market hours."""
+    return ENGINE.get_activity()
+
+
+@app.get("/api/reference")
+def api_reference():
+    """Detailed description of every indicator and strategy engine."""
+    from . import indicators, strategies, knowledge
+    return {"indicators": indicators.INDICATOR_INFO,
+            "strategies": indicators.STRATEGY_INFO,
+            "strategy_count": len(strategies.ALL_STRATEGIES),
+            "knowledge_sections": {k: len(v) for k, v in knowledge.KNOWLEDGE.items()}}
+
+
 @app.get("/api/logs")
 def api_logs():
     with ENGINE.lock:
@@ -263,6 +279,19 @@ input[type=number]{background:var(--panel2);border:1px solid var(--border);color
   </div>
 </div>
 
+<!-- BOT ACTIVITY: what is the bot doing right now -->
+<div class="panel" style="margin-top:12px">
+  <h2>&#129302; Bot Activity - live view of everything the bot is doing
+    <span class="tag" id="actCounters">--</span></h2>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">
+    <div class="log" id="activity" style="max-height:240px"></div>
+    <div>
+      <h2>Market Timings</h2>
+      <div id="marketHours" class="scroll" style="max-height:220px;font-size:11px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- TRADE JOURNAL: full-width bottom panel -->
 <div class="panel" style="margin-top:12px">
   <h2>&#128218; Trade Journal - why every trade closed <span class="tag" id="jrnStats">--</span></h2>
@@ -373,7 +402,8 @@ async function refreshMarket(){
       pat=`<span style="color:${pc};font-size:10px">${p.score>0?'&#9650;':p.score<0?'&#9660;':'&#9654;'} ${p.name}</span>`;
     }
     return `<tr class="row ${m.symbol===selected?'sel':''}" data-sym="${m.symbol}" onclick="selectAsset('${m.symbol}','${m.name}')">
-      <td><span class="dot" style="background:${m.tick==='up'?'var(--green)':'var(--red)'}"></span>${m.name}</td>
+      <td><span class="dot" style="background:${m.tick==='up'?'var(--green)':'var(--red)'}"></span>${m.name}
+        ${m.market_open===false?'<span class="tag" style="color:var(--red);border-color:#5d2130">CLOSED</span>':''}</td>
       <td><span class="tag">${m.type}</span></td>
       <td>${fmt(m.price)}</td>
       <td class="${m.change_pct>=0?'up':'down'}">${m.change_pct>=0?'+':''}${m.change_pct}%</td>
@@ -479,6 +509,25 @@ async function refreshJournal(){
 }
 function toggleJrn(id){const r=document.getElementById('jrn-'+id);if(r)r.style.display=r.style.display==='none'?'':'none';}
 
+const KIND_COLORS={track:'#5f7290',analyze:'var(--cyan)',signal:'var(--gold)',trade:'var(--green)',jarvis:'var(--purple)',news:'#e8853d',skip:'#e05555'};
+async function refreshActivity(){
+  const d=await jget('/api/activity');
+  const c=d.counters;
+  $('actCounters').innerHTML=`${c.price_ticks} price ticks &bull; ${c.council_runs} council runs &bull; ${c.llm_calls} AI calls &bull; ${c.patterns_seen} patterns seen &bull; ${c.news_refreshes} news scrapes &bull; ${c.skipped_closed} closed-market skips`;
+  $('activity').innerHTML=d.activity.map(a=>{
+    const col=KIND_COLORS[a.kind]||'var(--dim)';
+    return `<div><span style="color:${col}">[${new Date(a.ts*1000).toLocaleTimeString()}] ${a.kind.toUpperCase()}</span> ${a.msg}</div>`;
+  }).join('')||'starting up...';
+  const mk=Object.entries(d.markets||{});
+  $('marketHours').innerHTML=mk.length?mk.map(([sym,m])=>`
+    <div style="padding:3px 0;border-bottom:1px solid #131e33">
+      <span class="dot" style="background:${m.open?'var(--green)':'var(--red)'}"></span>
+      <b>${sym}</b> <span class="sub">${m.venue||''}</span>
+      <span style="float:right;color:${m.open?'var(--green)':'var(--red)'};font-size:10px">${m.open?'OPEN':'CLOSED'}</span><br>
+      <span class="sub" style="font-size:10px">${m.session||''}</span>
+    </div>`).join(''):'<div class="sub">loading...</div>';
+}
+
 async function refreshNews(){
   try{
     const d=await jget('/api/news');
@@ -501,12 +550,13 @@ async function saveSettings(){
 }
 async function closePos(id){await jpost('/api/close/'+id);refreshStatus();}
 
-refreshMarket();refreshStatus();refreshNews();refreshLogs();refreshAnalysis();refreshSignals();refreshJournal();
+refreshMarket();refreshStatus();refreshNews();refreshLogs();refreshAnalysis();refreshSignals();refreshJournal();refreshActivity();
 setInterval(refreshMarket,4000);
 setInterval(refreshStatus,4000);
 setInterval(refreshAnalysis,9000);
 setInterval(refreshSignals,5000);
 setInterval(refreshJournal,8000);
+setInterval(refreshActivity,4000);
 setInterval(refreshLogs,6000);
 setInterval(refreshNews,60000);
 </script>

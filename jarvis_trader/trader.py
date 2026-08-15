@@ -16,7 +16,7 @@ import threading
 import time
 import uuid
 
-from . import config, feeds, council, jarvis, news
+from . import config, feeds, council, jarvis, news, market_hours
 
 STATE_PATH = config.DATA_DIR / "trader_state.json"
 JOURNAL_PATH = config.DATA_DIR / "trade_journal.json"
@@ -80,7 +80,16 @@ class TradingEngine:
         self.jarvis_bootstrapping = False
         self.pending_predictions = []    # live-learning: predictions awaiting resolution
         self.live_lessons = 0
+        self.activity = []               # live "what am I doing right now" feed
+        self.counters = {"price_ticks": 0, "council_runs": 0, "news_refreshes": 0,
+                         "patterns_seen": 0, "llm_calls": 0, "skipped_closed": 0}
         self._load()
+
+    def act(self, kind, msg):
+        """Record a live activity event (the bot narrating what it's doing)."""
+        with self.lock:
+            self.activity.append({"ts": time.time(), "kind": kind, "msg": msg})
+            self.activity = self.activity[-250:]
 
     # -------------------------------------------------------------- #
     def log(self, msg):
@@ -140,37 +149,62 @@ class TradingEngine:
     def _news_loop(self):
         while self.running:
             try:
+                self.act("news", f"scraping {len(news.FEEDS)} news sources "
+                         "(Yahoo, CNBC, Bloomberg, NSE, BSE, Investing, Nasdaq, "
+                         "MarketWatch, Koyfin, StockAnalysis, ForexFactory...)")
                 news.ENGINE.refresh(force=True)
+                with self.lock:
+                    self.counters["news_refreshes"] += 1
                 ok = len(news.ENGINE.sources_ok)
                 if ok:
                     self.log(f"News refreshed: {len(news.ENGINE.headlines)} headlines "
                              f"from {ok} sources")
+                    self.act("news", f"got {len(news.ENGINE.headlines)} headlines "
+                             f"from {ok}/{len(news.FEEDS)+1} sources")
+                else:
+                    self.act("news", "all news sources unreachable from this network "
+                             "- sentiment neutral until they respond")
             except Exception as e:
                 self.log(f"news error: {e}")
             time.sleep(240)
 
     def _price_loop(self):
         """Fast loop: track every asset's live price + manage open positions."""
+        cycle = 0
         while self.running:
+            cycle += 1
+            fetched = 0
             for asset in config.WATCHLIST:
                 try:
+                    mh = market_hours.market_status(asset)
                     candles, source = feeds.get_candles(asset, "5m", 60)
+                    fetched += 1
                     price = candles[-1]["c"]
                     prev = candles[-2]["c"] if len(candles) > 1 else price
                     day_open = candles[0]["c"]
                     with self.lock:
+                        self.counters["price_ticks"] += 1
                         self.market[asset["symbol"]] = {
                             "symbol": asset["symbol"], "name": asset["name"],
                             "type": asset["type"], "price": price,
                             "change_pct": round((price / day_open - 1) * 100, 3),
                             "tick": "up" if price >= prev else "down",
                             "source": source, "ts": time.time(),
+                            "market_open": mh["open"], "venue": mh["venue"],
+                            "session": mh["session"],
                         }
-                    self._manage_positions(asset["symbol"], price, candles)
+                    if mh["open"]:
+                        self._manage_positions(asset["symbol"], price, candles)
                 except Exception as e:
                     self.log(f"price loop error {asset['symbol']}: {e}")
             self.broker.equity = self.broker.balance + sum(
                 p["pnl"] for p in self.broker.positions.values())
+            if cycle % 5 == 1:
+                open_n = sum(1 for m in self.market.values() if m.get("market_open"))
+                self.act("track", f"tick cycle #{cycle}: fetched live prices for "
+                         f"{fetched}/{len(config.WATCHLIST)} assets "
+                         f"({open_n} markets open), managing "
+                         f"{len(self.broker.positions)} positions")
             time.sleep(3)
 
     def _manage_positions(self, symbol, price, candles):
@@ -222,6 +256,8 @@ class TradingEngine:
             return
         self.log(f"CLOSED {p['symbol']} {p['side']} @ {price:.5g} | {reason} | "
                  f"PnL {p['pnl']:+.2f} | balance {self.broker.balance:.2f}")
+        self.act("trade", f"CLOSED {p['symbol']} {p['side']}: {reason}, "
+                 f"PnL {p['pnl']:+.2f} -> journaled")
         self._journal_trade(p, price, reason)
         # feed the outcome back into Jarvis (online self-training)
         feats = p["meta"].get("features")
@@ -312,6 +348,10 @@ class TradingEngine:
                 self.log(f"Jarvis live-lesson #{self.live_lessons}: {pr['symbol']} "
                          f"predicted {pr['direction']}, market moved {move:+.2f}% "
                          f"({hit}) - accuracy now {jarvis.BRAIN.accuracy}%")
+                self.act("jarvis", f"live-lesson #{self.live_lessons}: {pr['symbol']} "
+                         f"prediction {pr['direction']} was {hit} "
+                         f"(market {move:+.2f}%) - brain retrained, "
+                         f"accuracy {jarvis.BRAIN.accuracy}%")
             time.sleep(20)
 
     def _register_prediction(self, verdict):
@@ -339,8 +379,30 @@ class TradingEngine:
             asset = config.WATCHLIST[self.scan_idx % len(config.WATCHLIST)]
             self.scan_idx += 1
             try:
+                # market timing check: skip analysis when the market is CLOSED
+                mh = market_hours.market_status(asset)
+                if not mh["open"]:
+                    with self.lock:
+                        self.counters["skipped_closed"] += 1
+                        # retire any waiting signal on a closed market
+                        sig = self.signals.get(asset["symbol"])
+                        if sig and sig["status"] == "waiting":
+                            sig["status"] = "expired"
+                    self.act("skip", f"{asset['symbol']}: market CLOSED "
+                             f"({mh['venue']}, {mh['session']}) - no analysis, no trades")
+                    time.sleep(1)
+                    continue
                 use_llms = (self.scan_idx % 3 == 1)   # LLM votes every 3rd pass per asset
+                self.act("analyze", f"{asset['symbol']}: running AI council "
+                         f"(indicators + 8 strategies + patterns + news + Jarvis"
+                         + (" + Gemini + Groq" if use_llms else "") + ")")
                 verdict = council.analyze(asset, use_llms=use_llms)
+                with self.lock:
+                    self.counters["council_runs"] += 1
+                    if use_llms:
+                        self.counters["llm_calls"] += 2
+                    pats = verdict["members"].get("patterns", {}).get("detail", {})
+                    self.counters["patterns_seen"] += len(pats.get("found", []))
                 with self.lock:
                     prev = self.last_analysis.get(asset["symbol"])
                     if prev and not use_llms:
@@ -398,6 +460,9 @@ class TradingEngine:
                      f"@ {plan['entry']:.6g} TP={plan['tp']:.6g} SL={plan['sl']:.6g} "
                      f"(conf {v['confidence']}%) - waiting for your click"
                      + (" [auto_trade ON -> placing]" if self.auto_trade else ""))
+            self.act("signal", f"TRADE FOUND: {side} {sym} conf {v['confidence']}% "
+                     f"entry {plan['entry']:.6g} TP {plan['tp']:.6g} SL {plan['sl']:.6g}"
+                     + ("" if self.auto_trade else " - waiting for YOUR click"))
         if self.auto_trade and fresh:
             self.place_trade(sym, source="auto")
 
@@ -481,6 +546,8 @@ class TradingEngine:
             self.commands = self.commands[-100:]
         self.log(f"TRADE PLACED ({source}): {side} {symbol} qty={qty:.6g} "
                  f"@ {entry:.6g} TP={tp:.6g} SL={sl:.6g}")
+        self.act("trade", f"PLACED ({source}): {side} {symbol} @ {entry:.6g} "
+                 f"TP {tp:.6g} / SL {sl:.6g} qty {qty:.6g}")
         return {"ok": True, "position_id": pid, "entry": entry, "tp": tp, "sl": sl,
                 "qty": qty}
 
@@ -532,6 +599,15 @@ class TradingEngine:
                     stats["by_reason"].get(j["close_reason"], 0) + 1
         return {"journal": entries, "stats": stats}
 
+    def get_activity(self):
+        with self.lock:
+            return {"activity": self.activity[-120:][::-1],
+                    "counters": dict(self.counters),
+                    "markets": {s: {"open": m.get("market_open"),
+                                    "venue": m.get("venue"),
+                                    "session": m.get("session")}
+                                for s, m in self.market.items()}}
+
     def status(self):
         with self.lock:
             waiting = [s for s in self.signals.values() if s["status"] == "waiting"]
@@ -539,6 +615,7 @@ class TradingEngine:
                 "running": self.running,
                 "signals_waiting": len(waiting),
                 "signals_scanned": self.signals_scanned,
+                "counters": dict(self.counters),
                 "auto_trade": self.auto_trade,
                 "min_confidence": self.min_conf,
                 "risk_pct": self.risk_pct,

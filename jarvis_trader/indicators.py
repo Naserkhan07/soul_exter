@@ -5,6 +5,78 @@ Every indicator also emits a directional vote in [-100, +100]
 """
 import math
 
+# ------------------------------------------------------------------ #
+# Detailed descriptions of every indicator (served at /api/reference
+# and shown in the dashboard so you always know WHAT each vote means).
+# ------------------------------------------------------------------ #
+INDICATOR_INFO = {
+    "RSI": {
+        "name": "Relative Strength Index (14)",
+        "what": "Momentum oscillator 0-100 comparing average gains vs average losses over 14 bars.",
+        "how_scored": "<30 oversold -> bullish vote scaled by depth; >70 overbought -> bearish vote; between, a mild momentum lean around the 50 line.",
+        "detail": "In strong uptrends RSI stays 40-80; in downtrends 20-60. Divergence between RSI and price warns of reversal.",
+    },
+    "MACD": {
+        "name": "Moving Average Convergence Divergence (12,26,9)",
+        "what": "EMA(12)-EMA(26) with a 9-EMA signal line; the histogram is their gap.",
+        "how_scored": "Histogram sign and size vs the MACD scale -> -100..+100. Fresh sign flips are the strongest events (MACDCross strategy scores those separately).",
+        "detail": "Crosses far above/below the zero line carry more meaning than crosses at zero.",
+    },
+    "EMA_TREND": {
+        "name": "EMA Stack 20/50/200",
+        "what": "Exponential moving averages weighting recent price; the 20/50/200 stack defines trend structure.",
+        "how_scored": "+35 if EMA20>EMA50 else -35; +/-25 for price above/below EMA200 (regime); +/-20 for price above/below EMA20.",
+        "detail": "20>50>200 with price above all = healthy uptrend. EMA200 cross = regime change.",
+    },
+    "BOLLINGER": {
+        "name": "Bollinger Bands (20, 2sd)",
+        "what": "20-bar SMA +/- 2 standard deviations - a dynamic volatility envelope.",
+        "how_scored": "Position within the band scaled to a vote; touches beyond +/-95% of the band flip to a mean-reversion vote against the extreme.",
+        "detail": "Band squeeze precedes volatility expansion; riding the upper band is trend strength, not an automatic sell.",
+    },
+    "STOCH": {
+        "name": "Stochastic Oscillator (14,3)",
+        "what": "Where the close sits inside the 14-bar high-low range (%K) with a 3-bar smoothing (%D).",
+        "how_scored": "<20 with %K crossing above %D -> bullish; >80 with %K below %D -> bearish; else mild lean from the 50 line.",
+        "detail": "Best in ranges; in trends only take signals in the trend direction.",
+    },
+    "ADX_DMI": {
+        "name": "Average Directional Index + DMI (14)",
+        "what": "ADX measures trend STRENGTH (not direction); +DI/-DI give the direction.",
+        "how_scored": "Direction from +DI vs -DI, scaled by ADX/25 (capped 1.5x). ADX<15 shrinks all trend votes.",
+        "detail": "ADX>25 = trending (use trend strategies), <15 = chop (use mean reversion).",
+    },
+    "VWAP": {
+        "name": "Volume Weighted Average Price",
+        "what": "Average traded price weighted by volume over the last 100 bars - the institutional fair price.",
+        "how_scored": "Signed distance of price from VWAP scaled to -100..+100.",
+        "detail": "Above VWAP = buyers in control intraday; pullbacks to VWAP in trends are entry zones.",
+    },
+    "SUPERTREND": {
+        "name": "Supertrend (10, 3x ATR)",
+        "what": "ATR-band trailing regime detector: flags whether price is in an up or down volatility regime.",
+        "how_scored": "+50 in up-regime, -50 in down-regime.",
+        "detail": "Simple but effective regime filter; agrees with EMA stack in clean trends.",
+    },
+    "ATR": {
+        "name": "Average True Range (14)",
+        "what": "Average bar range including gaps - the volatility yardstick.",
+        "how_scored": "Not a directional vote. Used to place SL (1.5x ATR), TP (3x ATR = 2R) and the trailing stop.",
+        "detail": "Position size = risk amount / stop distance, so ATR directly controls quantity.",
+    },
+}
+
+STRATEGY_INFO = {
+    "TrendFollowing": "EMA20/50/200 alignment + ADX>25 confirmation. Buys strength in uptrends, sells weakness in downtrends; halves its vote in chop.",
+    "MeanReversion": "Fades RSI extremes (<25/>75) at Bollinger band touches. Only meaningful in ranging markets.",
+    "Breakout": "Donchian 40-bar high/low breaks, +15 bonus when volume surges 1.4x average. Inside the range it leans with range position.",
+    "MACDCross": "Scores fresh MACD signal-line crosses at +/-70, otherwise leans with histogram sign.",
+    "VWAPPullback": "In uptrends, buying the pullback to VWAP (and mirror for downtrends) - the institutional re-load zone.",
+    "ABCD_Projection": "Finds swing A, B, pullback C and projects D=(BxC)/A - a Gann/Fib price-symmetry target. Votes toward D while price travels, neutral at D (needs confirmation), momentum-only once broken.",
+    "OrderFlow": "OHLCV order-flow proxy: volume-weighted close-position delta (aggression), delta flips, absorption (big volume/small range) and high-volume wick rejections.",
+    "MathModel": "Linear-regression channel slope + z-score stretch, variance-ratio regime test (trend vs mean-revert), momentum z-scores and Fibonacci retracement confluence.",
+}
+
 
 def _closes(c):  return [x["c"] for x in c]
 def _highs(c):   return [x["h"] for x in c]
