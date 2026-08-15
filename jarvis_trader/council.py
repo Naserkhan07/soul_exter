@@ -309,6 +309,23 @@ def analyze(asset, use_llms=True, interval="5m"):
             confidence *= 0.75          # dead chop, weak consensus
         if agree_ratio < 0.5:
             confidence *= 0.7           # council split down the middle
+        # DON'T-CHASE filter: if price already ran hard in the trade
+        # direction over the last few bars, entering NOW usually buys the
+        # top / sells the bottom of the move -> instant SL. Penalize it.
+        atr_q = snap.get("atr14") or (snap["price"] * 0.005)
+        cl5 = [c["c"] for c in candles[-6:]]
+        if len(cl5) >= 6 and atr_q > 0:
+            run = (cl5[-1] - cl5[0]) / atr_q     # move in ATRs over 5 bars
+            chasing = (direction == "UP" and run > 2.5) or \
+                      (direction == "DOWN" and run < -2.5)
+            if chasing:
+                confidence *= 0.55           # overextended - wait for pullback
+        # RSI extreme against entry: buying into 80+ / selling into 20- is late
+        rsi_q = snap.get("rsi14")
+        if rsi_q is not None:
+            if (direction == "UP" and rsi_q > 76) or \
+               (direction == "DOWN" and rsi_q < 24):
+                confidence *= 0.7
         confidence = max(0.0, min(96.0, confidence))
     else:
         confidence = base
@@ -316,10 +333,26 @@ def analyze(asset, use_llms=True, interval="5m"):
 
     price = snap["price"]
     a = snap.get("atr14") or price * 0.005
+
+    # ---- SL/TP engineering (accuracy fix) ----
+    # Old: SL = 1.5*ATR -> noise kept stopping trades out.
+    # New: SL = 2.2*ATR OR beyond the last swing point (whichever is wider,
+    # capped at 3*ATR) so stops sit BEHIND structure where they belong,
+    # plus a small spread/noise buffer.
+    swings = strategies.find_swings(candles)
+    buffer_ = 0.25 * a
     if direction == "UP":
-        entry, sl, tp = price, price - 1.5 * a, price + 3.0 * a
+        swing_lows = [s["price"] for s in swings if s["type"] == "L"][-2:]
+        struct_sl = min(swing_lows) - buffer_ if swing_lows else price - 2.2 * a
+        sl = min(price - 1.6 * a, max(struct_sl, price - 3.0 * a))
+        risk = price - sl
+        entry, tp = price, price + 2.0 * risk
     else:
-        entry, sl, tp = price, price + 1.5 * a, price - 3.0 * a
+        swing_highs = [s["price"] for s in swings if s["type"] == "H"][-2:]
+        struct_sl = max(swing_highs) + buffer_ if swing_highs else price + 2.2 * a
+        sl = max(price + 1.6 * a, min(struct_sl, price + 3.0 * a))
+        risk = sl - price
+        entry, tp = price, price - 2.0 * risk
 
     # If a valid A-B-C-D projection agrees with the verdict, use D as the
     # take-profit target (capped so R:R never drops below ~1.2).

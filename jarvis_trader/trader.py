@@ -87,6 +87,10 @@ class TradingEngine:
                          "patterns_seen": 0, "llm_calls": 0, "skipped_closed": 0}
         self.interval = "5m"             # selected analysis timeframe
         self.final_setup = None          # the ONE best trade setup right now
+        self.symbol_cooldown = {}        # symbol -> ts until which no re-entry
+        self.loss_streak = 0             # consecutive losses (risk throttle)
+        self.day_pnl = 0.0               # realized PnL today
+        self.day_stamp = time.strftime("%Y-%m-%d")
         self._load()
 
     def set_interval(self, interval):
@@ -259,14 +263,16 @@ class TradingEngine:
             d = 1 if p["side"] == "BUY" else -1
             r_dist = abs(p["entry"] - p["initial_sl"])
             move = (price - p["entry"]) * d
-            # breakeven at +1R
-            if not p["be_moved"] and r_dist > 0 and move >= r_dist:
-                p["sl"] = p["entry"]
+            # breakeven+ at +1.3R (was +1R - too early, normal pullbacks
+            # kept tagging the entry). Locks in a small +0.2R profit.
+            if not p["be_moved"] and r_dist > 0 and move >= 1.3 * r_dist:
+                p["sl"] = p["entry"] + d * 0.2 * r_dist
                 p["be_moved"] = True
-                self.log(f"{symbol} {p['side']} moved SL to breakeven @ {p['entry']:.5g}")
-            # ATR trail after 1.5R
-            if r_dist > 0 and move >= 1.5 * r_dist:
-                new_sl = price - d * 1.2 * a
+                self.log(f"{symbol} {p['side']} SL -> breakeven+0.2R @ {p['sl']:.5g}")
+            # ATR trail only after 1.8R, with a looser 1.8*ATR gap so the
+            # trail doesn't choke winners on the first red candle
+            if r_dist > 0 and move >= 1.8 * r_dist:
+                new_sl = price - d * 1.8 * a
                 if (d == 1 and new_sl > p["sl"]) or (d == -1 and new_sl < p["sl"]):
                     p["sl"] = new_sl
             # TP / SL hits
@@ -289,6 +295,21 @@ class TradingEngine:
         p = self.broker.close(pid, price, reason)
         if not p:
             return
+        # ---- loss management (accuracy protection) ----
+        today = time.strftime("%Y-%m-%d")
+        if today != self.day_stamp:
+            self.day_stamp, self.day_pnl = today, 0.0
+        self.day_pnl += p["pnl"]
+        if p["pnl"] < 0:
+            self.loss_streak += 1
+            # cooldown: do NOT re-enter this symbol for 45 min after a loss -
+            # the market that just stopped you out is usually still hostile
+            with self.lock:
+                self.symbol_cooldown[p["symbol"]] = time.time() + 45 * 60
+            self.act("skip", f"{p['symbol']} on 45min cooldown after loss "
+                     f"(streak {self.loss_streak})")
+        else:
+            self.loss_streak = 0
         self.log(f"CLOSED {p['symbol']} {p['side']} @ {price:.5g} | {reason} | "
                  f"PnL {p['pnl']:+.2f} | balance {self.broker.balance:.2f}")
         self.act("trade", f"CLOSED {p['symbol']} {p['side']}: {reason}, "
@@ -500,7 +521,18 @@ class TradingEngine:
                      f"entry {plan['entry']:.6g} TP {plan['tp']:.6g} SL {plan['sl']:.6g}"
                      + ("" if self.auto_trade else " - waiting for YOUR click"))
         if self.auto_trade and fresh:
-            self.place_trade(sym, source="auto")
+            # AUTO trades demand a HIGHER quality bar than the signal deck:
+            # +10 confidence points AND higher-timeframe alignment. Manual
+            # clicks can still take any deck signal.
+            htf = v.get("htf") or {}
+            if v["confidence"] < self.min_conf + 10:
+                self.act("skip", f"{sym}: signal shown but below AUTO bar "
+                         f"({v['confidence']:.0f} < {self.min_conf + 10:.0f})")
+            elif htf.get("bias") and not htf.get("aligned"):
+                self.act("skip", f"{sym}: AUTO skipped - counter-trend vs "
+                         f"{htf.get('tf')} (you can still place it manually)")
+            else:
+                self.place_trade(sym, source="auto")
 
     def _update_final_setup(self):
         """
@@ -606,6 +638,15 @@ class TradingEngine:
                 return {"ok": False, "error": "position already open on this symbol"}
             if len(self.broker.positions) >= 6:
                 return {"ok": False, "error": "max 6 open positions reached"}
+            # cooldown after a loss on this symbol (manual click overrides)
+            cd = self.symbol_cooldown.get(symbol, 0)
+            if source == "auto" and time.time() < cd:
+                return {"ok": False, "error": f"cooldown after loss "
+                        f"({int((cd - time.time()) / 60)}min left)"}
+            # daily circuit breaker: stop auto-trading after -3% of capital day
+            cap_ref = self.trade_capital if self.trade_capital > 0 else self.broker.balance
+            if source == "auto" and self.day_pnl < -0.03 * cap_ref:
+                return {"ok": False, "error": "daily loss limit hit - auto paused today"}
 
         # execute at CURRENT live price (not the scan price)
         q = self.market.get(symbol)
@@ -619,6 +660,11 @@ class TradingEngine:
         capital = self.trade_capital if self.trade_capital > 0 else self.broker.equity
         capital = min(capital, self.broker.equity)   # can't trade more than you have
         risk_amount = capital * self.risk_pct / 100
+        # after 2+ consecutive losses, halve size until a winner resets it
+        if self.loss_streak >= 2:
+            risk_amount *= 0.5
+        if self.loss_streak >= 4:
+            risk_amount *= 0.5           # quarter size in a bad streak
         stop_dist = abs(entry - sl)
         if stop_dist <= 0:
             return {"ok": False, "error": "invalid stop distance"}
