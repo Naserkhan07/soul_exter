@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import Job, JobStatus
+from .models import Job, JobClip, JobStatus, ShortPlan
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -29,6 +29,24 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_user_created ON jobs(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+
+CREATE TABLE IF NOT EXISTS job_clips (
+    job_id TEXT NOT NULL,
+    clip_index INTEGER NOT NULL,
+    start_seconds REAL NOT NULL,
+    duration_seconds REAL NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    instagram_caption TEXT NOT NULL,
+    output_path TEXT,
+    youtube_video_id TEXT,
+    instagram_media_id TEXT,
+    instagram_url TEXT,
+    error TEXT,
+    PRIMARY KEY (job_id, clip_index),
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_job_clips_job ON job_clips(job_id, clip_index);
 """
 
 _MIGRATION_COLUMNS = {
@@ -80,6 +98,23 @@ class JobRepository:
             error=row["error"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+        )
+
+    @staticmethod
+    def _clip_from_row(row: sqlite3.Row) -> JobClip:
+        return JobClip(
+            job_id=row["job_id"],
+            clip_index=row["clip_index"],
+            start_seconds=row["start_seconds"],
+            duration_seconds=row["duration_seconds"],
+            title=row["title"],
+            description=row["description"],
+            instagram_caption=row["instagram_caption"],
+            output_path=row["output_path"],
+            youtube_video_id=row["youtube_video_id"],
+            instagram_media_id=row["instagram_media_id"],
+            instagram_url=row["instagram_url"],
+            error=row["error"],
         )
 
     def create(self, chat_id: int, user_id: int, source_url: str) -> Job:
@@ -145,6 +180,70 @@ class JobRepository:
         job = self.get(job_id)
         assert job is not None
         return job
+
+    def save_plans(self, job_id: str, plans: list[ShortPlan]) -> list[JobClip]:
+        with self._connect() as connection:
+            for clip_index, plan in enumerate(plans, start=1):
+                connection.execute(
+                    """
+                    INSERT INTO job_clips (
+                        job_id, clip_index, start_seconds, duration_seconds,
+                        title, description, instagram_caption
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(job_id, clip_index) DO UPDATE SET
+                        start_seconds = excluded.start_seconds,
+                        duration_seconds = excluded.duration_seconds,
+                        title = excluded.title,
+                        description = excluded.description,
+                        instagram_caption = excluded.instagram_caption,
+                        error = NULL
+                    """,
+                    (
+                        job_id,
+                        clip_index,
+                        plan.start_seconds,
+                        plan.duration_seconds,
+                        plan.title,
+                        plan.description,
+                        plan.instagram_caption,
+                    ),
+                )
+        return self.list_clips(job_id)
+
+    def list_clips(self, job_id: str) -> list[JobClip]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM job_clips WHERE job_id = ? ORDER BY clip_index",
+                (job_id,),
+            ).fetchall()
+        return [self._clip_from_row(row) for row in rows]
+
+    def update_clip(self, job_id: str, clip_index: int, **fields: str | None) -> JobClip:
+        allowed = {
+            "output_path",
+            "youtube_video_id",
+            "instagram_media_id",
+            "instagram_url",
+            "error",
+        }
+        unknown = fields.keys() - allowed
+        if unknown:
+            raise ValueError(f"Unknown clip fields: {', '.join(sorted(unknown))}")
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = [*fields.values(), job_id, clip_index]
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE job_clips SET {assignments} WHERE job_id = ? AND clip_index = ?",  # noqa: S608
+                values,
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"Unknown clip {job_id}/{clip_index}")
+            row = connection.execute(
+                "SELECT * FROM job_clips WHERE job_id = ? AND clip_index = ?",
+                (job_id, clip_index),
+            ).fetchone()
+        assert row is not None
+        return self._clip_from_row(row)
 
     def list_recent(self, user_id: int, limit: int = 10) -> list[Job]:
         with self._connect() as connection:

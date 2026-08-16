@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from shorts_bot.db import JobRepository
-from shorts_bot.models import JobStatus
+from shorts_bot.models import JobStatus, ShortPlan
 
 
 def test_job_lifecycle(tmp_path: Path) -> None:
@@ -25,3 +25,25 @@ def test_job_lifecycle(tmp_path: Path) -> None:
     assert failed is not None
     assert failed.status == JobStatus.FAILED
     assert failed.error
+
+
+def test_saves_and_updates_multiple_clips(tmp_path: Path) -> None:
+    repository = JobRepository(tmp_path / "jobs.db")
+    job = repository.create(0, 0, "https://youtu.be/example")
+    plans = [
+        ShortPlan(0, 25, "First", "Description 1", "Caption 1"),
+        ShortPlan(40, 25, "Second", "Description 2", "Caption 2"),
+    ]
+
+    clips = repository.save_plans(job.id, plans)
+    updated = repository.update_clip(
+        job.id,
+        1,
+        output_path="short-001.mp4",
+        youtube_video_id="youtube-1",
+    )
+
+    assert len(clips) == 2
+    assert clips[1].start_seconds == 40
+    assert updated.output_path == "short-001.mp4"
+    assert updated.youtube_url == "https://youtube.com/shorts/youtube-1"

@@ -50,6 +50,14 @@ class FakePlanner:
             "Instagram caption #Reels",
         )
 
+    async def create_plans(
+        self,
+        audio_path: Path,
+        source: SourceVideo,
+        max_clips: int,
+    ) -> list[ShortPlan]:
+        return [await self.create_plan(audio_path, source)]
+
 
 class FakeYouTubeUploader:
     async def upload(self, video_path: Path, plan: ShortPlan) -> str:
@@ -118,6 +126,59 @@ async def test_pipeline_completes_and_uploads_to_both_platforms(tmp_path: Path) 
         JobStatus.UPLOADING,
         JobStatus.COMPLETE,
     ]
+
+
+async def test_pipeline_renders_and_uploads_multiple_clips(tmp_path: Path) -> None:
+    settings = settings_for(tmp_path)
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    class MultiPlanner:
+        async def create_plans(
+            self, audio_path: Path, source: SourceVideo, max_clips: int
+        ) -> list[ShortPlan]:
+            return [
+                ShortPlan(0, 25, "First #Shorts", "First", "First #Reels"),
+                ShortPlan(40, 25, "Second #Shorts", "Second", "Second #Reels"),
+            ]
+
+    class MultiMedia(FakeMedia):
+        def render_short(
+            self,
+            source: Path,
+            output: Path,
+            start_seconds: float,
+            duration_seconds: float,
+        ) -> Path:
+            output.write_bytes(f"{start_seconds}".encode())
+            return output
+
+    class MultiYouTube:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> str:
+            return f"youtube-{plan.start_seconds:g}"
+
+    class MultiInstagram:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> InstagramUploadResult:
+            suffix = f"{plan.start_seconds:g}"
+            return InstagramUploadResult(
+                f"instagram-{suffix}", f"https://instagram.com/reel/{suffix}"
+            )
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=MultiMedia(),  # type: ignore[arg-type]
+        planner=MultiPlanner(),  # type: ignore[arg-type]
+        youtube_uploader=MultiYouTube(),  # type: ignore[arg-type]
+        instagram_uploader=MultiInstagram(),  # type: ignore[arg-type]
+    )
+    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+    clips = repository.list_clips(job.id)
+
+    assert result.status == JobStatus.COMPLETE
+    assert len(clips) == 2
+    assert clips[0].youtube_video_id == "youtube-0"
+    assert clips[1].youtube_video_id == "youtube-40"
+    assert clips[1].instagram_media_id == "instagram-40"
 
 
 async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> None:

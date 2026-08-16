@@ -46,6 +46,28 @@ class InstagramUploadResult:
 
 
 @dataclass(frozen=True, slots=True)
+class JobClip:
+    job_id: str
+    clip_index: int
+    start_seconds: float
+    duration_seconds: float
+    title: str
+    description: str
+    instagram_caption: str
+    output_path: str | None
+    youtube_video_id: str | None
+    instagram_media_id: str | None
+    instagram_url: str | None
+    error: str | None
+
+    @property
+    def youtube_url(self) -> str | None:
+        if not self.youtube_video_id:
+            return None
+        return f"https://youtube.com/shorts/{self.youtube_video_id}"
+
+
+@dataclass(frozen=True, slots=True)
 class Job:
     id: str
     chat_id: int

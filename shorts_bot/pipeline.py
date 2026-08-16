@@ -16,7 +16,7 @@ from .downloader import VideoDownloader
 from .errors import WorkflowError
 from .instagram import InstagramUploader
 from .media import MediaProcessor
-from .models import Job, JobStatus, SourceVideo
+from .models import Job, JobClip, JobStatus, ShortPlan, SourceVideo
 from .youtube import YouTubeUploader
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,10 @@ class WorkflowPipeline:
         job_dir = self.settings.work_dir / "jobs" / job.id
 
         try:
+            existing_clips = self.repository.list_clips(job.id)
+            if reuse_downloaded and not existing_clips and self._has_legacy_render(job):
+                return await self._resume_legacy_render(job)
+
             if reuse_downloaded:
                 source = await self._load_existing_source(job, job_dir)
             else:
@@ -100,86 +104,73 @@ class WorkflowPipeline:
                 if self.on_downloaded:
                     await self.on_downloaded(downloaded_job, source)
 
-            await self._status(
-                job.id,
-                JobStatus.ANALYZING,
-                "Transcribing with Groq and selecting a highlight",
-            )
-            audio_path = job_dir / "transcript-audio.mp3"
-            if not audio_path.exists():
-                await asyncio.to_thread(
-                    self.services.media.extract_audio,
-                    source.path,
-                    audio_path,
+            if existing_clips:
+                clips = existing_clips
+            else:
+                await self._status(
+                    job.id,
+                    JobStatus.ANALYZING,
+                    "Transcribing with Groq and selecting multiple highlights",
                 )
-            plan = await self.services.planner.create_plan(audio_path, source)
+                audio_path = job_dir / "transcript-audio.mp3"
+                if not audio_path.exists():
+                    await asyncio.to_thread(
+                        self.services.media.extract_audio,
+                        source.path,
+                        audio_path,
+                    )
+                plans = await self.services.planner.create_plans(
+                    audio_path,
+                    source,
+                    max_clips=self.settings.max_shorts_per_video,
+                )
+                clips = self.repository.save_plans(job.id, plans)
 
-            await self._status(job.id, JobStatus.RENDERING, "Rendering vertical 9:16 Short")
-            output_path = job_dir / "short.mp4"
-            await asyncio.to_thread(
-                self.services.media.render_short,
-                source.path,
-                output_path,
-                plan.start_seconds,
-                plan.duration_seconds,
-            )
-            self.repository.update(
-                job.id,
-                short_title=plan.title,
-                short_description=plan.description,
-                instagram_caption=plan.instagram_caption,
-                output_path=str(output_path),
-            )
-
-            uploaded_platforms: list[str] = []
-            if self.services.youtube_uploader:
-                if job.youtube_video_id:
-                    uploaded_platforms.append("YouTube")
-                else:
-                    await self._status(
+            uploaded_platforms = self._configured_platforms()
+            total_clips = len(clips)
+            for clip in clips:
+                try:
+                    clip = await self._process_clip(
+                        job,
+                        source,
+                        clip,
+                        total_clips,
+                        job_dir,
+                    )
+                except Exception as exc:
+                    self.repository.update_clip(
                         job.id,
-                        JobStatus.UPLOADING,
-                        f"Uploading to YouTube as {self.settings.youtube_privacy_status} "
-                        f"for channel {self.settings.youtube_channel_id}",
+                        clip.clip_index,
+                        error=_safe_error(exc),
                     )
-                    youtube_video_id = await self.services.youtube_uploader.upload(
-                        output_path, plan
-                    )
-                    self.repository.update(job.id, youtube_video_id=youtube_video_id)
-                    uploaded_platforms.append("YouTube")
+                    raise
 
-            if self.services.instagram_uploader:
-                if job.instagram_media_id:
-                    uploaded_platforms.append("Instagram")
-                else:
-                    await self._status(
-                        job.id,
-                        JobStatus.UPLOADING,
-                        "Publishing Instagram Reel and sharing it to the feed",
-                    )
-                    instagram = await self.services.instagram_uploader.upload(output_path, plan)
-                    self.repository.update(
-                        job.id,
-                        instagram_media_id=instagram.media_id,
-                        instagram_url=instagram.permalink,
-                    )
-                    uploaded_platforms.append("Instagram")
-
+            clips = self.repository.list_clips(job.id)
+            first = clips[0]
             progress = (
-                f"Published to {' and '.join(uploaded_platforms)}"
+                f"Created {len(clips)} Shorts; published to {' and '.join(uploaded_platforms)}"
                 if uploaded_platforms
-                else "Short is ready"
+                else f"Created {len(clips)} local Shorts"
             )
             completed = self.repository.update(
                 job.id,
                 status=JobStatus.COMPLETE,
                 progress_message=progress,
+                short_title=first.title,
+                short_description=first.description,
+                instagram_caption=first.instagram_caption,
+                output_path=first.output_path,
+                youtube_video_id=first.youtube_video_id,
+                instagram_media_id=first.instagram_media_id,
+                instagram_url=first.instagram_url,
                 error=None,
             )
             await self._notify(completed, completed.progress_message)
 
             if uploaded_platforms and not self.settings.keep_work_files:
                 shutil.rmtree(job_dir, ignore_errors=True)
+                for clip in clips:
+                    self.repository.update_clip(job.id, clip.clip_index, output_path=None)
                 completed = self.repository.update(job.id, output_path=None)
             return completed
         except Exception as exc:
@@ -196,6 +187,141 @@ class WorkflowPipeline:
             )
             await self._notify(failed, f"Failed: {error}")
             return failed
+
+    def _configured_platforms(self) -> list[str]:
+        platforms: list[str] = []
+        if self.services.youtube_uploader:
+            platforms.append("YouTube")
+        if self.services.instagram_uploader:
+            platforms.append("Instagram")
+        return platforms
+
+    async def _process_clip(
+        self,
+        job: Job,
+        source: SourceVideo,
+        clip: JobClip,
+        total_clips: int,
+        job_dir: Path,
+    ) -> JobClip:
+        plan = ShortPlan(
+            start_seconds=clip.start_seconds,
+            duration_seconds=clip.duration_seconds,
+            title=clip.title,
+            description=clip.description,
+            instagram_caption=clip.instagram_caption,
+        )
+        output_path = (
+            Path(clip.output_path)
+            if clip.output_path
+            else (job_dir / f"short-{clip.clip_index:03d}.mp4")
+        )
+        if not output_path.exists():
+            await self._status(
+                job.id,
+                JobStatus.RENDERING,
+                f"Rendering Short {clip.clip_index}/{total_clips}",
+            )
+            await asyncio.to_thread(
+                self.services.media.render_short,
+                source.path,
+                output_path,
+                plan.start_seconds,
+                plan.duration_seconds,
+            )
+            clip = self.repository.update_clip(
+                job.id,
+                clip.clip_index,
+                output_path=str(output_path),
+                error=None,
+            )
+
+        if self.services.youtube_uploader and not clip.youtube_video_id:
+            await self._status(
+                job.id,
+                JobStatus.UPLOADING,
+                f"Uploading Short {clip.clip_index}/{total_clips} to YouTube as "
+                f"{self.settings.youtube_privacy_status}",
+            )
+            youtube_video_id = await self.services.youtube_uploader.upload(output_path, plan)
+            clip = self.repository.update_clip(
+                job.id,
+                clip.clip_index,
+                youtube_video_id=youtube_video_id,
+                error=None,
+            )
+            if clip.clip_index == 1:
+                self.repository.update(job.id, youtube_video_id=youtube_video_id)
+
+        if self.services.instagram_uploader and not clip.instagram_media_id:
+            await self._status(
+                job.id,
+                JobStatus.UPLOADING,
+                f"Publishing Reel {clip.clip_index}/{total_clips} to Instagram",
+            )
+            instagram = await self.services.instagram_uploader.upload(output_path, plan)
+            clip = self.repository.update_clip(
+                job.id,
+                clip.clip_index,
+                instagram_media_id=instagram.media_id,
+                instagram_url=instagram.permalink,
+                error=None,
+            )
+            if clip.clip_index == 1:
+                self.repository.update(
+                    job.id,
+                    instagram_media_id=instagram.media_id,
+                    instagram_url=instagram.permalink,
+                )
+        return clip
+
+    @staticmethod
+    def _has_legacy_render(job: Job) -> bool:
+        return bool(job.output_path and job.short_title and Path(job.output_path).exists())
+
+    async def _resume_legacy_render(self, job: Job) -> Job:
+        output_path = Path(job.output_path or "")
+        duration = await asyncio.to_thread(self.services.media.probe_duration, output_path)
+        plan = ShortPlan(
+            start_seconds=0,
+            duration_seconds=min(30, duration),
+            title=job.short_title or "YouTube Short #Shorts",
+            description=job.short_description or "#Shorts",
+            instagram_caption=job.instagram_caption or "#Reels",
+        )
+        youtube_video_id = job.youtube_video_id
+        instagram_media_id = job.instagram_media_id
+        instagram_url = job.instagram_url
+
+        if self.services.youtube_uploader and not youtube_video_id:
+            await self._status(job.id, JobStatus.UPLOADING, "Uploading existing Short to YouTube")
+            youtube_video_id = await self.services.youtube_uploader.upload(output_path, plan)
+        if self.services.instagram_uploader and not instagram_media_id:
+            await self._status(
+                job.id,
+                JobStatus.UPLOADING,
+                "Publishing existing Short to Instagram",
+            )
+            instagram = await self.services.instagram_uploader.upload(output_path, plan)
+            instagram_media_id = instagram.media_id
+            instagram_url = instagram.permalink
+
+        platforms = self._configured_platforms()
+        completed = self.repository.update(
+            job.id,
+            status=JobStatus.COMPLETE,
+            progress_message=(
+                f"Published existing Short to {' and '.join(platforms)}"
+                if platforms
+                else "Existing Short is ready"
+            ),
+            youtube_video_id=youtube_video_id,
+            instagram_media_id=instagram_media_id,
+            instagram_url=instagram_url,
+            error=None,
+        )
+        await self._notify(completed, completed.progress_message)
+        return completed
 
     async def _load_existing_source(self, job: Job, job_dir: Path) -> SourceVideo:
         candidates = [

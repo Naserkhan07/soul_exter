@@ -85,6 +85,7 @@ class Settings:
     instagram_graph_api_version: str
     upload_instagram: bool
     clip_duration_seconds: int
+    max_shorts_per_video: int
     work_dir: Path
     database_path: Path
     keep_work_files: bool
@@ -135,6 +136,7 @@ class Settings:
             instagram_graph_api_version=os.getenv("INSTAGRAM_GRAPH_API_VERSION", "v26.0").strip(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
             clip_duration_seconds=_int_env("CLIP_DURATION_SECONDS", 25),
+            max_shorts_per_video=_int_env("MAX_SHORTS_PER_VIDEO", 10),
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),
@@ -153,6 +155,8 @@ class Settings:
             raise ConfigurationError("GROQ_MAX_TRANSCRIPT_CHARS must be between 4000 and 60000.")
         if not 20 <= self.clip_duration_seconds <= 30:
             raise ConfigurationError("CLIP_DURATION_SECONDS must be between 20 and 30.")
+        if not 1 <= self.max_shorts_per_video <= 50:
+            raise ConfigurationError("MAX_SHORTS_PER_VIDEO must be between 1 and 50.")
         if self.youtube_privacy_status not in {"private", "unlisted", "public"}:
             raise ConfigurationError("YOUTUBE_PRIVACY_STATUS must be private, unlisted, or public.")
         if not re.fullmatch(r"v\d+\.\d+", self.instagram_graph_api_version):

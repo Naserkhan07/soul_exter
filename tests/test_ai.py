@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import httpx
 from groq import APIStatusError, RateLimitError
 
-from shorts_bot.ai import AIPlanner, compact_transcript, normalize_plan
+from shorts_bot.ai import AIPlanner, compact_transcript, normalize_plan, normalize_plans
 from shorts_bot.models import SourceVideo
 
 
@@ -128,6 +128,23 @@ def test_compacts_long_transcript_across_full_timeline() -> None:
     assert "TIMELINE OMITTED" in compacted
     assert "Segment 0" in compacted
     assert "Segment 1999" in compacted
+
+
+def test_normalizes_multiple_non_overlapping_plans() -> None:
+    plans = normalize_plans(
+        {
+            "clips": [
+                {"start_seconds": 0, "duration_seconds": 25, "title": "First"},
+                {"start_seconds": 10, "duration_seconds": 25, "title": "Overlap"},
+                {"start_seconds": 50, "duration_seconds": 25, "title": "Second"},
+            ]
+        },
+        source(),
+        target_duration=25,
+        max_clips=10,
+    )
+
+    assert [plan.start_seconds for plan in plans] == [0, 50]
 
 
 def test_clamps_invalid_timing_to_video() -> None:

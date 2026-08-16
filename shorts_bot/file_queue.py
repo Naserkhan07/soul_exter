@@ -126,8 +126,8 @@ async def run_file_queue(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Watch links.txt and publish each downloaded video as a YouTube Short "
-            "and/or Instagram Reel."
+            "Watch links.txt and publish multiple AI-selected YouTube Shorts and/or "
+            "Instagram Reels from each downloaded video."
         )
     )
     mode = parser.add_mutually_exclusive_group()
