@@ -245,6 +245,14 @@ repetition, and return only the corrected JSON object.
                 max_tokens=2_100,
                 system_prompt=metadata_system,
             )
+        if (
+            len(str(payload.get("description") or "")) < youtube_description_min
+            or len(str(payload.get("instagram_caption") or "")) < instagram_body_min
+        ):
+            raise AIError(
+                "Groq did not satisfy the minimum metadata lengths after an automatic repair "
+                "request; the clip was not uploaded with incomplete text."
+            )
         merged = {
             "start_seconds": plan.start_seconds,
             "duration_seconds": plan.duration_seconds,

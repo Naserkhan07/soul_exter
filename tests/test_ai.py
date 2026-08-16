@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -63,12 +64,20 @@ async def test_retries_with_smaller_transcript_when_prompt_is_too_large() -> Non
                     request=httpx.Request("POST", "https://api.groq.com/test"),
                 )
                 raise APIStatusError("request too large", response=response, body={})
-            message = SimpleNamespace(
-                content=(
+            if len(prompt_sizes) == 4:
+                content = json.dumps(
+                    {
+                        "title": "Title",
+                        "description": "D" * 4_000,
+                        "instagram_caption": "C" * 1_800,
+                    }
+                )
+            else:
+                content = (
                     '{"start_seconds": 1, "duration_seconds": 25, "title": "Title", '
                     '"description": "Description", "instagram_caption": "Caption"}'
                 )
-            )
+            message = SimpleNamespace(content=content)
             return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
     planner = AIPlanner(
