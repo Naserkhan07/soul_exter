@@ -1,0 +1,11 @@
+services:
+  shorts-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      YOUTUBE_CLIENT_SECRETS_FILE: /app/credentials/client_secret.json
+      YOUTUBE_TOKEN_FILE: /app/credentials/youtube_token.json
+    volumes:
+      - ./work:/app/work
+      - ./credentials:/app/credentials

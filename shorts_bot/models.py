@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+
+
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    DOWNLOADING = "downloading"
+    ANALYZING = "analyzing"
+    RENDERING = "rendering"
+    UPLOADING = "uploading"
+    COMPLETE = "complete"
+    FAILED = "failed"
+
+    @property
+    def terminal(self) -> bool:
+        return self in {self.COMPLETE, self.FAILED}
+
+
+@dataclass(frozen=True, slots=True)
+class SourceVideo:
+    path: Path
+    source_url: str
+    video_id: str
+    title: str
+    uploader: str
+    duration_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class ShortPlan:
+    start_seconds: float
+    duration_seconds: float
+    title: str
+    description: str
+    selection_reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Job:
+    id: str
+    chat_id: int
+    user_id: int
+    source_url: str
+    status: JobStatus
+    progress_message: str
+    source_title: str | None
+    short_title: str | None
+    short_description: str | None
+    output_path: str | None
+    youtube_video_id: str | None
+    error: str | None
+    created_at: str
+    updated_at: str
+
+    @property
+    def youtube_url(self) -> str | None:
+        if not self.youtube_video_id:
+            return None
+        return f"https://youtube.com/shorts/{self.youtube_video_id}"
