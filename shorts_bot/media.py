@@ -13,7 +13,7 @@ class MediaProcessor:
         self,
         ffmpeg: str = "ffmpeg",
         ffprobe: str = "ffprobe",
-        video_layout: str = "blurred_background",
+        video_layout: str = "center_crop",
         video_crf: int = 18,
         video_preset: str = "slow",
     ) -> None:
@@ -149,31 +149,30 @@ class MediaProcessor:
 
     def generate_thumbnail(self, video: Path, output: Path, at_seconds: float) -> Path:
         output.parent.mkdir(parents=True, exist_ok=True)
-        thumbnail_filter = (
-            "[0:v]split=2[bg][fg];"
-            "[bg]scale=1280:720:force_original_aspect_ratio=increase,"
-            "crop=1280:720,boxblur=20:2[blurred];"
-            "[fg]scale=1280:720:force_original_aspect_ratio=decrease[front];"
-            "[blurred][front]overlay=(W-w)/2:(H-h)/2"
-        )
-        self._run(
-            [
-                self.ffmpeg,
-                "-y",
-                "-ss",
-                f"{max(0, at_seconds):.3f}",
-                "-i",
-                str(video),
-                "-frames:v",
-                "1",
-                "-filter_complex",
-                thumbnail_filter,
-                "-q:v",
-                "3",
-                str(output),
-            ],
-            timeout=180,
-        )
+        command = [
+            self.ffmpeg,
+            "-y",
+            "-ss",
+            f"{max(0, at_seconds):.3f}",
+            "-i",
+            str(video),
+            "-frames:v",
+            "1",
+        ]
+        if self.video_layout == "blurred_background":
+            thumbnail_filter = (
+                "[0:v]split=2[bg][fg];"
+                "[bg]scale=1280:720:force_original_aspect_ratio=increase,"
+                "crop=1280:720,boxblur=20:2[blurred];"
+                "[fg]scale=1280:720:force_original_aspect_ratio=decrease[front];"
+                "[blurred][front]overlay=(W-w)/2:(H-h)/2"
+            )
+            command.extend(["-filter_complex", thumbnail_filter])
+        else:
+            thumbnail_filter = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720"
+            command.extend(["-vf", thumbnail_filter])
+        command.extend(["-q:v", "3", str(output)])
+        self._run(command, timeout=180)
         if not output.exists() or output.stat().st_size == 0:
             raise MediaError("FFmpeg did not create the thumbnail.")
         return output

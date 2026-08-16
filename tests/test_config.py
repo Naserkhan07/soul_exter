@@ -54,7 +54,7 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.groq_max_transcript_chars == 8_000
     assert settings.shorts_selection_mode == "full_coverage"
     assert settings.max_shorts_per_video == 0
-    assert settings.video_layout == "blurred_background"
+    assert settings.video_layout == "center_crop"
     assert settings.video_crf == 18
     assert settings.video_preset == "slow"
     assert settings.youtube_description_target_chars == 4_200

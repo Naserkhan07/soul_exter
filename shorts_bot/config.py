@@ -154,7 +154,7 @@ class Settings:
             .strip()
             .lower(),
             max_shorts_per_video=_int_env("MAX_SHORTS_PER_VIDEO", 0),
-            video_layout=os.getenv("VIDEO_LAYOUT", "blurred_background").strip().lower(),
+            video_layout=os.getenv("VIDEO_LAYOUT", "center_crop").strip().lower(),
             video_crf=_int_env("VIDEO_CRF", 18),
             video_preset=os.getenv("VIDEO_PRESET", "slow").strip().lower(),
             work_dir=work_dir,
