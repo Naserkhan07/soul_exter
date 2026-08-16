@@ -41,6 +41,7 @@ class WorkflowServices:
             ),
             media=MediaProcessor(
                 video_layout=settings.video_layout,
+                allow_upscale=settings.video_allow_upscale,
                 video_crf=settings.video_crf,
                 video_preset=settings.video_preset,
             ),

@@ -14,12 +14,14 @@ class MediaProcessor:
         ffmpeg: str = "ffmpeg",
         ffprobe: str = "ffprobe",
         video_layout: str = "center_crop",
+        allow_upscale: bool = False,
         video_crf: int = 18,
         video_preset: str = "slow",
     ) -> None:
         self.ffmpeg = ffmpeg
         self.ffprobe = ffprobe
         self.video_layout = video_layout
+        self.allow_upscale = allow_upscale
         self.video_crf = video_crf
         self.video_preset = video_preset
 
@@ -108,9 +110,16 @@ class MediaProcessor:
                 ]
             )
         else:
-            video_filter = (
-                "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
-            )
+            if self.allow_upscale:
+                video_filter = (
+                    "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
+                )
+            else:
+                # Crop the largest native-resolution 9:16 region without inventing pixels.
+                # H.264 requires even dimensions, hence truncation to a multiple of two.
+                video_filter = (
+                    "crop='trunc(min(iw,ih*9/16)/2)*2':'trunc(min(ih,iw*16/9)/2)*2',setsar=1"
+                )
             command.extend(
                 [
                     "-map",

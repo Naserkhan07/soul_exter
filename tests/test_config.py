@@ -16,6 +16,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "MAX_SHORTS_PER_VIDEO",
         "SHORTS_SELECTION_MODE",
         "VIDEO_LAYOUT",
+        "VIDEO_ALLOW_UPSCALE",
         "VIDEO_CRF",
         "VIDEO_PRESET",
         "YOUTUBE_DESCRIPTION_TARGET_CHARS",
@@ -55,6 +56,7 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.shorts_selection_mode == "full_coverage"
     assert settings.max_shorts_per_video == 0
     assert settings.video_layout == "center_crop"
+    assert settings.video_allow_upscale is False
     assert settings.video_crf == 18
     assert settings.video_preset == "slow"
     assert settings.youtube_description_target_chars == 4_200

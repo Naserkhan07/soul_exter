@@ -45,5 +45,6 @@ def test_center_crop_has_no_blurred_background(tmp_path: Path) -> None:
 
     command_text = " ".join(commands[0])
     assert "-vf" in commands[0]
-    assert "crop=1080:1920" in command_text
+    assert "trunc(min(iw,ih*9/16)" in command_text
+    assert "scale=1080:1920" not in command_text
     assert "boxblur" not in command_text

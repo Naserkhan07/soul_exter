@@ -92,6 +92,7 @@ class Settings:
     shorts_selection_mode: str
     max_shorts_per_video: int
     video_layout: str
+    video_allow_upscale: bool
     video_crf: int
     video_preset: str
     work_dir: Path
@@ -155,6 +156,7 @@ class Settings:
             .lower(),
             max_shorts_per_video=_int_env("MAX_SHORTS_PER_VIDEO", 0),
             video_layout=os.getenv("VIDEO_LAYOUT", "center_crop").strip().lower(),
+            video_allow_upscale=_bool_env("VIDEO_ALLOW_UPSCALE", False),
             video_crf=_int_env("VIDEO_CRF", 18),
             video_preset=os.getenv("VIDEO_PRESET", "slow").strip().lower(),
             work_dir=work_dir,
