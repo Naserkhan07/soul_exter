@@ -1,5 +1,5 @@
-# Instagram permits at most 30 hashtags per caption. The workflow selects the first 30
-# unique tags from this pool for every Reel while keeping the full pool editable here.
+# Instagram permits at most 30 hashtags per caption. The workflow rotates through this
+# editable pool in groups of 30 so the tags are distributed across the Reel batch.
 #viral #viralvideo #viralreels #viralpost #trending #trendingreels #trendingnow
 #reels #reelsinstagram #instagramreels #instareels #reelitfeelit #explore #explorepage
 #explorepageviral #fyp #foryou #foryoupage #fy #discover #discoverpage #popular

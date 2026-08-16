@@ -115,7 +115,14 @@ Detailed platform metadata is generated separately after the highlights are sele
                 for index, plan in enumerate(base_plans):
                     if index and self.metadata_delay_seconds:
                         await asyncio.sleep(self.metadata_delay_seconds)
-                    enriched.append(await self._enrich_plan(plan, source, full_transcript))
+                    enriched.append(
+                        await self._enrich_plan(
+                            plan,
+                            source,
+                            full_transcript,
+                            hashtag_offset=index * 30,
+                        )
+                    )
                 return enriched
             except _PromptTooLargeError as exc:
                 last_size_error = exc
@@ -130,13 +137,18 @@ Detailed platform metadata is generated separately after the highlights are sele
         plan: ShortPlan,
         source: SourceVideo,
         full_transcript: str,
+        hashtag_offset: int = 0,
     ) -> ShortPlan:
         excerpt = transcript_excerpt(
             full_transcript,
             plan.start_seconds,
             plan.duration_seconds,
         )
-        hashtag_block = " ".join(self.instagram_hashtags[:30])
+        hashtag_pool = self.instagram_hashtags
+        if hashtag_pool:
+            offset = hashtag_offset % len(hashtag_pool)
+            hashtag_pool = hashtag_pool[offset:] + hashtag_pool[:offset]
+        hashtag_block = " ".join(hashtag_pool[:30])
         instagram_body_target = max(
             300,
             self.instagram_caption_target_chars - len(hashtag_block) - 100,
@@ -185,7 +197,7 @@ Never invent facts not present in the transcript or source metadata.
             description=enriched.description,
             instagram_caption=apply_instagram_hashtags(
                 enriched.instagram_caption,
-                self.instagram_hashtags,
+                hashtag_pool,
                 self.instagram_caption_target_chars,
             ),
             selection_reason=enriched.selection_reason,

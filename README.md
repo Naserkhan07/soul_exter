@@ -144,8 +144,8 @@ Detailed metadata is generated in a separate paced Groq request for every select
 slower, but permits descriptions targeting roughly 4,200 characters and Instagram captions up to
 2,000 characters without exceeding the 8B model's free-tier TPM limit. Instagram accepts at most 30
 hashtags per caption, so the entire supplied hashtag list cannot appear on every Reel. The full
-editable pool is stored in `instagram_hashtags.txt`; the first 30 unique tags are appended while the
-caption remains within the platform length limit.
+editable pool is stored in `instagram_hashtags.txt`; groups of 30 unique tags rotate across the Reel
+batch while every caption remains within the platform limit.
 
 ## 4. Configure local account IDs
 
@@ -295,7 +295,7 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `GROQ_METADATA_DELAY_SECONDS` | `30` | Pacing between detailed per-clip metadata calls |
 | `YOUTUBE_DESCRIPTION_TARGET_CHARS` | `4200` | Target detailed description length, max 4500 |
 | `INSTAGRAM_CAPTION_TARGET_CHARS` | `2000` | Caption limit including hashtags, max 2000 |
-| `INSTAGRAM_HASHTAGS_FILE` | `instagram_hashtags.txt` | Editable hashtag pool; first 30 unique tags used |
+| `INSTAGRAM_HASHTAGS_FILE` | `instagram_hashtags.txt` | Editable pool rotated in groups of 30 |
 | `YTDLP_COOKIES_FROM_BROWSER` | empty | Local signed-in browser cookies for YouTube |
 | `YTDLP_BROWSER_PROFILE` | empty | Optional browser profile name/path |
 | `CHANNEL_CONFIG_FILE` | `channels.toml` | Local non-secret account IDs |
