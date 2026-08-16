@@ -33,7 +33,10 @@ class WorkflowServices:
     @classmethod
     def from_settings(cls, settings: Settings) -> WorkflowServices:
         return cls(
-            downloader=VideoDownloader(),
+            downloader=VideoDownloader(
+                cookies_from_browser=settings.ytdlp_cookies_from_browser,
+                browser_profile=settings.ytdlp_browser_profile,
+            ),
             media=MediaProcessor(),
             planner=AIPlanner(
                 api_key=settings.groq_api_key,

@@ -41,6 +41,10 @@ def extract_youtube_urls(text: str) -> list[str]:
 
 
 class VideoDownloader:
+    def __init__(self, cookies_from_browser: str = "", browser_profile: str = "") -> None:
+        self.cookies_from_browser = cookies_from_browser
+        self.browser_profile = browser_profile
+
     async def download(self, url: str, destination: Path) -> SourceVideo:
         if not is_youtube_url(url):
             raise DownloadError("Only individual youtube.com or youtu.be URLs are accepted.")
@@ -52,8 +56,13 @@ class VideoDownloader:
         return min(2 ** max(0, attempt - 1), 20)
 
     @classmethod
-    def _download_options(cls, output_template: str) -> dict[str, object]:
-        return {
+    def _download_options(
+        cls,
+        output_template: str,
+        cookies_from_browser: str = "",
+        browser_profile: str = "",
+    ) -> dict[str, object]:
+        options: dict[str, object] = {
             "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "outtmpl": output_template,
             "merge_output_format": "mp4",
@@ -79,17 +88,41 @@ class VideoDownloader:
                 "extractor": cls._retry_delay,
             },
         }
+        if cookies_from_browser:
+            options["cookiesfrombrowser"] = (
+                cookies_from_browser,
+                browser_profile or None,
+                None,
+                None,
+            )
+        return options
 
-    @classmethod
-    def _download_sync(cls, url: str, destination: Path) -> SourceVideo:
+    def _download_sync(self, url: str, destination: Path) -> SourceVideo:
         destination.mkdir(parents=True, exist_ok=True)
         output_template = str(destination / "source.%(ext)s")
-        options = cls._download_options(output_template)
+        options = self._download_options(
+            output_template,
+            self.cookies_from_browser,
+            self.browser_profile,
+        )
         try:
             with yt_dlp.YoutubeDL(options) as downloader:
                 info = downloader.extract_info(url, download=True)
         except yt_dlp.utils.DownloadError as exc:
-            raise DownloadError(f"YouTube download failed: {exc}") from exc
+            detail = str(exc)
+            if "sign in to confirm" in detail.lower():
+                if self.cookies_from_browser:
+                    detail = (
+                        f"YouTube rejected cookies from {self.cookies_from_browser}. "
+                        "Confirm that you are signed in to YouTube in that browser, "
+                        "close the browser, and retry."
+                    )
+                else:
+                    detail = (
+                        "YouTube requires signed-in browser cookies. Set "
+                        "YTDLP_COOKIES_FROM_BROWSER=brave (or your browser) in .env and retry."
+                    )
+            raise DownloadError(f"YouTube download failed: {detail}") from exc
         except Exception as exc:
             raise DownloadError(f"Unexpected downloader error: {exc}") from exc
 

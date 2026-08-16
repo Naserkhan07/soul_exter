@@ -10,6 +10,8 @@ from shorts_bot.errors import ConfigurationError
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     names = [
         "GROQ_API_KEY",
+        "YTDLP_COOKIES_FROM_BROWSER",
+        "YTDLP_BROWSER_PROFILE",
         "UPLOAD_YOUTUBE",
         "UPLOAD_INSTAGRAM",
         "AUTO_UPLOAD",
@@ -53,6 +55,19 @@ def test_reads_non_secret_ids_from_toml(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     assert settings.youtube_channel_id == "UC123"
     assert settings.instagram_user_id == "1789"
+
+
+def test_reads_browser_cookie_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(tmp_path / "missing.toml"))
+    monkeypatch.setenv("YTDLP_COOKIES_FROM_BROWSER", "BRAVE")
+    monkeypatch.setenv("YTDLP_BROWSER_PROFILE", "Profile 1")
+
+    settings = Settings.from_env(env_file=None)
+
+    assert settings.ytdlp_cookies_from_browser == "brave"
+    assert settings.ytdlp_browser_profile == "Profile 1"
 
 
 def test_rejects_duration_outside_shorts_range(monkeypatch: pytest.MonkeyPatch) -> None:

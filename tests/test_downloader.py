@@ -30,3 +30,13 @@ def test_download_options_retry_transient_network_failures() -> None:
     assert options["concurrent_fragment_downloads"] == 1
     assert VideoDownloader._retry_delay(1) == 1
     assert VideoDownloader._retry_delay(10) == 20
+
+
+def test_download_options_can_use_local_browser_cookies() -> None:
+    options = VideoDownloader._download_options(
+        "source.%(ext)s",
+        cookies_from_browser="brave",
+        browser_profile="Profile 1",
+    )
+
+    assert options["cookiesfrombrowser"] == ("brave", "Profile 1", None, None)

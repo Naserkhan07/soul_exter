@@ -255,6 +255,8 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `GROQ_API_KEY` | empty | Required Groq API key |
 | `GROQ_MODEL` | `llama-3.3-70b-versatile` | Highlight and metadata model |
 | `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Timestamped transcription |
+| `YTDLP_COOKIES_FROM_BROWSER` | empty | Local signed-in browser cookies for YouTube |
+| `YTDLP_BROWSER_PROFILE` | empty | Optional browser profile name/path |
 | `CHANNEL_CONFIG_FILE` | `channels.toml` | Local non-secret account IDs |
 | `UPLOAD_YOUTUBE` | `false` | Enable YouTube publishing |
 | `YOUTUBE_PRIVACY_STATUS` | `public` | Requested YouTube visibility |
@@ -281,6 +283,27 @@ python -m ruff check .
 A VS Code **Run tests** task is included.
 
 ## Troubleshooting
+
+### YouTube says "Sign in to confirm you're not a bot"
+
+Sign in to YouTube in your normal local browser, then set that browser in `.env`. For Brave:
+
+```dotenv
+YTDLP_COOKIES_FROM_BROWSER=brave
+YTDLP_BROWSER_PROFILE=
+```
+
+Other supported values include `chrome`, `edge`, and `firefox`. Save `.env`, completely close the
+selected browser so Windows releases its cookie database, and retry:
+
+```powershell
+python -m shorts_bot.file_queue --once
+```
+
+The program asks `yt-dlp` to read the selected browser's existing YouTube cookies locally. It does
+not export or commit them. Browser cookies provide account access, so never share or upload them.
+If the wrong browser profile is selected, set `YTDLP_BROWSER_PROFILE` to its profile name, such as
+`Default` or `Profile 1`.
 
 ### YouTube download connection reset on Windows
 

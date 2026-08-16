@@ -13,6 +13,17 @@ from .errors import ConfigurationError
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off", ""}
+_SUPPORTED_COOKIE_BROWSERS = {
+    "brave",
+    "chrome",
+    "chromium",
+    "edge",
+    "firefox",
+    "opera",
+    "safari",
+    "vivaldi",
+    "whale",
+}
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -59,6 +70,8 @@ class Settings:
     groq_api_key: str
     groq_model: str
     groq_transcription_model: str
+    ytdlp_cookies_from_browser: str
+    ytdlp_browser_profile: str
     channel_config_file: Path
     youtube_channel_id: str
     youtube_client_secrets_file: Path
@@ -95,6 +108,8 @@ class Settings:
             groq_transcription_model=os.getenv(
                 "GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
             ).strip(),
+            ytdlp_cookies_from_browser=os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip().lower(),
+            ytdlp_browser_profile=os.getenv("YTDLP_BROWSER_PROFILE", "").strip(),
             channel_config_file=channel_config_file,
             youtube_channel_id=(
                 os.getenv("YOUTUBE_CHANNEL_ID", "").strip()
@@ -138,6 +153,12 @@ class Settings:
             raise ConfigurationError("INSTAGRAM_GRAPH_API_VERSION must look like v26.0.")
         if not 5 <= self.links_poll_seconds <= 3600:
             raise ConfigurationError("LINKS_POLL_SECONDS must be between 5 and 3600.")
+        if (
+            self.ytdlp_cookies_from_browser
+            and self.ytdlp_cookies_from_browser not in _SUPPORTED_COOKIE_BROWSERS
+        ):
+            supported = ", ".join(sorted(_SUPPORTED_COOKIE_BROWSERS))
+            raise ConfigurationError(f"YTDLP_COOKIES_FROM_BROWSER must be one of: {supported}.")
 
     def validate_pipeline(self) -> None:
         if not self.rights_acknowledged:
