@@ -51,6 +51,10 @@ Install:
 - VS Code Python extension
 - FFmpeg and ffprobe
 
+The Python installation command also installs the Deno JavaScript runtime and `yt-dlp-ejs` inside
+`.venv`. Current YouTube player challenges require these components for normal format availability;
+no separate global Deno installation is needed.
+
 ### Windows FFmpeg
 
 Using Winget:
@@ -307,13 +311,16 @@ If the wrong browser profile is selected, set `YTDLP_BROWSER_PROFILE` to its pro
 
 ### YouTube says "Requested format is not available"
 
-Pull the latest project update and retry. The downloader prefers MP4 streams but now falls back to
-any available separate video/audio formats and merges them into a temporary MKV source. FFmpeg still
-renders the final Short as an MP4.
+Current YouTube downloads require an external JavaScript runtime and EJS challenge scripts. Pull the
+latest update and reinstall the project; its `yt-dlp[default,deno]` dependency installs Deno and
+`yt-dlp-ejs` inside `.venv`. The downloader also falls back to any available video/audio codecs and
+uses FFmpeg to produce the final MP4.
 
 ```powershell
 git pull origin arena/01a00af0-soul-exter
-python -m pip install --upgrade yt-dlp
+python -m pip install --upgrade "yt-dlp[default,deno]"
+python -m pip install -e ".[dev]"
+deno --version
 python -m shorts_bot.file_queue --once
 ```
 

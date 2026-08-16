@@ -81,6 +81,9 @@ class VideoDownloader:
             "socket_timeout": 30,
             "http_chunk_size": 10 * 1024 * 1024,
             "concurrent_fragment_downloads": 1,
+            # Current YouTube extraction requires a full JS runtime for player challenges.
+            # The project's yt-dlp[deno] dependency installs this runtime in the venv.
+            "js_runtimes": {"deno": {}},
             "retries": 10,
             "fragment_retries": 10,
             "extractor_retries": 5,

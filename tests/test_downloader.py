@@ -30,6 +30,7 @@ def test_download_options_retry_transient_network_failures() -> None:
     assert options["retries"] == 10
     assert options["fragment_retries"] == 10
     assert options["concurrent_fragment_downloads"] == 1
+    assert options["js_runtimes"] == {"deno": {}}
     assert VideoDownloader._retry_delay(1) == 1
     assert VideoDownloader._retry_delay(10) == 20
 
