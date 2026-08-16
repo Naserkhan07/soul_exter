@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -11,6 +12,8 @@ from googleapiclient.http import MediaFileUpload
 
 from .errors import UploadError
 from .models import ShortPlan
+
+logger = logging.getLogger(__name__)
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
@@ -28,8 +31,13 @@ class YouTubeUploader:
         self.privacy_status = privacy_status
         self.expected_channel_id = expected_channel_id
 
-    async def upload(self, video_path: Path, plan: ShortPlan) -> str:
-        return await asyncio.to_thread(self._upload_sync, video_path, plan)
+    async def upload(
+        self,
+        video_path: Path,
+        plan: ShortPlan,
+        thumbnail_path: Path | None = None,
+    ) -> str:
+        return await asyncio.to_thread(self._upload_sync, video_path, plan, thumbnail_path)
 
     def _credentials(self) -> Credentials:
         try:
@@ -52,7 +60,12 @@ class YouTubeUploader:
         except Exception as exc:
             raise UploadError(f"Could not load YouTube OAuth token: {exc}") from exc
 
-    def _upload_sync(self, video_path: Path, plan: ShortPlan) -> str:
+    def _upload_sync(
+        self,
+        video_path: Path,
+        plan: ShortPlan,
+        thumbnail_path: Path | None = None,
+    ) -> str:
         if not video_path.exists():
             raise UploadError(f"Rendered video does not exist: {video_path}")
         try:
@@ -90,6 +103,8 @@ class YouTubeUploader:
             video_id = response.get("id")
             if not video_id:
                 raise UploadError("YouTube accepted the request but returned no video ID.")
+            if thumbnail_path and thumbnail_path.exists():
+                self._try_set_thumbnail(youtube, str(video_id), thumbnail_path)
             return str(video_id)
         except UploadError:
             raise
@@ -98,6 +113,22 @@ class YouTubeUploader:
             raise UploadError(f"YouTube API rejected the upload: {detail}") from exc
         except Exception as exc:
             raise UploadError(f"YouTube upload failed: {exc}") from exc
+
+    @staticmethod
+    def _try_set_thumbnail(youtube: object, video_id: str, thumbnail_path: Path) -> None:
+        try:
+            youtube.thumbnails().set(  # type: ignore[attr-defined]
+                videoId=video_id,
+                media_body=MediaFileUpload(
+                    str(thumbnail_path),
+                    mimetype="image/jpeg",
+                    resumable=False,
+                ),
+            ).execute()
+        except HttpError as exc:
+            # Shorts thumbnail eligibility varies by channel/rollout. Keep the video upload
+            # successful when YouTube refuses the custom image and uses its generated frame.
+            logger.warning("YouTube did not accept the custom thumbnail: %s", exc.reason)
 
     def _verify_channel(self, youtube: object) -> None:
         if not self.expected_channel_id:

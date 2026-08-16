@@ -124,7 +124,11 @@ class WorkflowPipeline:
                 await self._status(
                     job.id,
                     JobStatus.ANALYZING,
-                    "Transcribing with Groq and selecting multiple highlights",
+                    (
+                        "Transcribing with Groq and preparing full timeline coverage"
+                        if self.settings.shorts_selection_mode == "full_coverage"
+                        else "Transcribing with Groq and selecting multiple highlights"
+                    ),
                 )
                 audio_path = job_dir / "transcript-audio.mp3"
                 if not audio_path.exists():
@@ -133,11 +137,18 @@ class WorkflowPipeline:
                         source.path,
                         audio_path,
                     )
-                plans = await self.services.planner.create_plans(
-                    audio_path,
-                    source,
-                    max_clips=self.settings.max_shorts_per_video,
-                )
+                if self.settings.shorts_selection_mode == "full_coverage":
+                    plans = await self.services.planner.create_full_coverage_plans(
+                        audio_path,
+                        source,
+                        max_clips=self.settings.max_shorts_per_video,
+                    )
+                else:
+                    plans = await self.services.planner.create_plans(
+                        audio_path,
+                        source,
+                        max_clips=self.settings.max_shorts_per_video,
+                    )
                 clips = self.repository.save_plans(job.id, plans)
 
             uploaded_platforms = self._configured_platforms()
@@ -184,7 +195,12 @@ class WorkflowPipeline:
             if uploaded_platforms and not self.settings.keep_work_files:
                 shutil.rmtree(job_dir, ignore_errors=True)
                 for clip in clips:
-                    self.repository.update_clip(job.id, clip.clip_index, output_path=None)
+                    self.repository.update_clip(
+                        job.id,
+                        clip.clip_index,
+                        output_path=None,
+                        thumbnail_path=None,
+                    )
                 completed = self.repository.update(job.id, output_path=None)
             return completed
         except Exception as exc:
@@ -250,6 +266,24 @@ class WorkflowPipeline:
                 error=None,
             )
 
+        thumbnail_path = (
+            Path(clip.thumbnail_path)
+            if clip.thumbnail_path
+            else (job_dir / f"thumbnail-{clip.clip_index:03d}.jpg")
+        )
+        if not thumbnail_path.exists():
+            await asyncio.to_thread(
+                self.services.media.generate_thumbnail,
+                output_path,
+                thumbnail_path,
+                plan.duration_seconds / 2,
+            )
+            clip = self.repository.update_clip(
+                job.id,
+                clip.clip_index,
+                thumbnail_path=str(thumbnail_path),
+            )
+
         if self.services.youtube_uploader and not clip.youtube_video_id:
             await self._status(
                 job.id,
@@ -257,7 +291,11 @@ class WorkflowPipeline:
                 f"Uploading Short {clip.clip_index}/{total_clips} to YouTube as "
                 f"{self.settings.youtube_privacy_status}",
             )
-            youtube_video_id = await self.services.youtube_uploader.upload(output_path, plan)
+            youtube_video_id = await self.services.youtube_uploader.upload(
+                output_path,
+                plan,
+                thumbnail_path,
+            )
             clip = self.repository.update_clip(
                 job.id,
                 clip.clip_index,

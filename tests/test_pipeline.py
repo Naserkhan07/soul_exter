@@ -30,6 +30,10 @@ class FakeMedia:
         output.write_bytes(b"audio")
         return output
 
+    def generate_thumbnail(self, video: Path, output: Path, at_seconds: float) -> Path:
+        output.write_bytes(b"thumbnail")
+        return output
+
     def render_short(
         self, source: Path, output: Path, start_seconds: float, duration_seconds: float
     ) -> Path:
@@ -58,10 +62,24 @@ class FakePlanner:
     ) -> list[ShortPlan]:
         return [await self.create_plan(audio_path, source)]
 
+    async def create_full_coverage_plans(
+        self,
+        audio_path: Path,
+        source: SourceVideo,
+        max_clips: int,
+    ) -> list[ShortPlan]:
+        return await self.create_plans(audio_path, source, max_clips)
+
 
 class FakeYouTubeUploader:
-    async def upload(self, video_path: Path, plan: ShortPlan) -> str:
+    async def upload(
+        self,
+        video_path: Path,
+        plan: ShortPlan,
+        thumbnail_path: Path | None = None,
+    ) -> str:
         assert video_path.read_bytes() == b"rendered"
+        assert thumbnail_path and thumbnail_path.read_bytes() == b"thumbnail"
         return "youtube-id"
 
 
@@ -142,6 +160,11 @@ async def test_pipeline_renders_and_uploads_multiple_clips(tmp_path: Path) -> No
                 ShortPlan(40, 25, "Second #Shorts", "Second", "Second #Reels"),
             ]
 
+        async def create_full_coverage_plans(
+            self, audio_path: Path, source: SourceVideo, max_clips: int
+        ) -> list[ShortPlan]:
+            return await self.create_plans(audio_path, source, max_clips)
+
     class MultiMedia(FakeMedia):
         def render_short(
             self,
@@ -154,7 +177,13 @@ async def test_pipeline_renders_and_uploads_multiple_clips(tmp_path: Path) -> No
             return output
 
     class MultiYouTube:
-        async def upload(self, video_path: Path, plan: ShortPlan) -> str:
+        async def upload(
+            self,
+            video_path: Path,
+            plan: ShortPlan,
+            thumbnail_path: Path | None = None,
+        ) -> str:
+            assert thumbnail_path and thumbnail_path.exists()
             return f"youtube-{plan.start_seconds:g}"
 
     class MultiInstagram:

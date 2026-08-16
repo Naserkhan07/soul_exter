@@ -55,6 +55,7 @@ class JobClip:
     description: str
     instagram_caption: str
     output_path: str | None
+    thumbnail_path: str | None
     youtube_video_id: str | None
     instagram_media_id: str | None
     instagram_url: str | None

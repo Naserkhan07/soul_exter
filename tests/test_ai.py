@@ -8,6 +8,7 @@ from shorts_bot.ai import (
     AIPlanner,
     apply_instagram_hashtags,
     compact_transcript,
+    full_coverage_plans,
     normalize_plan,
     normalize_plans,
 )
@@ -145,6 +146,23 @@ def test_instagram_caption_enforces_thirty_hashtag_and_character_limits() -> Non
     assert caption.count("#") == 30
     assert "#tag29" in caption
     assert "#tag30" not in caption
+
+
+def test_full_coverage_count_depends_on_video_duration() -> None:
+    plans = full_coverage_plans(source(duration=600), target_duration=30, max_clips=0)
+
+    assert len(plans) == 20
+    assert plans[0].start_seconds == 0
+    assert plans[-1].start_seconds == 570
+    assert all(plan.duration_seconds == 30 for plan in plans)
+
+
+def test_full_coverage_respects_platform_ceiling_for_long_video() -> None:
+    plans = full_coverage_plans(source(duration=4_000), target_duration=30, max_clips=0)
+
+    assert len(plans) == 100
+    assert plans[0].start_seconds == 0
+    assert plans[-1].start_seconds == 3_970
 
 
 def test_normalizes_multiple_non_overlapping_plans() -> None:

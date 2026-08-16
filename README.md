@@ -2,7 +2,7 @@
 
 This project runs entirely on your laptop from VS Code. There is no Telegram bot, web server, cloud worker, or Docker requirement.
 
-Add authorized YouTube links to `links.txt`. The local program downloads each video, removes its link after a successful download, uses Groq to select up to 10 distinct 20–30 second highlights, generates detailed platform-specific metadata for every clip, renders vertical Shorts, and publishes each one to YouTube and Instagram.
+Add authorized YouTube links to `links.txt`. The local program downloads each video, removes its link after a successful download, divides the usable timeline into consecutive 20–30 second clips based on the video's duration, generates detailed AI metadata and thumbnails, renders vertical Shorts, and publishes each one to YouTube and Instagram.
 
 > **Only process videos you own or have explicit permission/license to download, edit, and republish.** A publicly viewable video is not automatically licensed for reuse. The program requires `RIGHTS_ACKNOWLEDGED=true`.
 
@@ -14,10 +14,10 @@ Add authorized YouTube links to `links.txt`. The local program downloads each vi
 4. Records the URL and job ID in `work/downloaded-links.log`.
 5. Extracts speech audio locally with FFmpeg.
 6. Uses Groq `whisper-large-v3-turbo` for timestamped transcription.
-7. Uses Groq Llama to select multiple distinct, non-overlapping 20–30 second highlights spread across the timeline.
+7. In `full_coverage` mode, calculates the clip count from source duration and covers the timeline with consecutive 20–30 second sections.
 8. Generates a detailed YouTube title/description and a separate Instagram caption for every clip.
-9. Renders each highlight as a 1080×1920 H.264/AAC MP4 locally.
-10. Uploads every result as a public YouTube Short and an Instagram Reel shared to the feed.
+9. Renders every section as a 1080×1920 H.264/AAC MP4 plus a local JPEG thumbnail.
+10. Uploads every result as a public YouTube Short and an Instagram Reel, using a custom YouTube thumbnail when the channel is eligible and a midpoint cover frame on Instagram.
 
 A downloaded URL is removed before AI/render/upload starts. If a later stage fails, the URL remains in `work/downloaded-links.log`; copy it back into `links.txt` when you want to retry.
 
@@ -31,6 +31,7 @@ A downloaded URL is removed before AI/render/upload starts. If a later stage fai
 - `youtube_token.json` — generated Google OAuth token; never committed
 - `work/jobs.db` — local job history
 - `work/jobs/<job-id>/short-001.mp4`, `short-002.mp4`, … — rendered Shorts/Reels
+- `work/jobs/<job-id>/thumbnail-001.jpg`, `thumbnail-002.jpg`, … — generated covers
 - `work/downloaded-links.log` — downloaded URL audit history
 
 ## Do not save account passwords
@@ -130,9 +131,16 @@ GROQ_METADATA_DELAY_SECONDS=30
 YOUTUBE_DESCRIPTION_TARGET_CHARS=4200
 INSTAGRAM_CAPTION_TARGET_CHARS=2000
 INSTAGRAM_HASHTAGS_FILE=instagram_hashtags.txt
-MAX_SHORTS_PER_VIDEO=10
+CLIP_DURATION_SECONDS=30
+SHORTS_SELECTION_MODE=full_coverage
+MAX_SHORTS_PER_VIDEO=0
 RIGHTS_ACKNOWLEDGED=true
 ```
+
+`MAX_SHORTS_PER_VIDEO=0` means automatic duration-based counting. A 10-minute source produces 20
+30-second clips. The workflow distributes unusually short remainders where possible; the unavoidable
+platform ceiling is 100 clips per source because both YouTube and Instagram limit automated daily
+publishing. Set a positive value only when you intentionally want a lower cap.
 
 No OpenAI API key or OpenAI service is used. The automatic workflow keeps Groq as its hosted AI
 backend so no model is downloaded to the laptop. Kaggle notebooks are useful for interactive or
@@ -308,8 +316,9 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `LINKS_FILE` | `links.txt` | Local URL queue |
 | `DOWNLOADED_LINKS_LOG` | `work/downloaded-links.log` | Download audit log |
 | `LINKS_POLL_SECONDS` | `30` | Queue interval, 5–3600 seconds |
-| `CLIP_DURATION_SECONDS` | `25` | Preferred duration, 20–30 |
-| `MAX_SHORTS_PER_VIDEO` | `10` | Maximum AI-selected clips per source, 1–50 |
+| `CLIP_DURATION_SECONDS` | `30` | Preferred duration, 20–30 |
+| `SHORTS_SELECTION_MODE` | `full_coverage` | `full_coverage` or `ai_highlights` |
+| `MAX_SHORTS_PER_VIDEO` | `0` | `0` = duration-based automatic count; 1–100 = optional cap |
 | `WORK_DIR` | `work` | Local media directory |
 | `DATABASE_PATH` | `work/jobs.db` | Local SQLite history |
 | `KEEP_WORK_FILES` | `true` | Keep local MP4s after publishing |
@@ -433,5 +442,6 @@ python -m shorts_bot.file_queue --resume JOB_ID
 ```
 
 Completed clips and platform uploads are recorded individually, so a resume skips successful clips
-and does not repost them. Keep `MAX_SHORTS_PER_VIDEO` within your platform quotas. Instagram's
-official Content Publishing API permits at most 100 API-published posts per rolling 24 hours.
+and does not repost them. Instagram's official Content Publishing API permits at most 100
+API-published posts per rolling 24 hours. YouTube custom thumbnail eligibility varies by channel;
+if `thumbnails.set` is refused, the video remains published and YouTube uses its generated frame.

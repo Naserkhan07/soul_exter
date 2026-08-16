@@ -44,6 +44,7 @@ class InstagramUploader:
                     "upload_type": "resumable",
                     "caption": plan.instagram_caption or plan.description[:2200],
                     "share_to_feed": "true",
+                    "thumb_offset": str(int(plan.duration_seconds * 500)),
                     "access_token": self.access_token,
                 },
             )

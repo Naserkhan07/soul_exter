@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,20 @@ class AIPlanner:
         """Compatibility helper for callers that need only one clip."""
         return (await self.create_plans(audio_path, source, max_clips=1))[0]
 
+    async def create_full_coverage_plans(
+        self,
+        audio_path: Path,
+        source: SourceVideo,
+        max_clips: int = 0,
+    ) -> list[ShortPlan]:
+        full_transcript = await self._transcribe(audio_path)
+        base_plans = full_coverage_plans(
+            source,
+            target_duration=self.target_duration,
+            max_clips=max_clips,
+        )
+        return await self._enrich_plans(base_plans, source, full_transcript)
+
     async def create_plans(
         self,
         audio_path: Path,
@@ -64,7 +79,7 @@ class AIPlanner:
     ) -> list[ShortPlan]:
         full_transcript = await self._transcribe(audio_path)
         possible_clips = max(1, int(source.duration_seconds // self.target_duration))
-        target_clips = min(max_clips, possible_clips)
+        target_clips = min(max_clips or 100, possible_clips)
         budgets = list(
             dict.fromkeys(
                 (
@@ -111,19 +126,7 @@ Detailed platform metadata is generated separately after the highlights are sele
                     self.target_duration,
                     target_clips,
                 )
-                enriched: list[ShortPlan] = []
-                for index, plan in enumerate(base_plans):
-                    if index and self.metadata_delay_seconds:
-                        await asyncio.sleep(self.metadata_delay_seconds)
-                    enriched.append(
-                        await self._enrich_plan(
-                            plan,
-                            source,
-                            full_transcript,
-                            hashtag_offset=index * 30,
-                        )
-                    )
-                return enriched
+                return await self._enrich_plans(base_plans, source, full_transcript)
             except _PromptTooLargeError as exc:
                 last_size_error = exc
 
@@ -131,6 +134,26 @@ Detailed platform metadata is generated separately after the highlights are sele
             "Groq planning prompt is still too large for the model's token-per-minute limit. "
             "Lower GROQ_MAX_TRANSCRIPT_CHARS and retry."
         ) from last_size_error
+
+    async def _enrich_plans(
+        self,
+        plans: list[ShortPlan],
+        source: SourceVideo,
+        full_transcript: str,
+    ) -> list[ShortPlan]:
+        enriched: list[ShortPlan] = []
+        for index, plan in enumerate(plans):
+            if index and self.metadata_delay_seconds:
+                await asyncio.sleep(self.metadata_delay_seconds)
+            enriched.append(
+                await self._enrich_plan(
+                    plan,
+                    source,
+                    full_transcript,
+                    hashtag_offset=index * 30,
+                )
+            )
+        return enriched
 
     async def _enrich_plan(
         self,
@@ -393,6 +416,61 @@ def _fit_with_required_suffix(generated: str, suffixes: list[str], limit: int) -
     budget = max(0, limit - len(suffix) - 2)
     generated = generated.strip()[:budget].rstrip()
     return f"{generated}\n\n{suffix}" if generated else suffix[:limit]
+
+
+def full_coverage_plans(
+    source: SourceVideo,
+    target_duration: int = 30,
+    max_clips: int = 0,
+) -> list[ShortPlan]:
+    """Cover the timeline with consecutive 20–30 second clips whenever mathematically possible."""
+    total = source.duration_seconds
+    minimum_duration = 20.0
+    maximum_duration = 30.0
+    target_duration = min(max(float(target_duration), minimum_duration), maximum_duration)
+
+    minimum_count = max(1, math.ceil(total / maximum_duration))
+    maximum_count = max(1, int(total // minimum_duration))
+    if minimum_count <= maximum_count:
+        natural_count = minimum_count
+    else:
+        natural_count = max(1, int(total // target_duration))
+
+    platform_ceiling = 100
+    requested_ceiling = max_clips if max_clips > 0 else platform_ceiling
+    count = min(natural_count, requested_ceiling, platform_ceiling)
+
+    plans: list[ShortPlan] = []
+    if count == natural_count and minimum_count <= maximum_count:
+        clip_duration = total / count
+        for index in range(count):
+            start = index * clip_duration
+            plans.append(
+                ShortPlan(
+                    start_seconds=round(start, 3),
+                    duration_seconds=round(min(clip_duration, total - start), 3),
+                    title=f"{source.title} — Part {index + 1}",
+                    description="",
+                    instagram_caption="",
+                    selection_reason="Full timeline coverage",
+                )
+            )
+    else:
+        # A configured/platform cap cannot cover the whole timeline. Spread 30-second clips evenly.
+        max_start = max(0.0, total - maximum_duration)
+        for index in range(count):
+            start = 0.0 if count == 1 else index * max_start / (count - 1)
+            plans.append(
+                ShortPlan(
+                    start_seconds=round(start, 3),
+                    duration_seconds=round(min(maximum_duration, total - start), 3),
+                    title=f"{source.title} — Part {index + 1}",
+                    description="",
+                    instagram_caption="",
+                    selection_reason="Evenly distributed timeline coverage",
+                )
+            )
+    return plans
 
 
 def normalize_plans(

@@ -40,10 +40,12 @@ def test_saves_and_updates_multiple_clips(tmp_path: Path) -> None:
         job.id,
         1,
         output_path="short-001.mp4",
+        thumbnail_path="thumbnail-001.jpg",
         youtube_video_id="youtube-1",
     )
 
     assert len(clips) == 2
     assert clips[1].start_seconds == 40
     assert updated.output_path == "short-001.mp4"
+    assert updated.thumbnail_path == "thumbnail-001.jpg"
     assert updated.youtube_url == "https://youtube.com/shorts/youtube-1"

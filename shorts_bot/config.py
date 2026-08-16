@@ -89,6 +89,7 @@ class Settings:
     instagram_caption_target_chars: int
     groq_metadata_delay_seconds: int
     clip_duration_seconds: int
+    shorts_selection_mode: str
     max_shorts_per_video: int
     work_dir: Path
     database_path: Path
@@ -145,8 +146,11 @@ class Settings:
             youtube_description_target_chars=_int_env("YOUTUBE_DESCRIPTION_TARGET_CHARS", 4_200),
             instagram_caption_target_chars=_int_env("INSTAGRAM_CAPTION_TARGET_CHARS", 2_000),
             groq_metadata_delay_seconds=_int_env("GROQ_METADATA_DELAY_SECONDS", 30),
-            clip_duration_seconds=_int_env("CLIP_DURATION_SECONDS", 25),
-            max_shorts_per_video=_int_env("MAX_SHORTS_PER_VIDEO", 10),
+            clip_duration_seconds=_int_env("CLIP_DURATION_SECONDS", 30),
+            shorts_selection_mode=os.getenv("SHORTS_SELECTION_MODE", "full_coverage")
+            .strip()
+            .lower(),
+            max_shorts_per_video=_int_env("MAX_SHORTS_PER_VIDEO", 0),
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),
@@ -165,8 +169,12 @@ class Settings:
             raise ConfigurationError("GROQ_MAX_TRANSCRIPT_CHARS must be between 4000 and 60000.")
         if not 20 <= self.clip_duration_seconds <= 30:
             raise ConfigurationError("CLIP_DURATION_SECONDS must be between 20 and 30.")
-        if not 1 <= self.max_shorts_per_video <= 50:
-            raise ConfigurationError("MAX_SHORTS_PER_VIDEO must be between 1 and 50.")
+        if self.shorts_selection_mode not in {"full_coverage", "ai_highlights"}:
+            raise ConfigurationError(
+                "SHORTS_SELECTION_MODE must be full_coverage or ai_highlights."
+            )
+        if not 0 <= self.max_shorts_per_video <= 100:
+            raise ConfigurationError("MAX_SHORTS_PER_VIDEO must be between 0 and 100.")
         if not 500 <= self.youtube_description_target_chars <= 4_500:
             raise ConfigurationError(
                 "YOUTUBE_DESCRIPTION_TARGET_CHARS must be between 500 and 4500."

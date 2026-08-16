@@ -13,6 +13,7 @@ async def test_instagram_resumable_reel_publish_flow(tmp_path: Path) -> None:
         calls.append((request.method, request.url.path))
         if request.url.path == "/v26.0/1789/media":
             assert b"share_to_feed=true" in request.content
+            assert b"thumb_offset=12500" in request.content
             return httpx.Response(
                 200,
                 json={

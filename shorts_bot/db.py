@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS job_clips (
     description TEXT NOT NULL,
     instagram_caption TEXT NOT NULL,
     output_path TEXT,
+    thumbnail_path TEXT,
     youtube_video_id TEXT,
     instagram_media_id TEXT,
     instagram_url TEXT,
@@ -54,6 +55,9 @@ _MIGRATION_COLUMNS = {
     "instagram_media_id": "TEXT",
     "instagram_url": "TEXT",
 }
+_CLIP_MIGRATION_COLUMNS = {
+    "thumbnail_path": "TEXT",
+}
 
 
 class JobRepository:
@@ -68,6 +72,13 @@ class JobRepository:
             for name, column_type in _MIGRATION_COLUMNS.items():
                 if name not in existing:
                     connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {column_type}")
+
+            existing_clip_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(job_clips)").fetchall()
+            }
+            for name, column_type in _CLIP_MIGRATION_COLUMNS.items():
+                if name not in existing_clip_columns:
+                    connection.execute(f"ALTER TABLE job_clips ADD COLUMN {name} {column_type}")
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -111,6 +122,7 @@ class JobRepository:
             description=row["description"],
             instagram_caption=row["instagram_caption"],
             output_path=row["output_path"],
+            thumbnail_path=row["thumbnail_path"],
             youtube_video_id=row["youtube_video_id"],
             instagram_media_id=row["instagram_media_id"],
             instagram_url=row["instagram_url"],
@@ -221,6 +233,7 @@ class JobRepository:
     def update_clip(self, job_id: str, clip_index: int, **fields: str | None) -> JobClip:
         allowed = {
             "output_path",
+            "thumbnail_path",
             "youtube_video_id",
             "instagram_media_id",
             "instagram_url",

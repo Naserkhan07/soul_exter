@@ -14,6 +14,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "GROQ_FALLBACK_MODEL",
         "GROQ_MAX_TRANSCRIPT_CHARS",
         "MAX_SHORTS_PER_VIDEO",
+        "SHORTS_SELECTION_MODE",
         "YOUTUBE_DESCRIPTION_TARGET_CHARS",
         "INSTAGRAM_CAPTION_TARGET_CHARS",
         "INSTAGRAM_HASHTAGS_FILE",
@@ -45,10 +46,11 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     settings = Settings.from_env(env_file=None)
     settings.validate_pipeline()
 
-    assert settings.clip_duration_seconds == 25
+    assert settings.clip_duration_seconds == 30
     assert settings.groq_model == "llama-3.1-8b-instant"
     assert settings.groq_max_transcript_chars == 8_000
-    assert settings.max_shorts_per_video == 10
+    assert settings.shorts_selection_mode == "full_coverage"
+    assert settings.max_shorts_per_video == 0
     assert settings.youtube_description_target_chars == 4_200
     assert settings.instagram_caption_target_chars == 2_000
     assert settings.upload_youtube is False
