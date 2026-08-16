@@ -74,6 +74,7 @@ class VideoDownloader:
             "no_warnings": True,
             "restrictfilenames": True,
             "overwrites": True,
+            "writeinfojson": True,
             # Windows networks and some ISPs intermittently reset YouTube CDN streams.
             # Resume partial files, force IPv4, use small HTTP chunks, and back off.
             "continuedl": True,
@@ -135,7 +136,7 @@ class VideoDownloader:
         candidates = [
             path
             for path in destination.glob("source.*")
-            if path.is_file() and path.suffix not in {".part", ".ytdl"}
+            if path.is_file() and path.suffix not in {".json", ".part", ".ytdl"}
         ]
         if not candidates:
             raise DownloadError("The downloader finished but no video file was created.")

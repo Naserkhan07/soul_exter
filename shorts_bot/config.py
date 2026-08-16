@@ -69,7 +69,9 @@ def _nested_string(config: dict[str, Any], section: str, key: str) -> str:
 class Settings:
     groq_api_key: str
     groq_model: str
+    groq_fallback_model: str
     groq_transcription_model: str
+    groq_max_transcript_chars: int
     ytdlp_cookies_from_browser: str
     ytdlp_browser_profile: str
     channel_config_file: Path
@@ -104,10 +106,12 @@ class Settings:
 
         settings = cls(
             groq_api_key=os.getenv("GROQ_API_KEY", "").strip(),
-            groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip(),
+            groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip(),
+            groq_fallback_model=os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant").strip(),
             groq_transcription_model=os.getenv(
                 "GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
             ).strip(),
+            groq_max_transcript_chars=_int_env("GROQ_MAX_TRANSCRIPT_CHARS", 16_000),
             ytdlp_cookies_from_browser=os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip().lower(),
             ytdlp_browser_profile=os.getenv("YTDLP_BROWSER_PROFILE", "").strip(),
             channel_config_file=channel_config_file,
@@ -145,6 +149,8 @@ class Settings:
         return settings
 
     def validate_common(self) -> None:
+        if not 8_000 <= self.groq_max_transcript_chars <= 60_000:
+            raise ConfigurationError("GROQ_MAX_TRANSCRIPT_CHARS must be between 8000 and 60000.")
         if not 20 <= self.clip_duration_seconds <= 30:
             raise ConfigurationError("CLIP_DURATION_SECONDS must be between 20 and 30.")
         if self.youtube_privacy_status not in {"private", "unlisted", "public"}:

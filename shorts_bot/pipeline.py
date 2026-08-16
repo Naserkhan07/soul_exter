@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 
 from .ai import AIPlanner
 from .config import Settings
@@ -41,8 +43,10 @@ class WorkflowServices:
             planner=AIPlanner(
                 api_key=settings.groq_api_key,
                 model=settings.groq_model,
+                fallback_model=settings.groq_fallback_model,
                 transcription_model=settings.groq_transcription_model,
                 target_duration=settings.clip_duration_seconds,
+                max_transcript_chars=settings.groq_max_transcript_chars,
             ),
             youtube_uploader=(
                 YouTubeUploader(
@@ -80,18 +84,21 @@ class WorkflowPipeline:
         self.on_status = on_status
         self.on_downloaded = on_downloaded
 
-    async def process(self, job_id: str) -> Job:
+    async def process(self, job_id: str, reuse_downloaded: bool = False) -> Job:
         job = self.repository.get(job_id)
         if not job:
             raise KeyError(f"Unknown job {job_id}")
         job_dir = self.settings.work_dir / "jobs" / job.id
 
         try:
-            await self._status(job.id, JobStatus.DOWNLOADING, "Downloading source video")
-            source = await self.services.downloader.download(job.source_url, job_dir)
-            downloaded_job = self.repository.update(job.id, source_title=source.title)
-            if self.on_downloaded:
-                await self.on_downloaded(downloaded_job, source)
+            if reuse_downloaded:
+                source = await self._load_existing_source(job, job_dir)
+            else:
+                await self._status(job.id, JobStatus.DOWNLOADING, "Downloading source video")
+                source = await self.services.downloader.download(job.source_url, job_dir)
+                downloaded_job = self.repository.update(job.id, source_title=source.title)
+                if self.on_downloaded:
+                    await self.on_downloaded(downloaded_job, source)
 
             await self._status(
                 job.id,
@@ -99,11 +106,12 @@ class WorkflowPipeline:
                 "Transcribing with Groq and selecting a highlight",
             )
             audio_path = job_dir / "transcript-audio.mp3"
-            await asyncio.to_thread(
-                self.services.media.extract_audio,
-                source.path,
-                audio_path,
-            )
+            if not audio_path.exists():
+                await asyncio.to_thread(
+                    self.services.media.extract_audio,
+                    source.path,
+                    audio_path,
+                )
             plan = await self.services.planner.create_plan(audio_path, source)
 
             await self._status(job.id, JobStatus.RENDERING, "Rendering vertical 9:16 Short")
@@ -125,29 +133,37 @@ class WorkflowPipeline:
 
             uploaded_platforms: list[str] = []
             if self.services.youtube_uploader:
-                await self._status(
-                    job.id,
-                    JobStatus.UPLOADING,
-                    f"Uploading to YouTube as {self.settings.youtube_privacy_status} "
-                    f"for channel {self.settings.youtube_channel_id}",
-                )
-                youtube_video_id = await self.services.youtube_uploader.upload(output_path, plan)
-                self.repository.update(job.id, youtube_video_id=youtube_video_id)
-                uploaded_platforms.append("YouTube")
+                if job.youtube_video_id:
+                    uploaded_platforms.append("YouTube")
+                else:
+                    await self._status(
+                        job.id,
+                        JobStatus.UPLOADING,
+                        f"Uploading to YouTube as {self.settings.youtube_privacy_status} "
+                        f"for channel {self.settings.youtube_channel_id}",
+                    )
+                    youtube_video_id = await self.services.youtube_uploader.upload(
+                        output_path, plan
+                    )
+                    self.repository.update(job.id, youtube_video_id=youtube_video_id)
+                    uploaded_platforms.append("YouTube")
 
             if self.services.instagram_uploader:
-                await self._status(
-                    job.id,
-                    JobStatus.UPLOADING,
-                    "Publishing Instagram Reel and sharing it to the feed",
-                )
-                instagram = await self.services.instagram_uploader.upload(output_path, plan)
-                self.repository.update(
-                    job.id,
-                    instagram_media_id=instagram.media_id,
-                    instagram_url=instagram.permalink,
-                )
-                uploaded_platforms.append("Instagram")
+                if job.instagram_media_id:
+                    uploaded_platforms.append("Instagram")
+                else:
+                    await self._status(
+                        job.id,
+                        JobStatus.UPLOADING,
+                        "Publishing Instagram Reel and sharing it to the feed",
+                    )
+                    instagram = await self.services.instagram_uploader.upload(output_path, plan)
+                    self.repository.update(
+                        job.id,
+                        instagram_media_id=instagram.media_id,
+                        instagram_url=instagram.permalink,
+                    )
+                    uploaded_platforms.append("Instagram")
 
             progress = (
                 f"Published to {' and '.join(uploaded_platforms)}"
@@ -180,6 +196,40 @@ class WorkflowPipeline:
             )
             await self._notify(failed, f"Failed: {error}")
             return failed
+
+    async def _load_existing_source(self, job: Job, job_dir: Path) -> SourceVideo:
+        candidates = [
+            path
+            for path in job_dir.glob("source.*")
+            if path.is_file() and path.suffix not in {".json", ".part", ".ytdl"}
+        ]
+        if not candidates:
+            raise WorkflowError(
+                f"Job {job.id} has no completed source download to resume. Add its URL "
+                "back to links.txt instead."
+            )
+        source_path = max(candidates, key=lambda path: path.stat().st_size)
+
+        metadata: dict[str, object] = {}
+        info_files = list(job_dir.glob("source*.info.json"))
+        if info_files:
+            try:
+                metadata = json.loads(info_files[0].read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                logger.warning("Could not read source metadata for resumed job %s", job.id)
+
+        duration = float(metadata.get("duration") or 0)
+        if duration <= 0:
+            duration = await asyncio.to_thread(self.services.media.probe_duration, source_path)
+
+        return SourceVideo(
+            path=source_path,
+            source_url=str(metadata.get("webpage_url") or job.source_url),
+            video_id=str(metadata.get("id") or "unknown"),
+            title=str(metadata.get("title") or job.source_title or "Untitled video"),
+            uploader=str(metadata.get("uploader") or metadata.get("channel") or "Original creator"),
+            duration_seconds=duration,
+        )
 
     async def _status(self, job_id: str, status: JobStatus, message: str) -> Job:
         job = self.repository.update(

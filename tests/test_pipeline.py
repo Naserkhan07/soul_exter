@@ -23,6 +23,9 @@ class FakeDownloader:
 
 
 class FakeMedia:
+    def probe_duration(self, source: Path) -> float:
+        return 90
+
     def extract_audio(self, source: Path, output: Path) -> Path:
         output.write_bytes(b"audio")
         return output
@@ -115,3 +118,32 @@ async def test_pipeline_completes_and_uploads_to_both_platforms(tmp_path: Path) 
         JobStatus.UPLOADING,
         JobStatus.COMPLETE,
     ]
+
+
+async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> None:
+    settings = settings_for(tmp_path)
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+    repository.update(job.id, source_title="Previously downloaded")
+    job_dir = settings.work_dir / "jobs" / job.id
+    job_dir.mkdir(parents=True)
+    (job_dir / "source.mkv").write_bytes(b"existing source")
+    statuses: list[JobStatus] = []
+
+    async def notify(updated, message: str) -> None:  # noqa: ANN001
+        statuses.append(updated.status)
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
+    )
+    pipeline = WorkflowPipeline(settings, repository, services, notify)
+
+    result = await pipeline.process(job.id, reuse_downloaded=True)
+
+    assert result.status == JobStatus.COMPLETE
+    assert JobStatus.DOWNLOADING not in statuses
+    assert statuses[0] == JobStatus.ANALYZING

@@ -65,7 +65,11 @@ class LinkFileQueue:
             log_file.write(f"{timestamp}\t{job.id}\t{url}\t{safe_title}\n")
 
 
-async def run_file_queue(settings: Settings, watch: bool = True) -> int:
+async def run_file_queue(
+    settings: Settings,
+    watch: bool = True,
+    resume_job_id: str | None = None,
+) -> int:
     settings.validate_file_queue()
     settings.prepare_directories()
     repository = JobRepository(settings.database_path)
@@ -88,6 +92,17 @@ async def run_file_queue(settings: Settings, watch: bool = True) -> int:
         on_status=report,
         on_downloaded=downloaded,
     )
+    if resume_job_id:
+        job = repository.get(resume_job_id)
+        if not job:
+            print(
+                f"Job {resume_job_id} was not found in {settings.database_path}.", file=sys.stderr
+            )
+            return 1
+        print(f"[{job.id}] reusing its existing downloaded source", flush=True)
+        result = await pipeline.process(job.id, reuse_downloaded=True)
+        return 1 if result.error else 0
+
     any_failures = False
     if watch:
         print(
@@ -115,15 +130,27 @@ def main() -> None:
             "and/or Instagram Reel."
         )
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--once",
         action="store_true",
         help="Process the current file once and exit instead of watching it",
     )
+    mode.add_argument(
+        "--resume",
+        metavar="JOB_ID",
+        help="Reuse a previously downloaded source and retry AI/render/upload stages",
+    )
     args = parser.parse_args()
     try:
         settings = Settings.from_env()
-        exit_code = asyncio.run(run_file_queue(settings, watch=not args.once))
+        exit_code = asyncio.run(
+            run_file_queue(
+                settings,
+                watch=not args.once and not args.resume,
+                resume_job_id=args.resume,
+            )
+        )
     except ConfigurationError as exc:
         parser.error(str(exc))
     except KeyboardInterrupt:

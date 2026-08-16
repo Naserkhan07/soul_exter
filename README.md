@@ -122,8 +122,10 @@ Edit `.env`:
 
 ```dotenv
 GROQ_API_KEY=gsk_your_key
-GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL=llama-3.1-8b-instant
+GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
 GROQ_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
+GROQ_MAX_TRANSCRIPT_CHARS=16000
 RIGHTS_ACKNOWLEDGED=true
 ```
 
@@ -234,6 +236,12 @@ python -m shorts_bot.file_queue --once
 
 Or select **Process links.txt once** in VS Code's Run and Debug menu.
 
+If a downloaded job later fails during AI, rendering, or upload, retry it without downloading again:
+
+```bash
+python -m shorts_bot.file_queue --resume JOB_ID
+```
+
 ## One-off URL command
 
 To process URLs without editing `links.txt`:
@@ -257,8 +265,10 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | Variable | Default | Purpose |
 |---|---:|---|
 | `GROQ_API_KEY` | empty | Required Groq API key |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Highlight and metadata model |
+| `GROQ_MODEL` | `llama-3.1-8b-instant` | Token-efficient highlight/metadata model |
+| `GROQ_FALLBACK_MODEL` | `llama-3.1-8b-instant` | Used if the primary model is rate-limited |
 | `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Timestamped transcription |
+| `GROQ_MAX_TRANSCRIPT_CHARS` | `16000` | Sampled planning transcript budget |
 | `YTDLP_COOKIES_FROM_BROWSER` | empty | Local signed-in browser cookies for YouTube |
 | `YTDLP_BROWSER_PROFILE` | empty | Optional browser profile name/path |
 | `CHANNEL_CONFIG_FILE` | `channels.toml` | Local non-secret account IDs |
@@ -287,6 +297,28 @@ python -m ruff check .
 A VS Code **Run tests** task is included.
 
 ## Troubleshooting
+
+### Groq daily token limit reached
+
+The project defaults to `llama-3.1-8b-instant`, whose free daily token allowance is larger than the
+70B model's allowance. Long transcripts are compacted into contiguous candidate blocks sampled
+across the full timeline before planning. If an existing `.env` still selects the 70B model, use:
+
+```dotenv
+GROQ_MODEL=llama-3.1-8b-instant
+GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
+GROQ_MAX_TRANSCRIPT_CHARS=16000
+```
+
+A URL is removed after download by design. If AI planning then fails, reuse the local source without
+redownloading it:
+
+```powershell
+python -m shorts_bot.file_queue --resume JOB_ID
+```
+
+Use the job ID printed in brackets in the failure output. If the 8B model's limit is also exhausted,
+wait until Groq's reported reset time or upgrade the Groq service tier.
 
 ### YouTube says "Sign in to confirm you're not a bot"
 
