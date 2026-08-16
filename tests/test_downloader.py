@@ -23,7 +23,7 @@ def test_rejects_lookalike_and_non_http_urls() -> None:
 def test_download_options_retry_transient_network_failures() -> None:
     options = VideoDownloader._download_options("source.%(ext)s")
 
-    assert "bestvideo*+bestaudio" in str(options["format"])
+    assert options["format"] == "bestvideo+bestaudio"
     assert options["merge_output_format"] == "mkv"
     assert options["source_address"] == "0.0.0.0"
     assert options["continuedl"] is True

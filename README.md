@@ -9,7 +9,7 @@ Add authorized YouTube links to `links.txt`. The local program downloads each vi
 ## What the local workflow does
 
 1. Watches the local `links.txt` file.
-2. Downloads one authorized YouTube video at a time with `yt-dlp`.
+2. Downloads one authorized YouTube video at a time using the Python API equivalent of `yt-dlp -f "bestvideo+bestaudio" URL`, then remuxes those streams without source re-encoding.
 3. Removes every matching URL line immediately after the video downloads successfully.
 4. Records the URL and job ID in `work/downloaded-links.log`.
 5. Extracts speech audio locally with FFmpeg.
