@@ -46,6 +46,7 @@ def test_saves_and_updates_multiple_clips(tmp_path: Path) -> None:
 
     assert len(clips) == 2
     assert clips[1].start_seconds == 40
+    assert clips[0].metadata_ready is True
     assert updated.output_path == "short-001.mp4"
     assert updated.thumbnail_path == "thumbnail-001.jpg"
     assert updated.youtube_url == "https://youtube.com/shorts/youtube-1"

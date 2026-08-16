@@ -97,6 +97,7 @@ def settings_for(tmp_path: Path) -> Settings:
         rights_acknowledged=True,
         upload_youtube=True,
         upload_instagram=True,
+        shorts_selection_mode="ai_highlights",
         youtube_channel_id="UC123",
         instagram_user_id="1789",
         instagram_access_token="token",
@@ -208,6 +209,83 @@ async def test_pipeline_renders_and_uploads_multiple_clips(tmp_path: Path) -> No
     assert clips[0].youtube_video_id == "youtube-0"
     assert clips[1].youtube_video_id == "youtube-40"
     assert clips[1].instagram_media_id == "instagram-40"
+
+
+async def test_full_coverage_uploads_each_clip_before_generating_the_next(tmp_path: Path) -> None:
+    settings = replace(
+        settings_for(tmp_path),
+        shorts_selection_mode="full_coverage",
+        max_shorts_per_video=0,
+        groq_metadata_delay_seconds=0,
+    )
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+    events: list[str] = []
+
+    class StreamingPlanner:
+        async def transcribe(self, audio_path: Path) -> str:
+            return "[0.00-90.00] Full transcript"
+
+        async def enrich_plan(
+            self,
+            plan: ShortPlan,
+            source: SourceVideo,
+            full_transcript: str,
+            hashtag_offset: int = 0,
+        ) -> ShortPlan:
+            return ShortPlan(
+                plan.start_seconds,
+                plan.duration_seconds,
+                f"Part {plan.start_seconds:g} #Shorts",
+                "Detailed description",
+                "Detailed caption #Reels",
+            )
+
+    class StreamingMedia(FakeMedia):
+        def render_short(
+            self,
+            source: Path,
+            output: Path,
+            start_seconds: float,
+            duration_seconds: float,
+        ) -> Path:
+            output.write_bytes(b"rendered")
+            return output
+
+    class StreamingYouTube:
+        async def upload(
+            self,
+            video_path: Path,
+            plan: ShortPlan,
+            thumbnail_path: Path | None = None,
+        ) -> str:
+            return f"youtube-{plan.start_seconds:g}"
+
+    class StreamingInstagram:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> InstagramUploadResult:
+            suffix = f"{plan.start_seconds:g}"
+            return InstagramUploadResult(
+                f"instagram-{suffix}",
+                f"https://instagram.com/reel/{suffix}",
+            )
+
+    async def notify(updated, message: str) -> None:  # noqa: ANN001
+        events.append(message)
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=StreamingMedia(),  # type: ignore[arg-type]
+        planner=StreamingPlanner(),  # type: ignore[arg-type]
+        youtube_uploader=StreamingYouTube(),  # type: ignore[arg-type]
+        instagram_uploader=StreamingInstagram(),  # type: ignore[arg-type]
+    )
+    result = await WorkflowPipeline(settings, repository, services, notify).process(job.id)
+
+    assert result.status == JobStatus.COMPLETE
+    assert len(repository.list_clips(job.id)) == 3
+    metadata_2 = events.index("Generating detailed metadata for Short 2/3")
+    instagram_1 = events.index("Publishing Reel 1/3 to Instagram")
+    assert instagram_1 < metadata_2
 
 
 async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> None:

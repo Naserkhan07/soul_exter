@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS job_clips (
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     instagram_caption TEXT NOT NULL,
+    metadata_ready INTEGER NOT NULL DEFAULT 0,
     output_path TEXT,
     thumbnail_path TEXT,
     youtube_video_id TEXT,
@@ -57,6 +58,7 @@ _MIGRATION_COLUMNS = {
 }
 _CLIP_MIGRATION_COLUMNS = {
     "thumbnail_path": "TEXT",
+    "metadata_ready": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -121,6 +123,7 @@ class JobRepository:
             title=row["title"],
             description=row["description"],
             instagram_caption=row["instagram_caption"],
+            metadata_ready=bool(row["metadata_ready"]),
             output_path=row["output_path"],
             thumbnail_path=row["thumbnail_path"],
             youtube_video_id=row["youtube_video_id"],
@@ -193,21 +196,27 @@ class JobRepository:
         assert job is not None
         return job
 
-    def save_plans(self, job_id: str, plans: list[ShortPlan]) -> list[JobClip]:
+    def save_plans(
+        self,
+        job_id: str,
+        plans: list[ShortPlan],
+        metadata_ready: bool = True,
+    ) -> list[JobClip]:
         with self._connect() as connection:
             for clip_index, plan in enumerate(plans, start=1):
                 connection.execute(
                     """
                     INSERT INTO job_clips (
                         job_id, clip_index, start_seconds, duration_seconds,
-                        title, description, instagram_caption
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        title, description, instagram_caption, metadata_ready
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(job_id, clip_index) DO UPDATE SET
                         start_seconds = excluded.start_seconds,
                         duration_seconds = excluded.duration_seconds,
                         title = excluded.title,
                         description = excluded.description,
                         instagram_caption = excluded.instagram_caption,
+                        metadata_ready = excluded.metadata_ready,
                         error = NULL
                     """,
                     (
@@ -218,6 +227,7 @@ class JobRepository:
                         plan.title,
                         plan.description,
                         plan.instagram_caption,
+                        int(metadata_ready),
                     ),
                 )
         return self.list_clips(job_id)
@@ -230,8 +240,14 @@ class JobRepository:
             ).fetchall()
         return [self._clip_from_row(row) for row in rows]
 
-    def update_clip(self, job_id: str, clip_index: int, **fields: str | None) -> JobClip:
+    def update_clip(self, job_id: str, clip_index: int, **fields: object) -> JobClip:
         allowed = {
+            "start_seconds",
+            "duration_seconds",
+            "title",
+            "description",
+            "instagram_caption",
+            "metadata_ready",
             "output_path",
             "thumbnail_path",
             "youtube_video_id",

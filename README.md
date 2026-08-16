@@ -142,6 +142,10 @@ RIGHTS_ACKNOWLEDGED=true
 platform ceiling is 100 clips per source because both YouTube and Instagram limit automated daily
 publishing. Set a positive value only when you intentionally want a lower cap.
 
+The source is downloaded and transcribed once. After that, clips stream through the workflow one at
+a time: generate metadata for clip 1 → render clip 1 → upload clip 1 to both platforms → continue to
+clip 2. It never waits for metadata or rendering of the entire batch before the first upload.
+
 No OpenAI API key or OpenAI service is used. The automatic workflow keeps Groq as its hosted AI
 backend so no model is downloaded to the laptop. Kaggle notebooks are useful for interactive or
 batch GPU experiments, but their sessions are temporary and do not provide a dependable always-on

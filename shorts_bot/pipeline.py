@@ -9,7 +9,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ai import AIPlanner
+from .ai import AIPlanner, full_coverage_plans
 from .config import Settings
 from .db import JobRepository
 from .downloader import VideoDownloader
@@ -118,6 +118,8 @@ class WorkflowPipeline:
                 if self.on_downloaded:
                     await self.on_downloaded(downloaded_job, source)
 
+            full_transcript: str | None = None
+            audio_path = job_dir / "transcript-audio.mp3"
             if existing_clips:
                 clips = existing_clips
             else:
@@ -125,12 +127,11 @@ class WorkflowPipeline:
                     job.id,
                     JobStatus.ANALYZING,
                     (
-                        "Transcribing with Groq and preparing full timeline coverage"
+                        "Transcribing once and preparing duration-based clips"
                         if self.settings.shorts_selection_mode == "full_coverage"
                         else "Transcribing with Groq and selecting multiple highlights"
                     ),
                 )
-                audio_path = job_dir / "transcript-audio.mp3"
                 if not audio_path.exists():
                     await asyncio.to_thread(
                         self.services.media.extract_audio,
@@ -138,10 +139,16 @@ class WorkflowPipeline:
                         audio_path,
                     )
                 if self.settings.shorts_selection_mode == "full_coverage":
-                    plans = await self.services.planner.create_full_coverage_plans(
-                        audio_path,
+                    full_transcript = await self.services.planner.transcribe(audio_path)
+                    plans = full_coverage_plans(
                         source,
+                        target_duration=self.settings.clip_duration_seconds,
                         max_clips=self.settings.max_shorts_per_video,
+                    )
+                    clips = self.repository.save_plans(
+                        job.id,
+                        plans,
+                        metadata_ready=False,
                     )
                 else:
                     plans = await self.services.planner.create_plans(
@@ -149,12 +156,49 @@ class WorkflowPipeline:
                         source,
                         max_clips=self.settings.max_shorts_per_video,
                     )
-                clips = self.repository.save_plans(job.id, plans)
+                    clips = self.repository.save_plans(job.id, plans, metadata_ready=True)
+
+            if any(not clip.metadata_ready for clip in clips) and full_transcript is None:
+                if not audio_path.exists():
+                    await asyncio.to_thread(
+                        self.services.media.extract_audio,
+                        source.path,
+                        audio_path,
+                    )
+                full_transcript = await self.services.planner.transcribe(audio_path)
 
             uploaded_platforms = self._configured_platforms()
             total_clips = len(clips)
+            metadata_requests = 0
             for clip in clips:
                 try:
+                    if not clip.metadata_ready:
+                        if metadata_requests and self.settings.groq_metadata_delay_seconds:
+                            await asyncio.sleep(self.settings.groq_metadata_delay_seconds)
+                        await self._status(
+                            job.id,
+                            JobStatus.ANALYZING,
+                            f"Generating detailed metadata for Short "
+                            f"{clip.clip_index}/{total_clips}",
+                        )
+                        plan = self._plan_from_clip(clip)
+                        enriched = await self.services.planner.enrich_plan(
+                            plan,
+                            source,
+                            full_transcript or "",
+                            hashtag_offset=(clip.clip_index - 1) * 30,
+                        )
+                        clip = self.repository.update_clip(
+                            job.id,
+                            clip.clip_index,
+                            title=enriched.title,
+                            description=enriched.description,
+                            instagram_caption=enriched.instagram_caption,
+                            metadata_ready=1,
+                            error=None,
+                        )
+                        metadata_requests += 1
+
                     clip = await self._process_clip(
                         job,
                         source,
@@ -226,6 +270,16 @@ class WorkflowPipeline:
             platforms.append("Instagram")
         return platforms
 
+    @staticmethod
+    def _plan_from_clip(clip: JobClip) -> ShortPlan:
+        return ShortPlan(
+            start_seconds=clip.start_seconds,
+            duration_seconds=clip.duration_seconds,
+            title=clip.title,
+            description=clip.description,
+            instagram_caption=clip.instagram_caption,
+        )
+
     async def _process_clip(
         self,
         job: Job,
@@ -234,13 +288,7 @@ class WorkflowPipeline:
         total_clips: int,
         job_dir: Path,
     ) -> JobClip:
-        plan = ShortPlan(
-            start_seconds=clip.start_seconds,
-            duration_seconds=clip.duration_seconds,
-            title=clip.title,
-            description=clip.description,
-            instagram_caption=clip.instagram_caption,
-        )
+        plan = self._plan_from_clip(clip)
         output_path = (
             Path(clip.output_path)
             if clip.output_path

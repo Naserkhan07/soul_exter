@@ -53,6 +53,23 @@ class AIPlanner:
         self.instagram_hashtags = instagram_hashtags or []
         self.metadata_delay_seconds = metadata_delay_seconds
 
+    async def transcribe(self, audio_path: Path) -> str:
+        return await self._transcribe(audio_path)
+
+    async def enrich_plan(
+        self,
+        plan: ShortPlan,
+        source: SourceVideo,
+        full_transcript: str,
+        hashtag_offset: int = 0,
+    ) -> ShortPlan:
+        return await self._enrich_plan(
+            plan,
+            source,
+            full_transcript,
+            hashtag_offset=hashtag_offset,
+        )
+
     async def create_plan(self, audio_path: Path, source: SourceVideo) -> ShortPlan:
         """Compatibility helper for callers that need only one clip."""
         return (await self.create_plans(audio_path, source, max_clips=1))[0]
