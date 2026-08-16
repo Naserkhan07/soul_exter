@@ -42,7 +42,7 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
 
     assert settings.clip_duration_seconds == 25
     assert settings.groq_model == "llama-3.1-8b-instant"
-    assert settings.groq_max_transcript_chars == 16_000
+    assert settings.groq_max_transcript_chars == 8_000
     assert settings.upload_youtube is False
     assert settings.upload_instagram is False
     assert settings.youtube_privacy_status == "public"

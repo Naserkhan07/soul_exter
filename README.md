@@ -125,7 +125,7 @@ GROQ_API_KEY=gsk_your_key
 GROQ_MODEL=llama-3.1-8b-instant
 GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
 GROQ_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
-GROQ_MAX_TRANSCRIPT_CHARS=16000
+GROQ_MAX_TRANSCRIPT_CHARS=8000
 RIGHTS_ACKNOWLEDGED=true
 ```
 
@@ -268,7 +268,7 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `GROQ_MODEL` | `llama-3.1-8b-instant` | Token-efficient highlight/metadata model |
 | `GROQ_FALLBACK_MODEL` | `llama-3.1-8b-instant` | Used if the primary model is rate-limited |
 | `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Timestamped transcription |
-| `GROQ_MAX_TRANSCRIPT_CHARS` | `16000` | Sampled planning transcript budget |
+| `GROQ_MAX_TRANSCRIPT_CHARS` | `8000` | Sampled planning transcript budget |
 | `YTDLP_COOKIES_FROM_BROWSER` | empty | Local signed-in browser cookies for YouTube |
 | `YTDLP_BROWSER_PROFILE` | empty | Optional browser profile name/path |
 | `CHANNEL_CONFIG_FILE` | `channels.toml` | Local non-secret account IDs |
@@ -307,7 +307,7 @@ across the full timeline before planning. If an existing `.env` still selects th
 ```dotenv
 GROQ_MODEL=llama-3.1-8b-instant
 GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
-GROQ_MAX_TRANSCRIPT_CHARS=16000
+GROQ_MAX_TRANSCRIPT_CHARS=8000
 ```
 
 A URL is removed after download by design. If AI planning then fails, reuse the local source without

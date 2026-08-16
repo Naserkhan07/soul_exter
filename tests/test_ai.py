@@ -2,7 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
-from groq import RateLimitError
+from groq import APIStatusError, RateLimitError
 
 from shorts_bot.ai import AIPlanner, compact_transcript, normalize_plan
 from shorts_bot.models import SourceVideo
@@ -42,6 +42,48 @@ def test_normalizes_ai_plan_and_adds_attribution() -> None:
     assert "A quick explanation worth saving" in plan.instagram_caption
     assert "Credit: Original Creator" in plan.instagram_caption
     assert "#Reels" in plan.instagram_caption
+
+
+async def test_retries_with_smaller_transcript_when_prompt_is_too_large() -> None:
+    prompt_sizes: list[int] = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):  # noqa: ANN003, ANN201
+            prompt_sizes.append(len(kwargs["messages"][1]["content"]))
+            if len(prompt_sizes) == 1:
+                response = httpx.Response(
+                    413,
+                    request=httpx.Request("POST", "https://api.groq.com/test"),
+                )
+                raise APIStatusError("request too large", response=response, body={})
+            message = SimpleNamespace(
+                content=(
+                    '{"start_seconds": 1, "duration_seconds": 25, "title": "Title", '
+                    '"description": "Description", "instagram_caption": "Caption"}'
+                )
+            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    planner = AIPlanner(
+        api_key="test-key",
+        model="small-model",
+        fallback_model="small-model",
+        transcription_model="whisper-large-v3-turbo",
+        max_transcript_chars=16_000,
+    )
+    planner.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=FakeCompletions())
+    )
+
+    async def fake_transcribe(_audio_path: Path) -> str:
+        return "\n".join(f"[{i}-{i + 1}] Segment {i}" for i in range(3000))
+
+    planner._transcribe = fake_transcribe  # type: ignore[method-assign]
+    plan = await planner.create_plan(Path("unused.mp3"), source())
+
+    assert plan.start_seconds == 1
+    assert len(prompt_sizes) == 2
+    assert prompt_sizes[1] < prompt_sizes[0]
 
 
 async def test_uses_fallback_model_when_primary_is_rate_limited() -> None:

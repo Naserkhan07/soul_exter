@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from groq import AsyncGroq, RateLimitError
+from groq import APIStatusError, AsyncGroq, RateLimitError
 
 from .errors import AIError
 from .models import ShortPlan, SourceVideo
@@ -22,6 +22,10 @@ instagram_caption (string), selection_reason (short string).
 """
 
 
+class _PromptTooLargeError(AIError):
+    """The planning prompt exceeded the model's per-minute token allowance."""
+
+
 class AIPlanner:
     def __init__(
         self,
@@ -30,7 +34,7 @@ class AIPlanner:
         fallback_model: str,
         transcription_model: str,
         target_duration: int = 25,
-        max_transcript_chars: int = 16_000,
+        max_transcript_chars: int = 8_000,
     ) -> None:
         self.client = AsyncGroq(api_key=api_key)
         self.model = model
@@ -40,9 +44,13 @@ class AIPlanner:
         self.max_transcript_chars = max_transcript_chars
 
     async def create_plan(self, audio_path: Path, source: SourceVideo) -> ShortPlan:
-        transcript = await self._transcribe(audio_path)
-        transcript = compact_transcript(transcript, self.max_transcript_chars)
-        prompt = f"""Source title: {source.title}
+        full_transcript = await self._transcribe(audio_path)
+        budgets = list(dict.fromkeys((self.max_transcript_chars, 8_000)))
+        last_size_error: _PromptTooLargeError | None = None
+
+        for budget in budgets:
+            transcript = compact_transcript(full_transcript, min(budget, self.max_transcript_chars))
+            prompt = f"""Source title: {source.title}
 Source creator/channel: {source.uploader}
 Source duration: {source.duration_seconds:.2f} seconds
 Desired excerpt length: {self.target_duration} seconds (hard range: 20 to 30 seconds)
@@ -59,8 +67,16 @@ The YouTube description should summarize the excerpt with 2-4 relevant hashtags.
 The Instagram caption should be natural, engaging, under 1,800 characters, and include 3-6
 relevant hashtags. Do not add #Shorts, #Reels, or source attribution; the application adds them.
 """
-        payload = await self._request_plan(prompt)
-        return normalize_plan(payload, source, self.target_duration)
+            try:
+                payload = await self._request_plan(prompt)
+                return normalize_plan(payload, source, self.target_duration)
+            except _PromptTooLargeError as exc:
+                last_size_error = exc
+
+        raise AIError(
+            "Groq planning prompt is still too large for the model's token-per-minute limit. "
+            "Lower GROQ_MAX_TRANSCRIPT_CHARS and retry."
+        ) from last_size_error
 
     async def _request_plan(self, prompt: str) -> dict[str, Any]:
         models = [self.model]
@@ -73,7 +89,7 @@ relevant hashtags. Do not add #Shorts, #Reels, or source attribution; the applic
                 response = await self.client.chat.completions.create(
                     model=model,
                     temperature=0.3,
-                    max_tokens=900,
+                    max_tokens=650,
                     response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -87,6 +103,10 @@ relevant hashtags. Do not add #Shorts, #Reels, or source attribution; the applic
             except RateLimitError as exc:
                 last_rate_limit = exc
                 continue
+            except APIStatusError as exc:
+                if exc.status_code == 413:
+                    raise _PromptTooLargeError(str(exc)) from exc
+                raise AIError(f"Groq clip planning with {model} failed: {exc}") from exc
             except AIError:
                 raise
             except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
@@ -131,7 +151,7 @@ relevant hashtags. Do not add #Shorts, #Reels, or source attribution; the applic
 
 def compact_transcript(
     transcript: str,
-    max_chars: int = 16_000,
+    max_chars: int = 8_000,
     candidate_blocks: int = 12,
 ) -> str:
     """Sample contiguous blocks across a long timeline while bounding token usage."""

@@ -111,7 +111,7 @@ class Settings:
             groq_transcription_model=os.getenv(
                 "GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
             ).strip(),
-            groq_max_transcript_chars=_int_env("GROQ_MAX_TRANSCRIPT_CHARS", 16_000),
+            groq_max_transcript_chars=_int_env("GROQ_MAX_TRANSCRIPT_CHARS", 8_000),
             ytdlp_cookies_from_browser=os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip().lower(),
             ytdlp_browser_profile=os.getenv("YTDLP_BROWSER_PROFILE", "").strip(),
             channel_config_file=channel_config_file,
@@ -149,8 +149,8 @@ class Settings:
         return settings
 
     def validate_common(self) -> None:
-        if not 8_000 <= self.groq_max_transcript_chars <= 60_000:
-            raise ConfigurationError("GROQ_MAX_TRANSCRIPT_CHARS must be between 8000 and 60000.")
+        if not 4_000 <= self.groq_max_transcript_chars <= 60_000:
+            raise ConfigurationError("GROQ_MAX_TRANSCRIPT_CHARS must be between 4000 and 60000.")
         if not 20 <= self.clip_duration_seconds <= 30:
             raise ConfigurationError("CLIP_DURATION_SECONDS must be between 20 and 30.")
         if self.youtube_privacy_status not in {"private", "unlisted", "public"}:
