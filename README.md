@@ -176,7 +176,7 @@ Place the numeric Instagram Professional Account ID in `channels.toml`, and put 
 ```dotenv
 UPLOAD_INSTAGRAM=true
 INSTAGRAM_ACCESS_TOKEN=your_long_lived_meta_access_token
-INSTAGRAM_GRAPH_API_VERSION=v25.0
+INSTAGRAM_GRAPH_API_VERSION=v26.0
 ```
 
 The local program:
@@ -261,7 +261,7 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `YOUTUBE_TOKEN_FILE` | `youtube_token.json` | Local OAuth token |
 | `UPLOAD_INSTAGRAM` | `false` | Enable Instagram publishing |
 | `INSTAGRAM_ACCESS_TOKEN` | empty | Secret local Meta token |
-| `INSTAGRAM_GRAPH_API_VERSION` | `v25.0` | Meta Graph API version |
+| `INSTAGRAM_GRAPH_API_VERSION` | `v26.0` | Meta Graph API version |
 | `LINKS_FILE` | `links.txt` | Local URL queue |
 | `DOWNLOADED_LINKS_LOG` | `work/downloaded-links.log` | Download audit log |
 | `LINKS_POLL_SECONDS` | `30` | Queue interval, 5–3600 seconds |

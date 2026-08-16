@@ -113,7 +113,7 @@ class Settings:
                 or _nested_string(channel_config, "instagram", "user_id")
             ),
             instagram_access_token=os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip(),
-            instagram_graph_api_version=os.getenv("INSTAGRAM_GRAPH_API_VERSION", "v25.0").strip(),
+            instagram_graph_api_version=os.getenv("INSTAGRAM_GRAPH_API_VERSION", "v26.0").strip(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
             clip_duration_seconds=_int_env("CLIP_DURATION_SECONDS", 25),
             work_dir=work_dir,
@@ -135,7 +135,7 @@ class Settings:
         if self.youtube_privacy_status not in {"private", "unlisted", "public"}:
             raise ConfigurationError("YOUTUBE_PRIVACY_STATUS must be private, unlisted, or public.")
         if not re.fullmatch(r"v\d+\.\d+", self.instagram_graph_api_version):
-            raise ConfigurationError("INSTAGRAM_GRAPH_API_VERSION must look like v25.0.")
+            raise ConfigurationError("INSTAGRAM_GRAPH_API_VERSION must look like v26.0.")
         if not 5 <= self.links_poll_seconds <= 3600:
             raise ConfigurationError("LINKS_POLL_SECONDS must be between 5 and 3600.")
 

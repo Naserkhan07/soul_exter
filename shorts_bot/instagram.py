@@ -17,7 +17,7 @@ class InstagramUploader:
         self,
         user_id: str,
         access_token: str,
-        api_version: str = "v25.0",
+        api_version: str = "v26.0",
         poll_interval_seconds: int = 5,
         processing_timeout_seconds: int = 600,
         transport: httpx.AsyncBaseTransport | None = None,
