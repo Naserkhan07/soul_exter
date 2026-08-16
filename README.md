@@ -1,82 +1,118 @@
-# Groq YouTube Shorts + Instagram Reels Automation
+# Local Groq Shorts + Instagram Reels Automation
 
-A private Telegram bot and file-driven workflow that accepts authorized YouTube links, downloads each source video, asks **Groq** to select a compelling 20–30 second excerpt, renders a vertical 9:16 video, generates platform-specific metadata, and publishes it as a public YouTube Short and Instagram Reel.
+This project runs entirely on your laptop from VS Code. There is no Telegram bot, web server, cloud worker, or Docker requirement.
 
-> **Only use videos you own or have explicit permission/license to download, edit, and republish.** A public video is not automatically free to reuse. Attribution does not replace permission, and downloading may be restricted by YouTube's Terms of Service. The application will not run until `RIGHTS_ACKNOWLEDGED=true`.
+Add authorized YouTube links to `links.txt`. The local program downloads each video, removes its link from the file after a successful download, uses Groq to select a 20–30 second highlight and generate metadata, renders a vertical Short, and publishes it to YouTube and Instagram.
 
-## Features
+> **Only process videos you own or have explicit permission/license to download, edit, and republish.** A publicly viewable video is not automatically licensed for reuse. The program requires `RIGHTS_ACKNOWLEDGED=true`.
 
-- Groq `whisper-large-v3-turbo` timestamped transcription
-- Groq Llama highlight selection, YouTube title/description, and Instagram caption
-- 20–30 second 1080×1920 H.264/AAC output
-- Telegram `/short` command accepting several links
-- Automated `links.txt` queue
-- Atomic removal of a URL immediately after its video downloads successfully
-- Permanent downloaded-link audit log at `work/downloaded-links.log`
-- Public YouTube Shorts through the official YouTube Data API
-- Instagram Reels through Meta's official resumable Graph API upload
-- Reels shared to the Instagram feed with `share_to_feed=true`
-- SQLite job history and partial-upload tracking
-- Docker and command-line operation
+## What the local workflow does
 
-## Important: do not store account passwords
+1. Watches the local `links.txt` file.
+2. Downloads one authorized YouTube video at a time with `yt-dlp`.
+3. Removes every matching URL line immediately after the video downloads successfully.
+4. Records the URL and job ID in `work/downloaded-links.log`.
+5. Extracts speech audio locally with FFmpeg.
+6. Uses Groq `whisper-large-v3-turbo` for timestamped transcription.
+7. Uses Groq Llama to select one contiguous 20–30 second highlight.
+8. Generates a YouTube title/description and a separate Instagram caption.
+9. Renders a 1080×1920 H.264/AAC MP4 locally.
+10. Uploads it as a public YouTube Short and an Instagram Reel shared to the feed.
 
-This project intentionally does **not** accept or save a YouTube, Google, Facebook, or Instagram password.
+A downloaded URL is removed before AI/render/upload starts. If a later stage fails, the URL remains in `work/downloaded-links.log`; copy it back into `links.txt` when you want to retry.
 
-- YouTube publishing uses the official Google OAuth flow and `youtube_token.json`.
-- Instagram publishing uses a Meta access token for a Professional account.
-- `channels.toml` contains only non-secret numeric account/channel IDs.
-- `.env`, OAuth files, access tokens, and the `credentials/` directory are gitignored.
+## Local files
 
-Password-based browser automation is insecure, can trigger account challenges, and can violate platform rules.
+- `main.py` — easiest way to start the watcher from VS Code
+- `links.txt` — paste one YouTube URL per line
+- `channels.toml` — non-secret YouTube and Instagram account IDs
+- `.env` — local API keys and tokens; never committed
+- `client_secret.json` — Google OAuth desktop client; never committed
+- `youtube_token.json` — generated Google OAuth token; never committed
+- `work/jobs.db` — local job history
+- `work/jobs/<job-id>/short.mp4` — rendered Shorts/Reels
+- `work/downloaded-links.log` — downloaded URL audit history
 
-## Workflow
+## Do not save account passwords
 
-1. Add one YouTube URL per line to `links.txt`, paste links into Telegram, or use `shorts-cli`.
-2. `yt-dlp` downloads one source video per URL; playlists are disabled.
-3. For file-queue jobs, the exact URL is atomically removed from `links.txt` as soon as the download succeeds and is written to `work/downloaded-links.log`.
-4. FFmpeg extracts speech audio.
-5. Groq transcribes the audio and selects a contiguous 20–30 second highlight.
-6. Groq creates a YouTube title/description and a separate Instagram caption.
-7. FFmpeg renders a center-cropped 1080×1920 MP4.
-8. The workflow uploads the Short to YouTube with `privacyStatus=public`.
-9. It uploads and publishes the same file as an Instagram Reel and shares it to the feed.
+The program intentionally does not accept YouTube, Google, Facebook, or Instagram passwords.
 
-A URL is removed **after download**, exactly as requested. If later AI, rendering, or publishing fails, it remains in `work/downloaded-links.log` with its job ID but is not automatically put back in `links.txt`. This prevents unintended duplicate downloads; copy it back manually when you want to retry.
+- YouTube upload uses Google's official OAuth browser authorization.
+- Instagram upload uses a Meta access token for a Professional account.
+- `channels.toml` contains only non-secret IDs.
+- Secret values stay in the gitignored `.env` and OAuth files on your laptop.
 
-## Requirements
+## 1. Install local requirements
 
-- Python 3.11+
+Install:
+
+- Python 3.11 or newer
+- VS Code
+- VS Code Python extension
 - FFmpeg and ffprobe
-- Groq API key
-- Telegram bot token from [@BotFather](https://t.me/BotFather), for bot mode
-- Google Cloud OAuth desktop client with YouTube Data API v3 enabled
-- Instagram Business or Creator account and Meta Graph API access token
 
-Instagram's official publishing API does not support ordinary personal accounts. Depending on the Meta login configuration, the Professional account may need to be connected to a Facebook Page and the app needs content-publishing permissions.
+### Windows FFmpeg
 
-## Install
+Using Winget:
 
-```bash
-git clone <repository-url>
-cd soul_exter
-python -m venv .venv
-source .venv/bin/activate       # Windows: .venv\Scripts\activate
-pip install -e '.[dev]'
-cp .env.example .env
+```powershell
+winget install Gyan.FFmpeg
 ```
 
-Install FFmpeg if needed:
+Restart VS Code after installation and verify:
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+### macOS
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get install ffmpeg
-
-# macOS
 brew install ffmpeg
 ```
 
-## Configure Groq
+### Ubuntu/Debian
+
+```bash
+sudo apt-get update
+sudo apt-get install ffmpeg
+```
+
+## 2. Open and install in VS Code
+
+Open the repository folder in VS Code.
+
+### Windows PowerShell
+
+```powershell
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+Copy-Item .env.example .env
+```
+
+If PowerShell blocks activation, either select `.venv` through **Python: Select Interpreter**, or temporarily allow the current process:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.venv\Scripts\Activate.ps1
+```
+
+### macOS/Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+cp .env.example .env
+```
+
+In VS Code, select the `.venv` interpreter using **Python: Select Interpreter**.
+
+A VS Code task named **Install project dependencies** is also included.
+
+## 3. Configure Groq locally
 
 Edit `.env`:
 
@@ -87,9 +123,9 @@ GROQ_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
 RIGHTS_ACKNOWLEDGED=true
 ```
 
-No OpenAI key or OpenAI service is used.
+No OpenAI API key or OpenAI service is used.
 
-## Configure account IDs
+## 4. Configure local account IDs
 
 Edit `channels.toml`:
 
@@ -103,20 +139,22 @@ user_id = "YOUR_NUMERIC_INSTAGRAM_PROFESSIONAL_ACCOUNT_ID"
 
 Do not put passwords or access tokens in this file.
 
-## Authorize public YouTube uploads
+## 5. Authorize YouTube from your laptop
 
-1. Create/select a project in Google Cloud Console.
-2. Enable **YouTube Data API v3**.
-3. Configure the OAuth consent screen and add your Google account as a test user if needed.
+1. Open Google Cloud Console.
+2. Create/select a project and enable **YouTube Data API v3**.
+3. Configure the OAuth consent screen.
 4. Create an OAuth client with application type **Desktop app**.
-5. Download it to `client_secret.json`.
-6. Run:
+5. Download the file and save it in this project as `client_secret.json`.
+6. Run in the VS Code terminal:
 
 ```bash
-shorts-auth
+python -m shorts_bot.youtube_auth
 ```
 
-This opens Google's consent page and writes `youtube_token.json`. The app requests upload access plus read-only channel identity access so it can verify that OAuth matches the `channel_id` in `channels.toml` before uploading. A channel password is neither needed nor accepted. If you created a token with an older version of this project, delete it and run `shorts-auth` again.
+Alternatively, select **Authorize YouTube** in VS Code's Run and Debug menu.
+
+Your browser opens Google's official consent screen. The result is saved locally as `youtube_token.json`. The program verifies that the authorized channel matches `channels.toml` before uploading.
 
 Configure `.env`:
 
@@ -127,11 +165,13 @@ YOUTUBE_CLIENT_SECRETS_FILE=client_secret.json
 YOUTUBE_TOKEN_FILE=youtube_token.json
 ```
 
-**Google limitation:** YouTube can lock API uploads from an unverified API project to private even when the request asks for `public`. A Google API compliance audit may be required before the project can publish publicly. The workflow requests public visibility but cannot bypass this Google restriction.
+YouTube may lock uploads from an unaudited Google API project to private even when `public` is requested. The program cannot bypass that platform restriction.
 
-## Configure Instagram Reels publishing
+## 6. Configure Instagram locally
 
-Use Meta for Developers to configure the Instagram Graph API/Facebook Login for Business flow for your Professional account. Obtain a valid access token with the required basic/account and content-publishing permissions, then set:
+Instagram publishing requires a Business or Creator account and a Meta app configured for Instagram content publishing/Facebook Login for Business.
+
+Place the numeric Instagram Professional Account ID in `channels.toml`, and put the access token only in `.env`:
 
 ```dotenv
 UPLOAD_INSTAGRAM=true
@@ -139,21 +179,20 @@ INSTAGRAM_ACCESS_TOKEN=your_long_lived_meta_access_token
 INSTAGRAM_GRAPH_API_VERSION=v25.0
 ```
 
-The token is sent only to Meta Graph API endpoints. Keep it in `.env`; never commit it. Meta tokens expire or can be revoked, so renew them according to your app's token lifecycle.
+The local program:
 
-The uploader uses Meta's local-file resumable flow:
+1. Creates a resumable `REELS` media container.
+2. Uploads the local MP4 to Meta's returned upload URL.
+3. Waits for processing to finish.
+4. Publishes the container.
+5. Retrieves the Reel permalink.
+6. Uses `share_to_feed=true`.
 
-1. Creates a `REELS` container with `upload_type=resumable`
-2. Uploads the MP4 to the returned `rupload.facebook.com` URI
-3. Waits for `status_code=FINISHED`
-4. Calls `media_publish`
-5. Reads the public permalink
+Meta controls final visibility and can reject expired tokens, missing permissions, unsupported accounts, or policy-violating media.
 
-The Reel is also shared to the account feed. Actual visibility is still governed by the Instagram account and Meta's policies.
+## 7. Add YouTube links
 
-## Automated `links.txt` queue
-
-Add one URL per line:
+Open `links.txt` in VS Code and add one URL per line:
 
 ```text
 https://www.youtube.com/watch?v=VIDEO_ONE
@@ -161,96 +200,53 @@ https://youtu.be/VIDEO_TWO
 https://youtube.com/shorts/VIDEO_THREE
 ```
 
-Start the watcher:
+Save the file. Blank lines and comments beginning with `#` are preserved.
+
+## 8. Start locally from VS Code
+
+### Easiest method
+
+Open **Run and Debug**, select **Run local Shorts automation**, and press **F5**.
+
+### VS Code terminal
 
 ```bash
-shorts-queue
+python main.py
 ```
 
-It checks the file every 30 seconds by default. Process only the current contents and exit with:
+The watcher prints:
+
+```text
+Local watcher started. Add YouTube URLs to links.txt. Press Ctrl+C to stop.
+```
+
+It checks `links.txt` every 30 seconds and processes jobs sequentially. You can continue adding links while it runs. Press `Ctrl+C` to stop cleanly.
+
+### Process the current file once
 
 ```bash
-shorts-queue --once
+python -m shorts_bot.file_queue --once
 ```
 
-Queue-related configuration:
+Or select **Process links.txt once** in VS Code's Run and Debug menu.
 
-```dotenv
-LINKS_FILE=links.txt
-DOWNLOADED_LINKS_LOG=work/downloaded-links.log
-LINKS_POLL_SECONDS=30
-```
+## One-off URL command
 
-Comments beginning with `#` and blank lines are preserved. Duplicate URL lines are all removed after the first successful download.
-
-## Telegram bot
-
-Configure:
-
-```dotenv
-TELEGRAM_BOT_TOKEN=123456:telegram-token
-ALLOWED_TELEGRAM_USER_IDS=123456789
-```
-
-`ALLOWED_TELEGRAM_USER_IDS` is mandatory and prevents strangers from publishing to your accounts.
-
-Run:
+To process URLs without editing `links.txt`:
 
 ```bash
-shorts-bot
+shorts-cli --platform both "https://youtu.be/VIDEO_ID"
 ```
 
-Commands:
-
-- `/short URL [URL ...]` — queue up to `MAX_URLS_PER_COMMAND` links
-- `/status` — show recent jobs and both platform links
-- `/status JOB_ID` — inspect one job
-- `/help` — show instructions
-
-You can also paste one or more YouTube links without a command.
-
-## One-off command-line runs
-
-Use the platforms configured in `.env`:
+Platform overrides:
 
 ```bash
-shorts-cli 'https://youtu.be/VIDEO_ID'
+shorts-cli --platform youtube "https://youtu.be/VIDEO_ID"
+shorts-cli --platform instagram "https://youtu.be/VIDEO_ID"
+shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 ```
 
-Override platforms:
-
-```bash
-shorts-cli --platform both 'https://youtu.be/VIDEO_ID'
-shorts-cli --platform youtube 'https://youtu.be/VIDEO_ID'
-shorts-cli --platform instagram 'https://youtu.be/VIDEO_ID'
-shorts-cli --platform none 'https://youtu.be/VIDEO_ID'
-```
-
-## Docker
-
-Prepare credentials:
-
-```bash
-mkdir -p credentials
-cp channels.toml credentials/channels.toml
-cp client_secret.json youtube_token.json credentials/
-```
-
-Then start both Telegram intake and the watched link queue:
-
-```bash
-docker compose up --build -d
-docker compose logs -f
-```
-
-`links.txt` is mounted directly, while `work/` and `credentials/` persist job state and refreshed OAuth credentials.
-
-Run only one interface if desired:
-
-```bash
-docker compose up --build -d link-queue
-docker compose up --build -d shorts-bot
-```
+`--platform none` creates the MP4 locally without uploading it.
 
 ## Configuration reference
 
@@ -258,50 +254,57 @@ docker compose up --build -d shorts-bot
 |---|---:|---|
 | `GROQ_API_KEY` | empty | Required Groq API key |
 | `GROQ_MODEL` | `llama-3.3-70b-versatile` | Highlight and metadata model |
-| `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Timestamped transcription model |
-| `CHANNEL_CONFIG_FILE` | `channels.toml` | Non-secret YouTube/Instagram IDs |
+| `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Timestamped transcription |
+| `CHANNEL_CONFIG_FILE` | `channels.toml` | Local non-secret account IDs |
 | `UPLOAD_YOUTUBE` | `false` | Enable YouTube publishing |
 | `YOUTUBE_PRIVACY_STATUS` | `public` | Requested YouTube visibility |
-| `YOUTUBE_TOKEN_FILE` | `youtube_token.json` | Generated OAuth token |
+| `YOUTUBE_TOKEN_FILE` | `youtube_token.json` | Local OAuth token |
 | `UPLOAD_INSTAGRAM` | `false` | Enable Instagram publishing |
-| `INSTAGRAM_ACCESS_TOKEN` | empty | Secret Meta access token |
+| `INSTAGRAM_ACCESS_TOKEN` | empty | Secret local Meta token |
 | `INSTAGRAM_GRAPH_API_VERSION` | `v25.0` | Meta Graph API version |
-| `LINKS_FILE` | `links.txt` | Watched line-based URL queue |
-| `DOWNLOADED_LINKS_LOG` | `work/downloaded-links.log` | Download acknowledgement log |
-| `LINKS_POLL_SECONDS` | `30` | Queue polling interval, 5–3600 |
-| `TELEGRAM_BOT_TOKEN` | empty | Telegram bot token |
-| `ALLOWED_TELEGRAM_USER_IDS` | empty | Comma-separated private allowlist |
+| `LINKS_FILE` | `links.txt` | Local URL queue |
+| `DOWNLOADED_LINKS_LOG` | `work/downloaded-links.log` | Download audit log |
+| `LINKS_POLL_SECONDS` | `30` | Queue interval, 5–3600 seconds |
 | `CLIP_DURATION_SECONDS` | `25` | Preferred duration, 20–30 |
-| `MAX_URLS_PER_COMMAND` | `5` | Telegram batch size, 1–10 |
-| `WORK_DIR` | `work` | Runtime media directory |
-| `DATABASE_PATH` | `work/jobs.db` | SQLite job database |
+| `WORK_DIR` | `work` | Local media directory |
+| `DATABASE_PATH` | `work/jobs.db` | Local SQLite history |
 | `KEEP_WORK_FILES` | `true` | Keep local MP4s after publishing |
-| `RIGHTS_ACKNOWLEDGED` | `false` | Must be explicitly enabled |
+| `RIGHTS_ACKNOWLEDGED` | `false` | Required rights confirmation |
 
-`AUTO_UPLOAD` remains a backwards-compatible alias for `UPLOAD_YOUTUBE`, but new setups should use the explicit platform variables.
-
-## Development
+## Test locally
 
 ```bash
-ruff check .
-pytest
+python -m pytest -q
+python -m ruff check .
 ```
 
-Main components:
+A VS Code **Run tests** task is included.
 
-- `downloader.py` — strict YouTube URL intake and `yt-dlp`
-- `ai.py` — Groq transcription, highlight selection, and captions
-- `media.py` — FFmpeg rendering
-- `youtube.py` — YouTube OAuth resumable uploads
-- `instagram.py` — Instagram Graph API resumable Reel publishing
-- `file_queue.py` — atomic `links.txt` queue acknowledgement
-- `pipeline.py` — state machine and multi-platform publishing
-- `bot.py` / `cli.py` — Telegram and command-line interfaces
+## Troubleshooting
 
-### Operational notes
+### FFmpeg not found
 
-- Landscape source video is center-cropped to fill 9:16; review framing before scaling up automation.
-- AI can make poor editorial choices. Test with accounts/content where mistakes are easy to remove.
-- The downloader does not bypass private videos, DRM, region restrictions, or account controls.
-- YouTube and Instagram can reject content for policy, copyright, token, quota, verification, or media-processing reasons.
-- Protect `.env`, `client_secret.json`, `youtube_token.json`, and the `credentials/` directory.
+Install FFmpeg, restart VS Code, and verify `ffmpeg -version` in the integrated terminal.
+
+### YouTube token missing or wrong channel
+
+Run:
+
+```bash
+python -m shorts_bot.youtube_auth
+```
+
+If the token was created for another channel, delete `youtube_token.json` and authorize again with the correct Google account.
+
+### Instagram upload fails
+
+Confirm that:
+
+- The account is Business or Creator, not a personal account.
+- The Meta app has content-publishing permission.
+- The token has not expired.
+- `channels.toml` contains the Instagram Professional Account ID, not the username.
+
+### A URL disappeared but upload failed
+
+That means the download succeeded and the later step failed. Find the URL in `work/downloaded-links.log`, fix the reported issue, and paste the URL back into `links.txt` to retry.

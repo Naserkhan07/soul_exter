@@ -37,15 +37,6 @@ def _int_env(name: str, default: int) -> int:
         raise ConfigurationError(f"{name} must be an integer.") from exc
 
 
-def _user_ids(value: str | None) -> frozenset[int]:
-    if not value:
-        return frozenset()
-    try:
-        return frozenset(int(item.strip()) for item in value.split(",") if item.strip())
-    except ValueError as exc:
-        raise ConfigurationError("ALLOWED_TELEGRAM_USER_IDS must contain numeric IDs.") from exc
-
-
 def _read_channel_config(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -65,8 +56,6 @@ def _nested_string(config: dict[str, Any], section: str, key: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    telegram_bot_token: str
-    allowed_telegram_user_ids: frozenset[int]
     groq_api_key: str
     groq_model: str
     groq_transcription_model: str
@@ -81,7 +70,6 @@ class Settings:
     instagram_graph_api_version: str
     upload_instagram: bool
     clip_duration_seconds: int
-    max_urls_per_command: int
     work_dir: Path
     database_path: Path
     keep_work_files: bool
@@ -102,8 +90,6 @@ class Settings:
         legacy_auto_upload = _bool_env("AUTO_UPLOAD", False)
 
         settings = cls(
-            telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
-            allowed_telegram_user_ids=_user_ids(os.getenv("ALLOWED_TELEGRAM_USER_IDS")),
             groq_api_key=os.getenv("GROQ_API_KEY", "").strip(),
             groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip(),
             groq_transcription_model=os.getenv(
@@ -130,7 +116,6 @@ class Settings:
             instagram_graph_api_version=os.getenv("INSTAGRAM_GRAPH_API_VERSION", "v25.0").strip(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
             clip_duration_seconds=_int_env("CLIP_DURATION_SECONDS", 25),
-            max_urls_per_command=_int_env("MAX_URLS_PER_COMMAND", 5),
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),
@@ -147,8 +132,6 @@ class Settings:
     def validate_common(self) -> None:
         if not 20 <= self.clip_duration_seconds <= 30:
             raise ConfigurationError("CLIP_DURATION_SECONDS must be between 20 and 30.")
-        if not 1 <= self.max_urls_per_command <= 10:
-            raise ConfigurationError("MAX_URLS_PER_COMMAND must be between 1 and 10.")
         if self.youtube_privacy_status not in {"private", "unlisted", "public"}:
             raise ConfigurationError("YOUTUBE_PRIVACY_STATUS must be private, unlisted, or public.")
         if not re.fullmatch(r"v\d+\.\d+", self.instagram_graph_api_version):
@@ -172,7 +155,7 @@ class Settings:
             if not self.youtube_token_file.exists():
                 raise ConfigurationError(
                     f"YouTube OAuth token not found at {self.youtube_token_file}. "
-                    "Run shorts-auth first."
+                    "Run python -m shorts_bot.youtube_auth first."
                 )
         if self.upload_instagram:
             if not self.instagram_user_id:
@@ -184,16 +167,6 @@ class Settings:
                 raise ConfigurationError(
                     "INSTAGRAM_ACCESS_TOKEN is required for Instagram publishing."
                 )
-
-    def validate_bot(self) -> None:
-        self.validate_pipeline()
-        if not self.telegram_bot_token:
-            raise ConfigurationError("TELEGRAM_BOT_TOKEN is required to run the bot.")
-        if not self.allowed_telegram_user_ids:
-            raise ConfigurationError(
-                "ALLOWED_TELEGRAM_USER_IDS is required so strangers cannot publish "
-                "to your channels."
-            )
 
     def validate_file_queue(self) -> None:
         self.validate_pipeline()

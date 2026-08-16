@@ -89,6 +89,12 @@ async def run_file_queue(settings: Settings, watch: bool = True) -> int:
         on_downloaded=downloaded,
     )
     any_failures = False
+    if watch:
+        print(
+            f"Local watcher started. Add YouTube URLs to {settings.links_file}. "
+            "Press Ctrl+C to stop.",
+            flush=True,
+        )
 
     while True:
         urls = link_queue.pending_urls()
@@ -120,6 +126,9 @@ def main() -> None:
         exit_code = asyncio.run(run_file_queue(settings, watch=not args.once))
     except ConfigurationError as exc:
         parser.error(str(exc))
+    except KeyboardInterrupt:
+        print("\nLocal watcher stopped.")
+        exit_code = 0
     raise SystemExit(exit_code)
 
 

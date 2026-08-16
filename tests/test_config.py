@@ -9,14 +9,11 @@ from shorts_bot.errors import ConfigurationError
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     names = [
-        "TELEGRAM_BOT_TOKEN",
-        "ALLOWED_TELEGRAM_USER_IDS",
         "GROQ_API_KEY",
         "UPLOAD_YOUTUBE",
         "UPLOAD_INSTAGRAM",
         "AUTO_UPLOAD",
         "CLIP_DURATION_SECONDS",
-        "MAX_URLS_PER_COMMAND",
         "WORK_DIR",
         "DATABASE_PATH",
         "KEEP_WORK_FILES",
@@ -29,18 +26,15 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def test_reads_valid_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
-    monkeypatch.setenv("ALLOWED_TELEGRAM_USER_IDS", "12, 34")
+def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("GROQ_API_KEY", "groq-key")
     monkeypatch.setenv("RIGHTS_ACKNOWLEDGED", "true")
     monkeypatch.setenv("WORK_DIR", str(tmp_path / "work"))
     monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(tmp_path / "missing.toml"))
 
     settings = Settings.from_env(env_file=None)
-    settings.validate_bot()
+    settings.validate_pipeline()
 
-    assert settings.allowed_telegram_user_ids == frozenset({12, 34})
     assert settings.clip_duration_seconds == 25
     assert settings.upload_youtube is False
     assert settings.upload_instagram is False

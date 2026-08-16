@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run local Shorts automation",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Process links.txt once",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "shorts_bot.file_queue",
+      "args": ["--once"],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Authorize YouTube",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "shorts_bot.youtube_auth",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
