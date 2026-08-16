@@ -47,10 +47,13 @@ class VideoDownloader:
         return await asyncio.to_thread(self._download_sync, url, destination)
 
     @staticmethod
-    def _download_sync(url: str, destination: Path) -> SourceVideo:
-        destination.mkdir(parents=True, exist_ok=True)
-        output_template = str(destination / "source.%(ext)s")
-        options = {
+    def _retry_delay(attempt: int) -> int:
+        """Use bounded exponential backoff for temporary CDN/network failures."""
+        return min(2 ** max(0, attempt - 1), 20)
+
+    @classmethod
+    def _download_options(cls, output_template: str) -> dict[str, object]:
+        return {
             "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "outtmpl": output_template,
             "merge_output_format": "mp4",
@@ -59,7 +62,29 @@ class VideoDownloader:
             "no_warnings": True,
             "restrictfilenames": True,
             "overwrites": True,
+            # Windows networks and some ISPs intermittently reset YouTube CDN streams.
+            # Resume partial files, force IPv4, use small HTTP chunks, and back off.
+            "continuedl": True,
+            "source_address": "0.0.0.0",
+            "socket_timeout": 30,
+            "http_chunk_size": 10 * 1024 * 1024,
+            "concurrent_fragment_downloads": 1,
+            "retries": 10,
+            "fragment_retries": 10,
+            "extractor_retries": 5,
+            "file_access_retries": 5,
+            "retry_sleep_functions": {
+                "http": cls._retry_delay,
+                "fragment": cls._retry_delay,
+                "extractor": cls._retry_delay,
+            },
         }
+
+    @classmethod
+    def _download_sync(cls, url: str, destination: Path) -> SourceVideo:
+        destination.mkdir(parents=True, exist_ok=True)
+        output_template = str(destination / "source.%(ext)s")
+        options = cls._download_options(output_template)
         try:
             with yt_dlp.YoutubeDL(options) as downloader:
                 info = downloader.extract_info(url, download=True)

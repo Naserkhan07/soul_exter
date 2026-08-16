@@ -282,6 +282,20 @@ A VS Code **Run tests** task is included.
 
 ## Troubleshooting
 
+### YouTube download connection reset on Windows
+
+Update the downloader and retry the same URL:
+
+```powershell
+python -m pip install --upgrade yt-dlp
+python -m shorts_bot.file_queue --once
+```
+
+The workflow resumes partial downloads, forces IPv4, downloads conservatively, and retries temporary
+HTTP/CDN failures with exponential backoff. A failed download does not remove its URL from
+`links.txt`. If all retries still fail, temporarily disable any VPN/proxy, allow Python through the
+firewall or antivirus web shield, or try another network such as a mobile hotspot.
+
 ### FFmpeg not found
 
 Install FFmpeg, restart VS Code, and verify `ffmpeg -version` in the integrated terminal.

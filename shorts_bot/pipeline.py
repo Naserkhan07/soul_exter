@@ -11,6 +11,7 @@ from .ai import AIPlanner
 from .config import Settings
 from .db import JobRepository
 from .downloader import VideoDownloader
+from .errors import WorkflowError
 from .instagram import InstagramUploader
 from .media import MediaProcessor
 from .models import Job, JobStatus, SourceVideo
@@ -163,7 +164,10 @@ class WorkflowPipeline:
                 completed = self.repository.update(job.id, output_path=None)
             return completed
         except Exception as exc:
-            logger.exception("Job %s failed", job.id)
+            if isinstance(exc, WorkflowError):
+                logger.info("Job %s failed: %s", job.id, exc)
+            else:
+                logger.exception("Job %s failed unexpectedly", job.id)
             error = _safe_error(exc)
             failed = self.repository.update(
                 job.id,
