@@ -12,7 +12,8 @@ dependencies = [
   "google-api-python-client>=2.160,<3",
   "google-auth-httplib2>=0.2,<1",
   "google-auth-oauthlib>=1.2,<2",
-  "openai>=1.61,<3",
+  "groq>=0.31,<1",
+  "httpx>=0.27,<1",
   "python-dotenv>=1.0,<2",
   "python-telegram-bot>=21.10,<23",
   "yt-dlp>=2025.1.26",
@@ -28,6 +29,7 @@ dev = [
 [project.scripts]
 shorts-bot = "shorts_bot.bot:main"
 shorts-cli = "shorts_bot.cli:main"
+shorts-queue = "shorts_bot.file_queue:main"
 shorts-auth = "shorts_bot.youtube_auth:main"
 
 [tool.setuptools.packages.find]

@@ -13,12 +13,20 @@ from .errors import UploadError
 from .models import ShortPlan
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
+YOUTUBE_SCOPES = [YOUTUBE_UPLOAD_SCOPE, YOUTUBE_READONLY_SCOPE]
 
 
 class YouTubeUploader:
-    def __init__(self, token_file: Path, privacy_status: str = "private") -> None:
+    def __init__(
+        self,
+        token_file: Path,
+        privacy_status: str = "public",
+        expected_channel_id: str = "",
+    ) -> None:
         self.token_file = token_file
         self.privacy_status = privacy_status
+        self.expected_channel_id = expected_channel_id
 
     async def upload(self, video_path: Path, plan: ShortPlan) -> str:
         return await asyncio.to_thread(self._upload_sync, video_path, plan)
@@ -26,8 +34,13 @@ class YouTubeUploader:
     def _credentials(self) -> Credentials:
         try:
             credentials = Credentials.from_authorized_user_file(
-                str(self.token_file), [YOUTUBE_UPLOAD_SCOPE]
+                str(self.token_file), YOUTUBE_SCOPES
             )
+            if not credentials.has_scopes(YOUTUBE_SCOPES):
+                raise UploadError(
+                    "YouTube OAuth token is missing required channel verification scope; "
+                    "delete it and run shorts-auth again."
+                )
             if credentials.expired and credentials.refresh_token:
                 credentials.refresh(Request())
                 self.token_file.write_text(credentials.to_json(), encoding="utf-8")
@@ -49,6 +62,7 @@ class YouTubeUploader:
                 credentials=self._credentials(),
                 cache_discovery=False,
             )
+            self._verify_channel(youtube)
             request = youtube.videos().insert(
                 part="snippet,status",
                 notifySubscribers=False,
@@ -84,3 +98,15 @@ class YouTubeUploader:
             raise UploadError(f"YouTube API rejected the upload: {detail}") from exc
         except Exception as exc:
             raise UploadError(f"YouTube upload failed: {exc}") from exc
+
+    def _verify_channel(self, youtube: object) -> None:
+        if not self.expected_channel_id:
+            return
+        response = youtube.channels().list(part="id", mine=True).execute()  # type: ignore[attr-defined]
+        authorized_ids = {str(item.get("id")) for item in response.get("items", [])}
+        if self.expected_channel_id not in authorized_ids:
+            found = ", ".join(sorted(authorized_ids)) or "no channel"
+            raise UploadError(
+                f"OAuth is authorized for {found}, but channels.toml specifies "
+                f"{self.expected_channel_id}. Run shorts-auth with the correct account."
+            )

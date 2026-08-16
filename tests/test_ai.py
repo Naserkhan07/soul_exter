@@ -22,6 +22,7 @@ def test_normalizes_ai_plan_and_adds_attribution() -> None:
             "duration_seconds": 26,
             "title": "  A   strong   moment  ",
             "description": "The key idea in a few seconds. #Learning",
+            "instagram_caption": "A quick explanation worth saving. #Learning",
             "selection_reason": "Self-contained explanation",
         },
         source(),
@@ -30,10 +31,13 @@ def test_normalizes_ai_plan_and_adds_attribution() -> None:
 
     assert plan.start_seconds == 44.2
     assert plan.duration_seconds == 26
-    assert plan.title == "A strong moment"
+    assert plan.title == "A strong moment #Shorts"
     assert "Source: A useful source — Original Creator" in plan.description
     assert "https://youtu.be/example" in plan.description
     assert "#Shorts" in plan.description
+    assert "A quick explanation worth saving" in plan.instagram_caption
+    assert "Credit: Original Creator" in plan.instagram_caption
+    assert "#Reels" in plan.instagram_caption
 
 
 def test_clamps_invalid_timing_to_video() -> None:

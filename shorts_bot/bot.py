@@ -67,7 +67,11 @@ def _format_job(job: Job) -> str:
     if job.short_title:
         lines.append(f"Title: {job.short_title}")
     if job.youtube_url:
-        lines.append(job.youtube_url)
+        lines.append(f"YouTube: {job.youtube_url}")
+    if job.instagram_url:
+        lines.append(f"Instagram: {job.instagram_url}")
+    elif job.instagram_media_id:
+        lines.append(f"Instagram media ID: {job.instagram_media_id}")
     if job.error:
         lines.append(f"Error: {job.error}")
     return "\n".join(lines)
@@ -249,10 +253,27 @@ def build_application(settings: Settings) -> Application:
 
 
 async def _send_completed_file(application: Application, job: Job) -> None:
-    if job.youtube_url:
+    published_links = [
+        link
+        for link in (
+            f"YouTube: {job.youtube_url}" if job.youtube_url else "",
+            (
+                f"Instagram: {job.instagram_url}"
+                if job.instagram_url
+                else (
+                    f"Instagram media ID: {job.instagram_media_id}"
+                    if job.instagram_media_id
+                    else ""
+                )
+            ),
+        )
+        if link
+    ]
+    if published_links:
+        links_text = "\n".join(published_links)
         await application.bot.send_message(
             chat_id=job.chat_id,
-            text=f"Published: {job.youtube_url}\n\n{job.short_title or ''}",
+            text=f"Published:\n{links_text}\n\n{job.short_title or ''}",
         )
         return
     if not job.output_path:

@@ -7,14 +7,19 @@ from dataclasses import replace
 from .config import Settings
 from .db import JobRepository
 from .downloader import is_youtube_url
+from .errors import ConfigurationError
 from .models import Job
 from .pipeline import WorkflowPipeline, WorkflowServices
 
 
-async def _run(urls: list[str], upload_override: bool | None) -> int:
+async def _run(urls: list[str], platform: str | None) -> int:
     settings = Settings.from_env()
-    if upload_override is not None:
-        settings = replace(settings, auto_upload=upload_override)
+    if platform is not None:
+        settings = replace(
+            settings,
+            upload_youtube=platform in {"youtube", "both"},
+            upload_instagram=platform in {"instagram", "both"},
+        )
     settings.validate_pipeline()
     settings.prepare_directories()
 
@@ -36,34 +41,35 @@ async def _run(urls: list[str], upload_override: bool | None) -> int:
         result = await pipeline.process(job.id)
         if result.error:
             failed = True
-        elif result.youtube_url:
-            print(f"Published: {result.youtube_url}")
-        else:
+            continue
+        if result.youtube_url:
+            print(f"YouTube: {result.youtube_url}")
+        if result.instagram_url:
+            print(f"Instagram: {result.instagram_url}")
+        if not result.youtube_url and not result.instagram_url:
             print(f"Created: {result.output_path}")
     return 1 if failed else 0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Turn authorized YouTube videos into AI-planned vertical Shorts."
+        description="Turn authorized YouTube videos into Groq-planned Shorts and Reels."
     )
     parser.add_argument("urls", nargs="+", help="Individual YouTube video URLs")
-    upload = parser.add_mutually_exclusive_group()
-    upload.add_argument(
-        "--upload",
-        action="store_true",
-        dest="upload_override",
-        help="Upload results using the configured YouTube OAuth token",
+    parser.add_argument(
+        "--platform",
+        choices=("youtube", "instagram", "both", "none"),
+        help="Override the upload platforms configured in .env",
     )
-    upload.add_argument(
-        "--no-upload",
-        action="store_false",
-        dest="upload_override",
-        help="Only render local MP4 files",
-    )
-    parser.set_defaults(upload_override=None)
     args = parser.parse_args()
-    raise SystemExit(asyncio.run(_run(args.urls, args.upload_override)))
+    platform = None if args.platform is None else args.platform
+    if platform == "none":
+        platform = ""
+    try:
+        exit_code = asyncio.run(_run(args.urls, platform))
+    except ConfigurationError as exc:
+        parser.error(str(exc))
+    raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":

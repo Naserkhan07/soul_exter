@@ -11,7 +11,9 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     names = [
         "TELEGRAM_BOT_TOKEN",
         "ALLOWED_TELEGRAM_USER_IDS",
-        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "UPLOAD_YOUTUBE",
+        "UPLOAD_INSTAGRAM",
         "AUTO_UPLOAD",
         "CLIP_DURATION_SECONDS",
         "MAX_URLS_PER_COMMAND",
@@ -20,6 +22,8 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "KEEP_WORK_FILES",
         "RIGHTS_ACKNOWLEDGED",
         "YOUTUBE_PRIVACY_STATUS",
+        "CHANNEL_CONFIG_FILE",
+        "INSTAGRAM_ACCESS_TOKEN",
     ]
     for name in names:
         monkeypatch.delenv(name, raising=False)
@@ -28,16 +32,33 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_reads_valid_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token")
     monkeypatch.setenv("ALLOWED_TELEGRAM_USER_IDS", "12, 34")
-    monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
     monkeypatch.setenv("RIGHTS_ACKNOWLEDGED", "true")
     monkeypatch.setenv("WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(tmp_path / "missing.toml"))
 
     settings = Settings.from_env(env_file=None)
     settings.validate_bot()
 
     assert settings.allowed_telegram_user_ids == frozenset({12, 34})
     assert settings.clip_duration_seconds == 25
-    assert settings.auto_upload is False
+    assert settings.upload_youtube is False
+    assert settings.upload_instagram is False
+    assert settings.youtube_privacy_status == "public"
+
+
+def test_reads_non_secret_ids_from_toml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_file = tmp_path / "channels.toml"
+    config_file.write_text(
+        '[youtube]\nchannel_id = "UC123"\n[instagram]\nuser_id = "1789"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(config_file))
+
+    settings = Settings.from_env(env_file=None)
+
+    assert settings.youtube_channel_id == "UC123"
+    assert settings.instagram_user_id == "1789"
 
 
 def test_rejects_duration_outside_shorts_range(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -48,7 +69,7 @@ def test_rejects_duration_outside_shorts_range(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_requires_rights_acknowledgement(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "key")
+    monkeypatch.setenv("GROQ_API_KEY", "key")
     settings = Settings.from_env(env_file=None)
 
     with pytest.raises(ConfigurationError, match="RIGHTS_ACKNOWLEDGED"):

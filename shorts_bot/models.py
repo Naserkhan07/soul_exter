@@ -35,7 +35,14 @@ class ShortPlan:
     duration_seconds: float
     title: str
     description: str
+    instagram_caption: str = ""
     selection_reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class InstagramUploadResult:
+    media_id: str
+    permalink: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,8 +56,11 @@ class Job:
     source_title: str | None
     short_title: str | None
     short_description: str | None
+    instagram_caption: str | None
     output_path: str | None
     youtube_video_id: str | None
+    instagram_media_id: str | None
+    instagram_url: str | None
     error: str | None
     created_at: str
     updated_at: str

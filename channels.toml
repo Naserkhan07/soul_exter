@@ -1,0 +1,10 @@
+# Fill in the non-secret account IDs below.
+# Never put a YouTube, Google, Facebook, or Instagram password in this file.
+
+[youtube]
+# YouTube Studio -> Settings -> Channel -> Advanced settings
+channel_id = ""
+
+[instagram]
+# Numeric Instagram Professional Account ID from the Meta Graph API
+user_id = ""

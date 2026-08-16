@@ -18,8 +18,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     source_title TEXT,
     short_title TEXT,
     short_description TEXT,
+    instagram_caption TEXT,
     output_path TEXT,
     youtube_video_id TEXT,
+    instagram_media_id TEXT,
+    instagram_url TEXT,
     error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -28,6 +31,12 @@ CREATE INDEX IF NOT EXISTS idx_jobs_user_created ON jobs(user_id, created_at DES
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 """
 
+_MIGRATION_COLUMNS = {
+    "instagram_caption": "TEXT",
+    "instagram_media_id": "TEXT",
+    "instagram_url": "TEXT",
+}
+
 
 class JobRepository:
     def __init__(self, path: Path) -> None:
@@ -35,6 +44,12 @@ class JobRepository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.executescript(_SCHEMA)
+            existing = {
+                row["name"] for row in connection.execute("PRAGMA table_info(jobs)").fetchall()
+            }
+            for name, column_type in _MIGRATION_COLUMNS.items():
+                if name not in existing:
+                    connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {column_type}")
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -57,8 +72,11 @@ class JobRepository:
             source_title=row["source_title"],
             short_title=row["short_title"],
             short_description=row["short_description"],
+            instagram_caption=row["instagram_caption"],
             output_path=row["output_path"],
             youtube_video_id=row["youtube_video_id"],
+            instagram_media_id=row["instagram_media_id"],
+            instagram_url=row["instagram_url"],
             error=row["error"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -95,15 +113,18 @@ class JobRepository:
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._from_row(row) if row else None
 
-    def update(self, job_id: str, **fields: str | None) -> Job:
+    def update(self, job_id: str, **fields: str | JobStatus | None) -> Job:
         allowed = {
             "status",
             "progress_message",
             "source_title",
             "short_title",
             "short_description",
+            "instagram_caption",
             "output_path",
             "youtube_video_id",
+            "instagram_media_id",
+            "instagram_url",
             "error",
         }
         unknown = fields.keys() - allowed

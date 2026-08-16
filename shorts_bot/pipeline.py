@@ -11,12 +11,14 @@ from .ai import AIPlanner
 from .config import Settings
 from .db import JobRepository
 from .downloader import VideoDownloader
+from .instagram import InstagramUploader
 from .media import MediaProcessor
-from .models import Job, JobStatus
+from .models import Job, JobStatus, SourceVideo
 from .youtube import YouTubeUploader
 
 logger = logging.getLogger(__name__)
 StatusCallback = Callable[[Job, str], Awaitable[None]]
+DownloadedCallback = Callable[[Job, SourceVideo], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -24,7 +26,8 @@ class WorkflowServices:
     downloader: VideoDownloader
     media: MediaProcessor
     planner: AIPlanner
-    uploader: YouTubeUploader | None
+    youtube_uploader: YouTubeUploader | None
+    instagram_uploader: InstagramUploader | None
 
     @classmethod
     def from_settings(cls, settings: Settings) -> WorkflowServices:
@@ -32,17 +35,27 @@ class WorkflowServices:
             downloader=VideoDownloader(),
             media=MediaProcessor(),
             planner=AIPlanner(
-                api_key=settings.openai_api_key,
-                model=settings.openai_model,
-                transcription_model=settings.openai_transcription_model,
+                api_key=settings.groq_api_key,
+                model=settings.groq_model,
+                transcription_model=settings.groq_transcription_model,
                 target_duration=settings.clip_duration_seconds,
             ),
-            uploader=(
+            youtube_uploader=(
                 YouTubeUploader(
                     token_file=settings.youtube_token_file,
                     privacy_status=settings.youtube_privacy_status,
+                    expected_channel_id=settings.youtube_channel_id,
                 )
-                if settings.auto_upload
+                if settings.upload_youtube
+                else None
+            ),
+            instagram_uploader=(
+                InstagramUploader(
+                    user_id=settings.instagram_user_id,
+                    access_token=settings.instagram_access_token,
+                    api_version=settings.instagram_graph_api_version,
+                )
+                if settings.upload_instagram
                 else None
             ),
         )
@@ -55,11 +68,13 @@ class WorkflowPipeline:
         repository: JobRepository,
         services: WorkflowServices,
         on_status: StatusCallback | None = None,
+        on_downloaded: DownloadedCallback | None = None,
     ) -> None:
         self.settings = settings
         self.repository = repository
         self.services = services
         self.on_status = on_status
+        self.on_downloaded = on_downloaded
 
     async def process(self, job_id: str) -> Job:
         job = self.repository.get(job_id)
@@ -70,12 +85,14 @@ class WorkflowPipeline:
         try:
             await self._status(job.id, JobStatus.DOWNLOADING, "Downloading source video")
             source = await self.services.downloader.download(job.source_url, job_dir)
-            self.repository.update(job.id, source_title=source.title)
+            downloaded_job = self.repository.update(job.id, source_title=source.title)
+            if self.on_downloaded:
+                await self.on_downloaded(downloaded_job, source)
 
             await self._status(
                 job.id,
                 JobStatus.ANALYZING,
-                "Transcribing and selecting a highlight",
+                "Transcribing with Groq and selecting a highlight",
             )
             audio_path = job_dir / "transcript-audio.mp3"
             await asyncio.to_thread(
@@ -98,28 +115,50 @@ class WorkflowPipeline:
                 job.id,
                 short_title=plan.title,
                 short_description=plan.description,
+                instagram_caption=plan.instagram_caption,
                 output_path=str(output_path),
             )
 
-            youtube_video_id = None
-            if self.services.uploader:
+            uploaded_platforms: list[str] = []
+            if self.services.youtube_uploader:
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
-                    f"Uploading to YouTube as {self.settings.youtube_privacy_status}",
+                    f"Uploading to YouTube as {self.settings.youtube_privacy_status} "
+                    f"for channel {self.settings.youtube_channel_id}",
                 )
-                youtube_video_id = await self.services.uploader.upload(output_path, plan)
+                youtube_video_id = await self.services.youtube_uploader.upload(output_path, plan)
+                self.repository.update(job.id, youtube_video_id=youtube_video_id)
+                uploaded_platforms.append("YouTube")
 
+            if self.services.instagram_uploader:
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    "Publishing Instagram Reel and sharing it to the feed",
+                )
+                instagram = await self.services.instagram_uploader.upload(output_path, plan)
+                self.repository.update(
+                    job.id,
+                    instagram_media_id=instagram.media_id,
+                    instagram_url=instagram.permalink,
+                )
+                uploaded_platforms.append("Instagram")
+
+            progress = (
+                f"Published to {' and '.join(uploaded_platforms)}"
+                if uploaded_platforms
+                else "Short is ready"
+            )
             completed = self.repository.update(
                 job.id,
                 status=JobStatus.COMPLETE,
-                progress_message=("Uploaded to YouTube" if youtube_video_id else "Short is ready"),
-                youtube_video_id=youtube_video_id,
+                progress_message=progress,
                 error=None,
             )
             await self._notify(completed, completed.progress_message)
 
-            if youtube_video_id and not self.settings.keep_work_files:
+            if uploaded_platforms and not self.settings.keep_work_files:
                 shutil.rmtree(job_dir, ignore_errors=True)
                 completed = self.repository.update(job.id, output_path=None)
             return completed
@@ -180,6 +219,8 @@ class JobQueue:
             job_id = await self.queue.get()
             try:
                 await self.pipeline.process(job_id)
+            except Exception:
+                logger.exception("Unexpected queue failure for job %s", job_id)
             finally:
                 self.queue.task_done()
 
