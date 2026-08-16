@@ -189,12 +189,14 @@ Detailed platform metadata is generated separately after the highlights are sele
             offset = hashtag_offset % len(hashtag_pool)
             hashtag_pool = hashtag_pool[offset:] + hashtag_pool[:offset]
         hashtag_block = " ".join(hashtag_pool[:30])
-        youtube_description_min = max(500, self.youtube_description_target_chars - 200)
+        # A short clip may not contain enough facts for thousands of unique characters.
+        # Prefer grounded, useful text over padding or hallucination while allowing rich output.
+        youtube_description_min = min(800, self.youtube_description_target_chars)
         instagram_body_target = max(
             300,
             self.instagram_caption_target_chars - len(hashtag_block) - 100,
         )
-        instagram_body_min = max(300, instagram_body_target - 100)
+        instagram_body_min = min(500, instagram_body_target)
         prompt = f"""Create accurate, detailed metadata for one short-form clip.
 Source title: {source.title}
 Source creator/channel: {source.uploader}
@@ -209,13 +211,12 @@ Clip transcript:
 
 Return one JSON object with title, description, and instagram_caption strings.
 - title: engaging and accurate, under 90 characters, without #Shorts.
-- description: detailed and factual; HARD LENGTH REQUIREMENT: between
-  {youtube_description_min} and {self.youtube_description_target_chars} characters.
-- instagram_caption: detailed and engaging; HARD LENGTH REQUIREMENT: between
-  {instagram_body_min} and {instagram_body_target} characters, without hashtags.
+- description: detailed and factual, between {youtube_description_min} and
+  {self.youtube_description_target_chars} characters when the source contains enough information.
+- instagram_caption: detailed and engaging, between {instagram_body_min} and
+  {instagram_body_target} characters when supported by the source, without hashtags.
 Hashtags and source credit are added by the application. Never invent facts not present in the
-transcript or source metadata. Use useful context, structure, and explanation rather than
-repetition.
+transcript or source metadata. Prefer concise factual text over repetition or filler.
 """
         metadata_system = (
             "You write platform metadata grounded only in supplied source material. "
@@ -245,14 +246,8 @@ repetition, and return only the corrected JSON object.
                 max_tokens=2_100,
                 system_prompt=metadata_system,
             )
-        if (
-            len(str(payload.get("description") or "")) < youtube_description_min
-            or len(str(payload.get("instagram_caption") or "")) < instagram_body_min
-        ):
-            raise AIError(
-                "Groq did not satisfy the minimum metadata lengths after an automatic repair "
-                "request; the clip was not uploaded with incomplete text."
-            )
+        # If the repair is still shorter, accept it rather than blocking the clip or padding it
+        # with repetitive/invented text. Platform limits remain hard maximums, not quality targets.
         merged = {
             "start_seconds": plan.start_seconds,
             "duration_seconds": plan.duration_seconds,

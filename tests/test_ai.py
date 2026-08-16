@@ -13,7 +13,7 @@ from shorts_bot.ai import (
     normalize_plan,
     normalize_plans,
 )
-from shorts_bot.models import SourceVideo
+from shorts_bot.models import ShortPlan, SourceVideo
 
 
 def source(duration: float = 120) -> SourceVideo:
@@ -100,6 +100,39 @@ async def test_retries_with_smaller_transcript_when_prompt_is_too_large() -> Non
     assert plan.start_seconds == 1
     assert len(prompt_sizes) == 4  # two selection attempts, metadata, then length repair
     assert prompt_sizes[1] < prompt_sizes[0]
+
+
+async def test_accepts_concise_grounded_metadata_after_one_repair() -> None:
+    calls = 0
+
+    class FakeCompletions:
+        async def create(self, **kwargs):  # noqa: ANN003, ANN201
+            nonlocal calls
+            calls += 1
+            message = SimpleNamespace(
+                content=(
+                    '{"title": "Accurate title", "description": "Concise factual detail", '
+                    '"instagram_caption": "Concise factual caption"}'
+                )
+            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    planner = AIPlanner(
+        api_key="test-key",
+        model="small-model",
+        fallback_model="small-model",
+        transcription_model="whisper-large-v3-turbo",
+    )
+    planner.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=FakeCompletions())
+    )
+    base = ShortPlan(0, 25, "Base", "", "")
+
+    enriched = await planner.enrich_plan(base, source(), "[0.00-25.00] A factual clip")
+
+    assert calls == 2
+    assert "Concise factual detail" in enriched.description
+    assert "Concise factual caption" in enriched.instagram_caption
 
 
 async def test_retries_json_generation_with_larger_completion_budget() -> None:

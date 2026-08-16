@@ -155,10 +155,12 @@ batch GPU experiments, but their sessions are temporary and do not provide a dep
 API for this unattended local queue; using a tunneled notebook would stop whenever the Kaggle
 session ends.
 
-Detailed metadata is generated in a separate paced Groq request for every selected clip. YouTube
-descriptions are requested at a hard 4,000–4,200 character range. Instagram caption text is expanded
-so the final caption approaches 2,000 characters after source credit and hashtags. A second automatic
-repair request runs when Groq's first response is too short. Instagram accepts at most 30
+Detailed metadata is generated in a separate paced Groq request for every selected clip. The
+configured 4,200-character YouTube and 2,000-character Instagram values are maximum targets, not
+forced filler lengths. Metadata expands when the transcript contains enough factual information and
+stays shorter when a 30-second clip cannot support more detail. One automatic repair request runs for
+very short responses, but the clip is never blocked merely for being concise. Instagram accepts at
+most 30
 hashtags per caption, so the entire supplied hashtag list cannot appear on every Reel. The full
 editable pool is stored in `instagram_hashtags.txt`; groups of 30 unique tags rotate across the Reel
 batch while every caption remains within the platform limit.
