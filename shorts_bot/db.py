@@ -282,7 +282,8 @@ class JobRepository:
             connection.execute(
                 """
                 UPDATE job_clips
-                SET output_path = NULL, thumbnail_path = NULL,
+                SET metadata_ready = 0,
+                    output_path = NULL, thumbnail_path = NULL,
                     youtube_video_id = NULL, instagram_media_id = NULL,
                     instagram_url = NULL, error = NULL
                 WHERE job_id = ?

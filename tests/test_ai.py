@@ -89,7 +89,7 @@ async def test_retries_with_smaller_transcript_when_prompt_is_too_large() -> Non
     plan = await planner.create_plan(Path("unused.mp3"), source())
 
     assert plan.start_seconds == 1
-    assert len(prompt_sizes) == 3  # two selection attempts, then metadata enrichment
+    assert len(prompt_sizes) == 4  # two selection attempts, metadata, then length repair
     assert prompt_sizes[1] < prompt_sizes[0]
 
 

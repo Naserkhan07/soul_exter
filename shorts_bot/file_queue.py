@@ -114,7 +114,11 @@ async def run_file_queue(
                 for path_value in (clip.output_path, clip.thumbnail_path):
                     if path_value:
                         Path(path_value).unlink(missing_ok=True)
-            action = "rebuilding and re-uploading every clip"
+            job_dir = settings.work_dir / "jobs" / job.id
+            for pattern in ("short-*.mp4", "thumbnail-*.jpg"):
+                for stale_file in job_dir.glob(pattern):
+                    stale_file.unlink(missing_ok=True)
+            action = "regenerating metadata, rebuilding, and re-uploading every clip"
         elif expand_job_id:
             action = "expanding into multiple clips"
         else:

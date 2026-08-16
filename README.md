@@ -155,9 +155,10 @@ batch GPU experiments, but their sessions are temporary and do not provide a dep
 API for this unattended local queue; using a tunneled notebook would stop whenever the Kaggle
 session ends.
 
-Detailed metadata is generated in a separate paced Groq request for every selected clip. This is
-slower, but permits descriptions targeting roughly 4,200 characters and Instagram captions up to
-2,000 characters without exceeding the 8B model's free-tier TPM limit. Instagram accepts at most 30
+Detailed metadata is generated in a separate paced Groq request for every selected clip. YouTube
+descriptions are requested at a hard 4,000–4,200 character range. Instagram caption text is expanded
+so the final caption approaches 2,000 characters after source credit and hashtags. A second automatic
+repair request runs when Groq's first response is too short. Instagram accepts at most 30
 hashtags per caption, so the entire supplied hashtag list cannot appear on every Reel. The full
 editable pool is stored in `instagram_hashtags.txt`; groups of 30 unique tags rotate across the Reel
 batch while every caption remains within the platform limit.
@@ -441,6 +442,9 @@ python -m shorts_bot.file_queue --rebuild JOB_ID
 ```
 
 The old platform posts remain online and must be deleted manually after checking the replacements.
+`--rebuild` now removes every stale `short-*.mp4` and thumbnail before starting, resets metadata so
+long descriptions/captions are regenerated, and validates any existing MP4 before reuse. This avoids
+`moov atom not found` failures caused by interrupted partial files.
 
 ### FFmpeg not found
 

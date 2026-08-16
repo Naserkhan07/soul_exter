@@ -298,6 +298,16 @@ class WorkflowPipeline:
             if clip.output_path
             else (job_dir / f"short-{clip.clip_index:03d}.mp4")
         )
+        if output_path.exists():
+            try:
+                existing_duration = await asyncio.to_thread(
+                    self.services.media.probe_duration,
+                    output_path,
+                )
+                if existing_duration < max(1, plan.duration_seconds - 1):
+                    output_path.unlink(missing_ok=True)
+            except WorkflowError:
+                output_path.unlink(missing_ok=True)
         if not output_path.exists():
             await self._status(
                 job.id,
