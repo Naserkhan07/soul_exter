@@ -305,6 +305,18 @@ not export or commit them. Browser cookies provide account access, so never shar
 If the wrong browser profile is selected, set `YTDLP_BROWSER_PROFILE` to its profile name, such as
 `Default` or `Profile 1`.
 
+### YouTube says "Requested format is not available"
+
+Pull the latest project update and retry. The downloader prefers MP4 streams but now falls back to
+any available separate video/audio formats and merges them into a temporary MKV source. FFmpeg still
+renders the final Short as an MP4.
+
+```powershell
+git pull origin arena/01a00af0-soul-exter
+python -m pip install --upgrade yt-dlp
+python -m shorts_bot.file_queue --once
+```
+
 ### YouTube download connection reset on Windows
 
 Update the downloader and retry the same URL:

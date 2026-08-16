@@ -63,9 +63,12 @@ class VideoDownloader:
         browser_profile: str = "",
     ) -> dict[str, object]:
         options: dict[str, object] = {
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            # Prefer broadly compatible MP4 streams, then accept any separate video/audio
+            # formats. FFmpeg reads the universal MKV merge and still renders the final Short
+            # as MP4, so WebM-only/VP9/Opus sources are supported too.
+            "format": ("bestvideo*[ext=mp4]+bestaudio[ext=m4a]/bestvideo*+bestaudio/best"),
             "outtmpl": output_template,
-            "merge_output_format": "mp4",
+            "merge_output_format": "mkv",
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
