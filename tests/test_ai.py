@@ -102,6 +102,41 @@ async def test_retries_with_smaller_transcript_when_prompt_is_too_large() -> Non
     assert prompt_sizes[1] < prompt_sizes[0]
 
 
+async def test_retries_json_generation_with_larger_completion_budget() -> None:
+    token_budgets: list[int] = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):  # noqa: ANN003, ANN201
+            token_budgets.append(kwargs["max_tokens"])
+            if len(token_budgets) == 1:
+                response = httpx.Response(
+                    400,
+                    request=httpx.Request("POST", "https://api.groq.com/test"),
+                )
+                raise APIStatusError(
+                    "json_validate_failed: max completion tokens reached",
+                    response=response,
+                    body={},
+                )
+            message = SimpleNamespace(content='{"title": "Complete"}')
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    planner = AIPlanner(
+        api_key="test-key",
+        model="small-model",
+        fallback_model="small-model",
+        transcription_model="whisper-large-v3-turbo",
+    )
+    planner.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=FakeCompletions())
+    )
+
+    payload = await planner._request_plan("prompt", max_tokens=650)
+
+    assert payload == {"title": "Complete"}
+    assert token_budgets == [650, 2_050]
+
+
 async def test_uses_fallback_model_when_primary_is_rate_limited() -> None:
     requested_models: list[str] = []
 

@@ -286,35 +286,48 @@ repetition, and return only the corrected JSON object.
             models.append(self.fallback_model)
 
         last_rate_limit: RateLimitError | None = None
+        token_budgets = [max_tokens]
+        if max_tokens < 4_000:
+            token_budgets.append(min(4_000, max_tokens + 1_400))
+
         for model in models:
-            try:
-                response = await self.client.chat.completions.create(
-                    model=model,
-                    temperature=0.3,
-                    max_tokens=max_tokens,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
-                )
-                content = response.choices[0].message.content
-                if not content:
-                    raise AIError(f"Groq model {model} returned an empty editing plan.")
-                return json.loads(content)
-            except RateLimitError as exc:
-                last_rate_limit = exc
-                continue
-            except APIStatusError as exc:
-                if exc.status_code == 413:
-                    raise _PromptTooLargeError(str(exc)) from exc
-                raise AIError(f"Groq clip planning with {model} failed: {exc}") from exc
-            except AIError:
-                raise
-            except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
-                raise AIError(f"Groq model {model} returned an invalid editing plan.") from exc
-            except Exception as exc:
-                raise AIError(f"Groq clip planning with {model} failed: {exc}") from exc
+            for token_budget in token_budgets:
+                try:
+                    response = await self.client.chat.completions.create(
+                        model=model,
+                        temperature=0.3,
+                        max_tokens=token_budget,
+                        response_format={"type": "json_object"},
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": prompt},
+                        ],
+                    )
+                    content = response.choices[0].message.content
+                    if not content:
+                        raise AIError(f"Groq model {model} returned an empty editing plan.")
+                    return json.loads(content)
+                except RateLimitError as exc:
+                    last_rate_limit = exc
+                    break
+                except APIStatusError as exc:
+                    detail = str(exc).lower()
+                    truncated_json = (
+                        exc.status_code == 400
+                        and "json_validate_failed" in detail
+                        and "max completion tokens" in detail
+                    )
+                    if truncated_json and token_budget != token_budgets[-1]:
+                        continue
+                    if exc.status_code == 413:
+                        raise _PromptTooLargeError(str(exc)) from exc
+                    raise AIError(f"Groq clip planning with {model} failed: {exc}") from exc
+                except AIError:
+                    raise
+                except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
+                    raise AIError(f"Groq model {model} returned an invalid editing plan.") from exc
+                except Exception as exc:
+                    raise AIError(f"Groq clip planning with {model} failed: {exc}") from exc
 
         raise AIError(
             "Groq daily rate limit reached for the configured planning models. "
