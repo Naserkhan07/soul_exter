@@ -397,7 +397,9 @@ Confirm that:
 - The account is Business or Creator, not a personal account.
 - The Meta app has content-publishing permission.
 - The token has not expired.
-- `channels.toml` contains the Instagram Professional Account ID, not the username.
+- `channels.toml` contains the numeric `instagram_business_account.id`, not the username,
+  Facebook Page ID, or Business Portfolio name. Retrieve it with:
+  `/me/accounts?fields=id,name,instagram_business_account{id,username},access_token`.
 
 ### A URL disappeared but a later stage failed
 

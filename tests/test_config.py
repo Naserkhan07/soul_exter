@@ -84,6 +84,25 @@ def test_rejects_duration_outside_shorts_range(monkeypatch: pytest.MonkeyPatch) 
         Settings.from_env(env_file=None)
 
 
+def test_rejects_instagram_username_instead_of_numeric_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_file = tmp_path / "channels.toml"
+    config_file.write_text(
+        '[youtube]\nchannel_id = ""\n[instagram]\nuser_id = "my.username"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("UPLOAD_INSTAGRAM", "true")
+    monkeypatch.setenv("INSTAGRAM_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("GROQ_API_KEY", "key")
+    monkeypatch.setenv("RIGHTS_ACKNOWLEDGED", "true")
+    settings = Settings.from_env(env_file=None)
+
+    with pytest.raises(ConfigurationError, match="numeric Professional Account ID"):
+        settings.validate_pipeline()
+
+
 def test_requires_rights_acknowledgement(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GROQ_API_KEY", "key")
     settings = Settings.from_env(env_file=None)

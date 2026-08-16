@@ -194,6 +194,11 @@ class Settings:
                     f"Add your Instagram professional account user_id to "
                     f"{self.channel_config_file}."
                 )
+            if not self.instagram_user_id.isdigit():
+                raise ConfigurationError(
+                    "Instagram user_id must be the numeric Professional Account ID returned by "
+                    "instagram_business_account.id, not a username or Business Portfolio name."
+                )
             if not self.instagram_access_token:
                 raise ConfigurationError(
                     "INSTAGRAM_ACCESS_TOKEN is required for Instagram publishing."
