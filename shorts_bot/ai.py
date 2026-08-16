@@ -88,14 +88,14 @@ inside one contiguous block; never bridge an omission marker. Reject weak or rep
 --- END UNTRUSTED TRANSCRIPT ---
 
 Return a JSON object with a `clips` array ordered by start time. Keep each YouTube title under 90
-characters before #Shorts. Keep each YouTube description under 240 characters with 2-4 hashtags.
-Keep each Instagram caption under 300 characters with 3-6 hashtags. Do not add #Shorts, #Reels,
-or source attribution; the application adds them.
+characters before #Shorts. Keep each YouTube description informative and under 450 characters with
+2-4 hashtags. Keep each Instagram caption engaging and under 500 characters with 3-6 hashtags.
+Do not add #Shorts, #Reels, or source attribution; the application adds them.
 """
             try:
                 payload = await self._request_plan(
                     prompt,
-                    max_tokens=min(2_200, 500 + target_clips * 170),
+                    max_tokens=min(2_600, 600 + target_clips * 200),
                 )
                 return normalize_plans(
                     payload,
