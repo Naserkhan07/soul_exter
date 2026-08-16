@@ -4,7 +4,13 @@ from types import SimpleNamespace
 import httpx
 from groq import APIStatusError, RateLimitError
 
-from shorts_bot.ai import AIPlanner, compact_transcript, normalize_plan, normalize_plans
+from shorts_bot.ai import (
+    AIPlanner,
+    apply_instagram_hashtags,
+    compact_transcript,
+    normalize_plan,
+    normalize_plans,
+)
 from shorts_bot.models import SourceVideo
 
 
@@ -82,7 +88,7 @@ async def test_retries_with_smaller_transcript_when_prompt_is_too_large() -> Non
     plan = await planner.create_plan(Path("unused.mp3"), source())
 
     assert plan.start_seconds == 1
-    assert len(prompt_sizes) == 2
+    assert len(prompt_sizes) == 3  # two selection attempts, then metadata enrichment
     assert prompt_sizes[1] < prompt_sizes[0]
 
 
@@ -128,6 +134,17 @@ def test_compacts_long_transcript_across_full_timeline() -> None:
     assert "TIMELINE OMITTED" in compacted
     assert "Segment 0" in compacted
     assert "Segment 1999" in compacted
+
+
+def test_instagram_caption_enforces_thirty_hashtag_and_character_limits() -> None:
+    tags = [f"#tag{index}" for index in range(40)]
+    caption = apply_instagram_hashtags("Detailed caption #oldtag", tags, max_chars=2_000)
+
+    assert len(caption) <= 2_000
+    assert "#oldtag" not in caption
+    assert caption.count("#") == 30
+    assert "#tag29" in caption
+    assert "#tag30" not in caption
 
 
 def test_normalizes_multiple_non_overlapping_plans() -> None:

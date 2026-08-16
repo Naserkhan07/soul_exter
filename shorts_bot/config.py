@@ -83,7 +83,11 @@ class Settings:
     instagram_user_id: str
     instagram_access_token: str
     instagram_graph_api_version: str
+    instagram_hashtags_file: Path
     upload_instagram: bool
+    youtube_description_target_chars: int
+    instagram_caption_target_chars: int
+    groq_metadata_delay_seconds: int
     clip_duration_seconds: int
     max_shorts_per_video: int
     work_dir: Path
@@ -134,7 +138,13 @@ class Settings:
             ),
             instagram_access_token=os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip(),
             instagram_graph_api_version=os.getenv("INSTAGRAM_GRAPH_API_VERSION", "v26.0").strip(),
+            instagram_hashtags_file=Path(
+                os.getenv("INSTAGRAM_HASHTAGS_FILE", "instagram_hashtags.txt")
+            ).expanduser(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
+            youtube_description_target_chars=_int_env("YOUTUBE_DESCRIPTION_TARGET_CHARS", 4_200),
+            instagram_caption_target_chars=_int_env("INSTAGRAM_CAPTION_TARGET_CHARS", 2_000),
+            groq_metadata_delay_seconds=_int_env("GROQ_METADATA_DELAY_SECONDS", 30),
             clip_duration_seconds=_int_env("CLIP_DURATION_SECONDS", 25),
             max_shorts_per_video=_int_env("MAX_SHORTS_PER_VIDEO", 10),
             work_dir=work_dir,
@@ -157,6 +167,14 @@ class Settings:
             raise ConfigurationError("CLIP_DURATION_SECONDS must be between 20 and 30.")
         if not 1 <= self.max_shorts_per_video <= 50:
             raise ConfigurationError("MAX_SHORTS_PER_VIDEO must be between 1 and 50.")
+        if not 500 <= self.youtube_description_target_chars <= 4_500:
+            raise ConfigurationError(
+                "YOUTUBE_DESCRIPTION_TARGET_CHARS must be between 500 and 4500."
+            )
+        if not 300 <= self.instagram_caption_target_chars <= 2_000:
+            raise ConfigurationError("INSTAGRAM_CAPTION_TARGET_CHARS must be between 300 and 2000.")
+        if not 0 <= self.groq_metadata_delay_seconds <= 120:
+            raise ConfigurationError("GROQ_METADATA_DELAY_SECONDS must be between 0 and 120.")
         if self.youtube_privacy_status not in {"private", "unlisted", "public"}:
             raise ConfigurationError("YOUTUBE_PRIVACY_STATUS must be private, unlisted, or public.")
         if not re.fullmatch(r"v\d+\.\d+", self.instagram_graph_api_version):
@@ -210,6 +228,19 @@ class Settings:
             raise ConfigurationError(
                 "Enable UPLOAD_YOUTUBE or UPLOAD_INSTAGRAM for the automated link queue."
             )
+
+    def instagram_hashtags(self) -> list[str]:
+        if not self.instagram_hashtags_file.exists():
+            return []
+        text = self.instagram_hashtags_file.read_text(encoding="utf-8")
+        tags: list[str] = []
+        seen: set[str] = set()
+        for token in re.findall(r"#[\w]+", text, flags=re.UNICODE):
+            normalized = token.casefold()
+            if normalized not in seen:
+                tags.append(token)
+                seen.add(normalized)
+        return tags
 
     def prepare_directories(self) -> None:
         self.work_dir.mkdir(parents=True, exist_ok=True)

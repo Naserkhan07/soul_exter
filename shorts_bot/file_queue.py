@@ -69,6 +69,7 @@ async def run_file_queue(
     settings: Settings,
     watch: bool = True,
     resume_job_id: str | None = None,
+    expand_job_id: str | None = None,
 ) -> int:
     settings.validate_file_queue()
     settings.prepare_directories()
@@ -92,15 +93,21 @@ async def run_file_queue(
         on_status=report,
         on_downloaded=downloaded,
     )
-    if resume_job_id:
-        job = repository.get(resume_job_id)
+    selected_job_id = expand_job_id or resume_job_id
+    if selected_job_id:
+        job = repository.get(selected_job_id)
         if not job:
             print(
-                f"Job {resume_job_id} was not found in {settings.database_path}.", file=sys.stderr
+                f"Job {selected_job_id} was not found in {settings.database_path}.", file=sys.stderr
             )
             return 1
-        print(f"[{job.id}] reusing its existing downloaded source", flush=True)
-        result = await pipeline.process(job.id, reuse_downloaded=True)
+        action = "expanding into multiple clips" if expand_job_id else "resuming"
+        print(f"[{job.id}] reusing its existing downloaded source and {action}", flush=True)
+        result = await pipeline.process(
+            job.id,
+            reuse_downloaded=True,
+            expand_existing=bool(expand_job_id),
+        )
         return 1 if result.error else 0
 
     any_failures = False
@@ -139,7 +146,12 @@ def main() -> None:
     mode.add_argument(
         "--resume",
         metavar="JOB_ID",
-        help="Reuse a previously downloaded source and retry AI/render/upload stages",
+        help="Reuse a previously downloaded source and retry unfinished stages",
+    )
+    mode.add_argument(
+        "--expand",
+        metavar="JOB_ID",
+        help="Turn a legacy single-clip job into a new multi-clip batch",
     )
     args = parser.parse_args()
     try:
@@ -147,8 +159,9 @@ def main() -> None:
         exit_code = asyncio.run(
             run_file_queue(
                 settings,
-                watch=not args.once and not args.resume,
+                watch=not args.once and not args.resume and not args.expand,
                 resume_job_id=args.resume,
+                expand_job_id=args.expand,
             )
         )
     except ConfigurationError as exc:

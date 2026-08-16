@@ -47,6 +47,10 @@ class WorkflowServices:
                 transcription_model=settings.groq_transcription_model,
                 target_duration=settings.clip_duration_seconds,
                 max_transcript_chars=settings.groq_max_transcript_chars,
+                youtube_description_target_chars=settings.youtube_description_target_chars,
+                instagram_caption_target_chars=settings.instagram_caption_target_chars,
+                instagram_hashtags=settings.instagram_hashtags(),
+                metadata_delay_seconds=settings.groq_metadata_delay_seconds,
             ),
             youtube_uploader=(
                 YouTubeUploader(
@@ -84,7 +88,12 @@ class WorkflowPipeline:
         self.on_status = on_status
         self.on_downloaded = on_downloaded
 
-    async def process(self, job_id: str, reuse_downloaded: bool = False) -> Job:
+    async def process(
+        self,
+        job_id: str,
+        reuse_downloaded: bool = False,
+        expand_existing: bool = False,
+    ) -> Job:
         job = self.repository.get(job_id)
         if not job:
             raise KeyError(f"Unknown job {job_id}")
@@ -92,7 +101,12 @@ class WorkflowPipeline:
 
         try:
             existing_clips = self.repository.list_clips(job.id)
-            if reuse_downloaded and not existing_clips and self._has_legacy_render(job):
+            if (
+                reuse_downloaded
+                and not expand_existing
+                and not existing_clips
+                and self._has_legacy_render(job)
+            ):
                 return await self._resume_legacy_render(job)
 
             if reuse_downloaded:

@@ -126,6 +126,10 @@ GROQ_MODEL=llama-3.1-8b-instant
 GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
 GROQ_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
 GROQ_MAX_TRANSCRIPT_CHARS=8000
+GROQ_METADATA_DELAY_SECONDS=30
+YOUTUBE_DESCRIPTION_TARGET_CHARS=4200
+INSTAGRAM_CAPTION_TARGET_CHARS=2000
+INSTAGRAM_HASHTAGS_FILE=instagram_hashtags.txt
 MAX_SHORTS_PER_VIDEO=10
 RIGHTS_ACKNOWLEDGED=true
 ```
@@ -135,6 +139,13 @@ backend so no model is downloaded to the laptop. Kaggle notebooks are useful for
 batch GPU experiments, but their sessions are temporary and do not provide a dependable always-on
 API for this unattended local queue; using a tunneled notebook would stop whenever the Kaggle
 session ends.
+
+Detailed metadata is generated in a separate paced Groq request for every selected clip. This is
+slower, but permits descriptions targeting roughly 4,200 characters and Instagram captions up to
+2,000 characters without exceeding the 8B model's free-tier TPM limit. Instagram accepts at most 30
+hashtags per caption, so the entire supplied hashtag list cannot appear on every Reel. The full
+editable pool is stored in `instagram_hashtags.txt`; the first 30 unique tags are appended while the
+caption remains within the platform length limit.
 
 ## 4. Configure local account IDs
 
@@ -247,6 +258,13 @@ If a downloaded job later fails during AI, rendering, or upload, retry it withou
 python -m shorts_bot.file_queue --resume JOB_ID
 ```
 
+A job created before multi-clip support keeps its already-published single Short when resumed. To
+reuse its downloaded source and create a new multi-clip batch, run:
+
+```bash
+python -m shorts_bot.file_queue --expand JOB_ID
+```
+
 ## One-off URL command
 
 To process URLs without editing `links.txt`:
@@ -274,6 +292,10 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `GROQ_FALLBACK_MODEL` | `llama-3.1-8b-instant` | Used if the primary model is rate-limited |
 | `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Timestamped transcription |
 | `GROQ_MAX_TRANSCRIPT_CHARS` | `8000` | Sampled planning transcript budget |
+| `GROQ_METADATA_DELAY_SECONDS` | `30` | Pacing between detailed per-clip metadata calls |
+| `YOUTUBE_DESCRIPTION_TARGET_CHARS` | `4200` | Target detailed description length, max 4500 |
+| `INSTAGRAM_CAPTION_TARGET_CHARS` | `2000` | Caption limit including hashtags, max 2000 |
+| `INSTAGRAM_HASHTAGS_FILE` | `instagram_hashtags.txt` | Editable hashtag pool; first 30 unique tags used |
 | `YTDLP_COOKIES_FROM_BROWSER` | empty | Local signed-in browser cookies for YouTube |
 | `YTDLP_BROWSER_PROFILE` | empty | Optional browser profile name/path |
 | `CHANNEL_CONFIG_FILE` | `channels.toml` | Local non-secret account IDs |
