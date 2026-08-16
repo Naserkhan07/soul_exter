@@ -13,6 +13,7 @@ Execution engine.
 """
 import copy
 import json
+import os
 import threading
 import time
 import uuid
@@ -108,6 +109,12 @@ class TradingEngine:
         self.counters = {"price_ticks": 0, "council_runs": 0, "news_refreshes": 0,
                          "patterns_seen": 0, "llm_calls": 0, "skipped_closed": 0}
         self.interval = "5m"             # selected analysis timeframe
+        # ---- ASSET SELECTION: only ticked assets get analyzed/tracked ----
+        # empty set = track everything. Persisted to data_store/selection.json
+        self.selected = self._load_selection()
+        # ---- AUTO accuracy gate: council total confidence must be >= this
+        # (with LLM votes included) for the bot to place a trade itself
+        self.auto_min_conf = float(os.getenv("AUTO_MIN_CONFIDENCE", "75"))
         self.final_setup = None          # the ONE best trade setup right now
         self.symbol_cooldown = {}        # symbol -> ts until which no re-entry
         self.confirm_count = {}          # symbol -> (side, consecutive confirmations)
@@ -116,6 +123,46 @@ class TradingEngine:
         self.day_pnl = 0.0               # realized PnL today
         self.day_stamp = time.strftime("%Y-%m-%d")
         self._load()
+
+    SELECTION_PATH = config.DATA_DIR / "selection.json"
+
+    def _load_selection(self):
+        try:
+            data = json.loads(self.SELECTION_PATH.read_text(encoding="utf-8"))
+            return set(data.get("selected", []))
+        except Exception:
+            return set()
+
+    def set_selection(self, symbols):
+        """Set which assets to analyze. Empty list = ALL assets."""
+        valid = {a["symbol"] for a in config.WATCHLIST}
+        sel = {s for s in symbols if s in valid}
+        with self.lock:
+            self.selected = sel
+            # retire signals for now-unselected assets
+            for sym, sig in list(self.signals.items()):
+                if sel and sym not in sel and sig["status"] == "waiting":
+                    sig["status"] = "expired"
+            self.final_setup = None
+        try:
+            self.SELECTION_PATH.write_text(
+                json.dumps({"selected": sorted(sel)}), encoding="utf-8")
+        except Exception:
+            pass
+        if sel:
+            self.log(f"Asset selection: tracking ONLY {len(sel)} assets: "
+                     f"{', '.join(sorted(sel)[:10])}"
+                     + ("..." if len(sel) > 10 else "")
+                     + " - all others ignored (saves tokens/CPU)")
+            self.act("analyze", f"selection changed: analyzing only "
+                     f"{len(sel)} ticked assets")
+        else:
+            self.log("Asset selection cleared: tracking ALL assets")
+        return sorted(sel)
+
+    def is_selected(self, symbol):
+        """True if this asset should be analyzed (empty selection = all)."""
+        return not self.selected or symbol in self.selected
 
     def set_interval(self, interval):
         from . import feeds
@@ -237,6 +284,20 @@ class TradingEngine:
             fetched = 0
             for asset in config.WATCHLIST:
                 try:
+                    if not self.is_selected(asset["symbol"]):
+                        # unselected: no fetch, no analysis - zero cost
+                        with self.lock:
+                            q = self.market.get(asset["symbol"])
+                            if not q or q.get("source") != "-":
+                                self.market[asset["symbol"]] = {
+                                    "symbol": asset["symbol"], "name": asset["name"],
+                                    "type": asset["type"], "price": None,
+                                    "change_pct": 0.0, "tick": "down",
+                                    "source": "-", "ts": time.time(),
+                                    "market_open": None, "venue": "",
+                                    "session": "not selected", "unselected": True,
+                                }
+                        continue
                     mh = market_hours.market_status(asset)
                     if not mh["open"]:
                         # CLOSED market: do NOT fetch/scan - keep last known quote
@@ -522,6 +583,9 @@ class TradingEngine:
             asset = config.WATCHLIST[self.scan_idx % len(config.WATCHLIST)]
             self.scan_idx += 1
             try:
+                if not self.is_selected(asset["symbol"]):
+                    time.sleep(0.05)   # avoid busy-spin over unselected assets
+                    continue           # unselected: never analyzed, zero tokens
                 # market timing check: skip analysis when the market is CLOSED
                 mh = market_hours.market_status(asset)
                 if not mh["open"]:
@@ -616,39 +680,89 @@ class TradingEngine:
         self.confirm_count[sym] = (side, streak)
 
         if self.auto_trade:
-            # AUTO trades demand a HIGHER quality bar than the signal deck:
-            # +10 confidence points, HTF alignment AND the signal must
-            # CONFIRM on 2 consecutive scans (kills one-scan flickers that
-            # were instant SL fodder). Manual clicks can take any signal.
+            # AUTO trades demand the FULL accuracy check:
+            #   1. HTF alignment (with the higher timeframe trend)
+            #   2. 2 consecutive confirmation scans (no one-scan flickers)
+            #   3. FULL-COUNCIL ACCURACY >= auto_min_conf (default 75%):
+            #      the verdict must include Gemini + Groq LLM votes - if this
+            #      analysis pass didn't ask them, we re-ask with all engines
+            #      and only place when total confidence >= 75.
+            # Manual clicks can still take any deck signal.
             htf = v.get("htf") or {}
-            if v["confidence"] < self.min_conf + 10:
-                if fresh:
-                    self.act("skip", f"{sym}: signal shown but below AUTO bar "
-                             f"({v['confidence']:.0f} < {self.min_conf + 10:.0f})")
-            elif htf.get("bias") and not htf.get("aligned"):
+            had_llms = any(k in verdict.get("members", {}) for k in ("gemini", "groq"))
+            if htf.get("bias") and not htf.get("aligned"):
                 if fresh:
                     self.act("skip", f"{sym}: AUTO skipped - counter-trend vs "
                              f"{htf.get('tf')} (you can still place it manually)")
             elif streak < 2:
                 self.act("skip", f"{sym}: waiting for confirmation scan "
                          f"({streak}/2) before AUTO entry")
+            elif v["confidence"] < self.auto_min_conf - 15 :
+                # not even close - don't waste LLM tokens re-asking
+                if fresh:
+                    self.act("skip", f"{sym}: {v['confidence']:.0f}% - far below "
+                             f"the {self.auto_min_conf:.0f}% accuracy gate")
             else:
-                # PULLBACK ENTRY: instead of chasing at market, queue a limit
-                # order at a 0.35*ATR retracement. Better entry = SL further
-                # from noise + TP effectively closer = both hit rates improve.
-                atr_p = abs(plan["entry"] - plan["sl"]) / 2.2
-                pull = 0.35 * atr_p
-                limit_px = plan["entry"] - pull if side == "BUY" \
-                    else plan["entry"] + pull
-                with self.lock:
-                    self.pending_orders[sym] = {
-                        "symbol": sym, "side": side, "limit": limit_px,
-                        "created": time.time(), "expires": time.time() + 600,
-                        "signal_id": self.signals[sym]["id"],
-                    }
-                self.act("signal", f"{sym}: pullback limit {side} @ {limit_px:.6g} "
-                         f"queued (entry improves by {pull:.6g}); fills if price "
-                         "retraces within 10min, else market entry")
+                # ensure the verdict includes ALL engines + LLM votes
+                full_v = verdict
+                if not had_llms:
+                    self.act("analyze", f"{sym}: accuracy check - asking the FULL "
+                             "council (Jarvis + Gemini + Groq + all engines) "
+                             f"for >= {self.auto_min_conf:.0f}% agreement")
+                    try:
+                        full_v = council.analyze(asset, use_llms=True,
+                                                 interval=self.interval)
+                        with self.lock:
+                            self.last_analysis[sym] = full_v
+                            self.counters["llm_calls"] += 2
+                    except Exception:
+                        full_v = verdict
+                fv = full_v["verdict"]
+                llm_votes = {k: (full_v["members"].get(k) or {}).get("score")
+                             for k in ("gemini", "groq")}
+                same_dir = fv["direction"] == v["direction"]
+                gate_ok = False
+                if not same_dir:
+                    self.act("skip", f"{sym}: full council flipped direction "
+                             "on the accuracy check - no auto trade")
+                elif fv["confidence"] < self.auto_min_conf:
+                    self.act("skip", f"{sym}: total accuracy {fv['confidence']:.0f}% "
+                             f"< {self.auto_min_conf:.0f}% gate "
+                             f"(gemini={llm_votes['gemini']}, groq={llm_votes['groq']}) "
+                             "- signal stays in deck for manual")
+                else:
+                    self.act("signal", f"{sym}: ACCURACY GATE PASSED "
+                             f"{fv['confidence']:.0f}% >= {self.auto_min_conf:.0f}% "
+                             f"(all engines + Jarvis + Gemini + Groq agree "
+                             f"{fv['direction']})")
+                    # refresh signal plan with the full verdict
+                    with self.lock:
+                        s2 = self.signals.get(sym)
+                        if s2 and s2["status"] == "waiting":
+                            s2["confidence"] = fv["confidence"]
+                            s2["members"] = {k: m["score"] for k, m
+                                             in full_v["members"].items()}
+                    plan = full_v["plan"]
+                    gate_ok = True
+                if gate_ok:
+                    # PULLBACK ENTRY: instead of chasing at market, queue a
+                    # limit order at a 0.35*ATR retracement. Better entry =
+                    # SL further from noise + TP closer = both rates improve.
+                    atr_p = abs(plan["entry"] - plan["sl"]) / 2.2
+                    pull = 0.35 * atr_p
+                    limit_px = plan["entry"] - pull if side == "BUY" \
+                        else plan["entry"] + pull
+                    with self.lock:
+                        self.pending_orders[sym] = {
+                            "symbol": sym, "side": side, "limit": limit_px,
+                            "created": time.time(),
+                            "expires": time.time() + 600,
+                            "signal_id": self.signals[sym]["id"],
+                        }
+                    self.act("signal", f"{sym}: pullback limit {side} @ "
+                             f"{limit_px:.6g} queued (entry improves by "
+                             f"{pull:.6g}); fills if price retraces within "
+                             "10min, else market entry")
 
     def _check_pending_order(self, symbol, price):
         """Fill pullback limit orders; on expiry take market entry if the
@@ -932,6 +1046,9 @@ class TradingEngine:
                 "min_confidence": self.min_conf,
                 "risk_pct": self.risk_pct,
                 "trade_capital": self.trade_capital,
+                "auto_min_conf": self.auto_min_conf,
+                "selected_assets": sorted(self.selected),
+                "tracking_all": not self.selected,
                 "balance": round(self.broker.balance, 2),
                 "equity": round(self.broker.equity, 2),
                 "open_positions": copy.deepcopy(list(self.broker.positions.values())),

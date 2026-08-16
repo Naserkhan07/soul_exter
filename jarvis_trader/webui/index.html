@@ -186,6 +186,8 @@ button.danger{background:#2b0f16;border-color:var(--red);color:var(--red)}
       padding:3px 8px"><input type="checkbox" id="autoTrade"/> <b>AUTO-TRADE</b></label>
     <span class="dim" style="font-size:9px">CONF</span>
     <input type="number" id="minConf" style="width:52px" min="0" max="100" step="5"/>
+    <span class="dim" style="font-size:9px" title="AUTO trades only place when the FULL council (all engines + Jarvis + Gemini + Groq) total confidence is at least this">🎯 AUTO≥</span>
+    <input type="number" id="autoMinConf" style="width:52px;border-color:var(--purple)" min="0" max="96" step="5"/>
     <span class="dim" style="font-size:9px">RISK%</span>
     <input type="number" id="riskPct" style="width:52px" min="0.1" max="5" step="0.1"/>
     <span class="gold" style="font-size:9px;font-weight:700">💰 MY CAPITAL</span>
@@ -203,8 +205,14 @@ button.danger{background:#2b0f16;border-color:var(--red);color:var(--red)}
 <!-- ============ LOWER DECK ============ -->
 <div id="lower">
   <div class="panel">
-    <div class="hd"><span>🗂 MARKET WATCH — click any asset for its live chart</span>
+    <div class="hd"><span>🗂 MARKET WATCH — ✔ tick = analyze · click name = chart</span>
       <span id="mwCount">--</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:4px">
+      <button onclick="selAll(true)" style="padding:2px 8px;font-size:9px">✔ ALL</button>
+      <button onclick="selAll(false)" style="padding:2px 8px;font-size:9px">✖ NONE</button>
+      <button onclick="applySelection()" class="primary" style="padding:2px 10px;font-size:9px">APPLY SELECTION</button>
+      <span class="dim" style="font-size:9px;align-self:center" id="selInfo"></span>
+    </div>
     <input id="mwSearch" placeholder="search symbol… (BTC, EUR, NIFTY…)"
       style="width:100%;background:var(--panel2);border:1px solid var(--border2);
       color:var(--txt);border-radius:3px;padding:5px 8px;font:11px monospace;margin-bottom:6px"/>
@@ -465,6 +473,7 @@ async function refreshStatus(){
       $('autoTrade').checked=s.auto_trade;$('minConf').value=s.min_confidence;
       $('riskPct').value=s.risk_pct;$('botTf').value=s.interval;
       $('tradeCap').value=s.trade_capital>0?s.trade_capital:'';
+      if(s.auto_min_conf!=null)$('autoMinConf').value=s.auto_min_conf;
     }
     /* capital KPI + auto-trade highlight */
     $('k-cap').textContent=s.trade_capital>0?Number(s.trade_capital).toLocaleString():'FULL';
@@ -632,6 +641,28 @@ async function askCouncil(){
 
 /* ================= market watch (every asset, click -> live chart) ===== */
 let mwPrices={};
+let SELECTED=new Set();   // empty = all
+function toggleSel(sym,on){
+  if(SELECTED.size===0){WATCH.forEach(a=>SELECTED.add(a.symbol));}
+  if(on)SELECTED.add(sym);else SELECTED.delete(sym);
+  $('selInfo').textContent=SELECTED.size+' ticked (press APPLY)';
+}
+function selAll(on){
+  SELECTED=new Set(on?[]:['__none__']);
+  if(!on)SELECTED.clear(),SELECTED.add('__none__'),SELECTED.delete('__none__');
+  document.querySelectorAll('.selbox').forEach(b=>b.checked=on);
+  $('selInfo').textContent=on?'all ticked (press APPLY)':'none ticked (press APPLY)';
+  if(on)SELECTED=new Set();else SELECTED=new Set(['__NONE__']);
+}
+async function applySelection(){
+  let sel=[];
+  document.querySelectorAll('.selbox').forEach(b=>{if(b.checked)sel.push(b.dataset.sym);});
+  if(sel.length===WATCH.length)sel=[];   // all ticked = track all
+  const r=await jpost('/api/selection',{selected:sel});
+  SELECTED=new Set(r.selected);
+  toast(r.tracking_all?'🗂 tracking ALL assets':'🗂 analyzing ONLY '+r.selected.length+' selected assets — rest ignored (saves tokens)');
+  $('selInfo').textContent=r.tracking_all?'tracking all':('only '+r.selected.length+' assets');
+}
 function renderMarketWatch(){
   const q=($('mwSearch').value||'').toUpperCase();
   const groups={};
@@ -649,8 +680,13 @@ function renderMarketWatch(){
       const chg=m?m.change_pct:0;
       const open=m?m.market_open!==false:true;
       const an=STATUS&&STATUS.analysis&&STATUS.analysis[a.symbol];
-      html+=`<div class="mwrow" onclick="openViewer('${a.symbol}')">
-        <span class="sym">${a.symbol}</span>
+      const isSel=SELECTED.size===0||SELECTED.has(a.symbol);
+      html+=`<div class="mwrow" style="${isSel?'':'opacity:.38'}">
+        <input type="checkbox" class="selbox" data-sym="${a.symbol}"
+          ${SELECTED.size===0||SELECTED.has(a.symbol)?'checked':''}
+          onclick="event.stopPropagation();toggleSel('${a.symbol}',this.checked)"
+          style="accent-color:var(--gold)"/>
+        <span class="sym" onclick="openViewer('${a.symbol}')" style="cursor:pointer">${a.symbol}</span>
         <span class="typ">${open?'':'⛔'}${a.type}</span>
         ${an?`<span class="badge ${an.dir==='UP'?'buy':'sell'}">${an.dir} ${Math.round(an.conf)}</span>`:''}
         <span class="px" id="mw-${a.symbol}">${px}</span>
@@ -878,6 +914,8 @@ function setPollRates(mode){
 $('autoTrade').onchange=()=>{jpost('/api/settings',{auto_trade:$('autoTrade').checked});
   toast($('autoTrade').checked?'🤖 AUTO-TRADE ON — bot will keep placing buy/sell trades with TP/SL':'AUTO-TRADE off — signals wait for your click');};
 $('minConf').onchange=()=>jpost('/api/settings',{min_confidence:+$('minConf').value});
+$('autoMinConf').onchange=()=>{jpost('/api/settings',{auto_min_conf:+$('autoMinConf').value});
+  toast('🎯 AUTO accuracy gate → '+$('autoMinConf').value+'% (full council must agree)');};
 $('riskPct').onchange=()=>jpost('/api/settings',{risk_pct:+$('riskPct').value});
 async function setCapital(){
   const v=parseFloat($('tradeCap').value)||0;
@@ -899,6 +937,8 @@ $('tradeCap').addEventListener('keydown',e=>{if(e.key==='Enter')setCapital();});
   $('layoutSel').value=n;
   buildGrid(n,saved&&saved.panes);
   refreshStatus();refreshNews();
+  try{const cs=await jget('/api/selection');SELECTED=new Set(cs.selected||[]);
+      if(!cs.tracking_all)$('selInfo').textContent='only '+cs.selected.length+' assets';}catch(e){}
   try{const pf=await jget('/api/perf');$('perfSel').value=pf.mode||'eco';
       setPollRates(pf.mode||'eco');}
   catch(e){setPollRates('eco');}

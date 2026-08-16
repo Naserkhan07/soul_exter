@@ -146,6 +146,23 @@ def api_journal():
     return ENGINE.get_journal()
 
 
+@app.get("/api/selection")
+def api_selection_get():
+    """Current asset selection (empty = tracking all)."""
+    with ENGINE.lock:
+        return {"selected": sorted(ENGINE.selected),
+                "tracking_all": not ENGINE.selected}
+
+
+@app.post("/api/selection")
+async def api_selection_set(req: Request):
+    """Set which assets to analyze. Body: {"selected": ["USDINR","XAUUSD",...]}
+    Empty list = track ALL assets."""
+    body = await req.json()
+    sel = ENGINE.set_selection(body.get("selected") or [])
+    return {"ok": True, "selected": sel, "tracking_all": not sel}
+
+
 @app.post("/api/perf/{mode}")
 def api_perf(mode: str):
     """Switch performance mode: eco | balanced | max. Applies to loops+cache."""
@@ -307,6 +324,10 @@ async def api_settings(req: Request):
         ENGINE.min_conf = float(body["min_confidence"])
     if "risk_pct" in body:
         ENGINE.risk_pct = float(body["risk_pct"])
+    if "auto_min_conf" in body:
+        ENGINE.auto_min_conf = max(0.0, min(96.0, float(body["auto_min_conf"])))
+        ENGINE.log(f"AUTO accuracy gate set to {ENGINE.auto_min_conf}% - only "
+                   "full-council verdicts above this get auto-placed")
     if "trade_capital" in body:
         ENGINE.trade_capital = max(0.0, float(body["trade_capital"]))
         cap = ENGINE.trade_capital
