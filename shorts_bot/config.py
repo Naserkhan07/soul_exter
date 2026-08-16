@@ -91,6 +91,9 @@ class Settings:
     clip_duration_seconds: int
     shorts_selection_mode: str
     max_shorts_per_video: int
+    video_layout: str
+    video_crf: int
+    video_preset: str
     work_dir: Path
     database_path: Path
     keep_work_files: bool
@@ -151,6 +154,9 @@ class Settings:
             .strip()
             .lower(),
             max_shorts_per_video=_int_env("MAX_SHORTS_PER_VIDEO", 0),
+            video_layout=os.getenv("VIDEO_LAYOUT", "blurred_background").strip().lower(),
+            video_crf=_int_env("VIDEO_CRF", 18),
+            video_preset=os.getenv("VIDEO_PRESET", "slow").strip().lower(),
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),
@@ -175,6 +181,22 @@ class Settings:
             )
         if not 0 <= self.max_shorts_per_video <= 100:
             raise ConfigurationError("MAX_SHORTS_PER_VIDEO must be between 0 and 100.")
+        if self.video_layout not in {"blurred_background", "center_crop"}:
+            raise ConfigurationError("VIDEO_LAYOUT must be blurred_background or center_crop.")
+        if not 14 <= self.video_crf <= 28:
+            raise ConfigurationError("VIDEO_CRF must be between 14 and 28.")
+        if self.video_preset not in {
+            "ultrafast",
+            "superfast",
+            "veryfast",
+            "faster",
+            "fast",
+            "medium",
+            "slow",
+            "slower",
+            "veryslow",
+        }:
+            raise ConfigurationError("VIDEO_PRESET is not a supported x264 preset.")
         if not 500 <= self.youtube_description_target_chars <= 4_500:
             raise ConfigurationError(
                 "YOUTUBE_DESCRIPTION_TARGET_CHARS must be between 500 and 4500."

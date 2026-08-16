@@ -274,6 +274,32 @@ class JobRepository:
         assert row is not None
         return self._clip_from_row(row)
 
+    def reset_clip_media(self, job_id: str) -> list[JobClip]:
+        existing = self.list_clips(job_id)
+        if not existing:
+            return []
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE job_clips
+                SET output_path = NULL, thumbnail_path = NULL,
+                    youtube_video_id = NULL, instagram_media_id = NULL,
+                    instagram_url = NULL, error = NULL
+                WHERE job_id = ?
+                """,
+                (job_id,),
+            )
+            connection.execute(
+                """
+                UPDATE jobs
+                SET output_path = NULL, youtube_video_id = NULL,
+                    instagram_media_id = NULL, instagram_url = NULL, error = NULL
+                WHERE id = ?
+                """,
+                (job_id,),
+            )
+        return existing
+
     def list_recent(self, user_id: int, limit: int = 10) -> list[Job]:
         with self._connect() as connection:
             rows = connection.execute(

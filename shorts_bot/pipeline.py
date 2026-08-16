@@ -39,7 +39,11 @@ class WorkflowServices:
                 cookies_from_browser=settings.ytdlp_cookies_from_browser,
                 browser_profile=settings.ytdlp_browser_profile,
             ),
-            media=MediaProcessor(),
+            media=MediaProcessor(
+                video_layout=settings.video_layout,
+                video_crf=settings.video_crf,
+                video_preset=settings.video_preset,
+            ),
             planner=AIPlanner(
                 api_key=settings.groq_api_key,
                 model=settings.groq_model,

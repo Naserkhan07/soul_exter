@@ -70,6 +70,7 @@ async def run_file_queue(
     watch: bool = True,
     resume_job_id: str | None = None,
     expand_job_id: str | None = None,
+    rebuild_job_id: str | None = None,
 ) -> int:
     settings.validate_file_queue()
     settings.prepare_directories()
@@ -93,7 +94,7 @@ async def run_file_queue(
         on_status=report,
         on_downloaded=downloaded,
     )
-    selected_job_id = expand_job_id or resume_job_id
+    selected_job_id = rebuild_job_id or expand_job_id or resume_job_id
     if selected_job_id:
         job = repository.get(selected_job_id)
         if not job:
@@ -101,7 +102,23 @@ async def run_file_queue(
                 f"Job {selected_job_id} was not found in {settings.database_path}.", file=sys.stderr
             )
             return 1
-        action = "expanding into multiple clips" if expand_job_id else "resuming"
+        if rebuild_job_id:
+            previous_clips = repository.reset_clip_media(job.id)
+            if not previous_clips:
+                print(
+                    f"Job {job.id} has no multi-clip batch to rebuild; use --expand first.",
+                    file=sys.stderr,
+                )
+                return 1
+            for clip in previous_clips:
+                for path_value in (clip.output_path, clip.thumbnail_path):
+                    if path_value:
+                        Path(path_value).unlink(missing_ok=True)
+            action = "rebuilding and re-uploading every clip"
+        elif expand_job_id:
+            action = "expanding into multiple clips"
+        else:
+            action = "resuming"
         print(f"[{job.id}] reusing its existing downloaded source and {action}", flush=True)
         result = await pipeline.process(
             job.id,
@@ -153,15 +170,21 @@ def main() -> None:
         metavar="JOB_ID",
         help="Turn a legacy single-clip job into a new multi-clip batch",
     )
+    mode.add_argument(
+        "--rebuild",
+        metavar="JOB_ID",
+        help="Re-render and re-upload every clip using current quality settings",
+    )
     args = parser.parse_args()
     try:
         settings = Settings.from_env()
         exit_code = asyncio.run(
             run_file_queue(
                 settings,
-                watch=not args.once and not args.resume and not args.expand,
+                watch=not args.once and not args.resume and not args.expand and not args.rebuild,
                 resume_job_id=args.resume,
                 expand_job_id=args.expand,
+                rebuild_job_id=args.rebuild,
             )
         )
     except ConfigurationError as exc:

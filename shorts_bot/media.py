@@ -9,9 +9,19 @@ from .errors import ConfigurationError, MediaError
 
 
 class MediaProcessor:
-    def __init__(self, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe") -> None:
+    def __init__(
+        self,
+        ffmpeg: str = "ffmpeg",
+        ffprobe: str = "ffprobe",
+        video_layout: str = "blurred_background",
+        video_crf: int = 18,
+        video_preset: str = "slow",
+    ) -> None:
         self.ffmpeg = ffmpeg
         self.ffprobe = ffprobe
+        self.video_layout = video_layout
+        self.video_crf = video_crf
+        self.video_preset = video_preset
 
     def check_tools(self) -> None:
         missing = [tool for tool in (self.ffmpeg, self.ffprobe) if shutil.which(tool) is None]
@@ -67,10 +77,6 @@ class MediaProcessor:
         duration_seconds: float,
     ) -> Path:
         output.parent.mkdir(parents=True, exist_ok=True)
-        # Fill a 9:16 frame. Landscape sources are center-cropped; no stretching is applied.
-        video_filter = (
-            "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30"
-        )
         command = [
             self.ffmpeg,
             "-y",
@@ -80,28 +86,62 @@ class MediaProcessor:
             str(source),
             "-t",
             f"{duration_seconds:.3f}",
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a?",
-            "-vf",
-            video_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "21",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            str(output),
+            "-sws_flags",
+            "lanczos",
         ]
+        if self.video_layout == "blurred_background":
+            video_filter = (
+                "[0:v]split=2[bg][fg];"
+                "[bg]scale=1080:1920:force_original_aspect_ratio=increase,"
+                "crop=1080:1920,boxblur=30:2[blurred];"
+                "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[front];"
+                "[blurred][front]overlay=(W-w)/2:(H-h)/2,setsar=1[v]"
+            )
+            command.extend(
+                [
+                    "-filter_complex",
+                    video_filter,
+                    "-map",
+                    "[v]",
+                    "-map",
+                    "0:a?",
+                ]
+            )
+        else:
+            video_filter = (
+                "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
+            )
+            command.extend(
+                [
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "0:a?",
+                    "-vf",
+                    video_filter,
+                ]
+            )
+        command.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                self.video_preset,
+                "-crf",
+                str(self.video_crf),
+                "-profile:v",
+                "high",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
+                str(output),
+            ]
+        )
         self._run(command, timeout=1800)
         if not output.exists() or output.stat().st_size == 0:
             raise MediaError("FFmpeg did not create the Short.")

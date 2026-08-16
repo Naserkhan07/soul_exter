@@ -134,6 +134,9 @@ INSTAGRAM_HASHTAGS_FILE=instagram_hashtags.txt
 CLIP_DURATION_SECONDS=30
 SHORTS_SELECTION_MODE=full_coverage
 MAX_SHORTS_PER_VIDEO=0
+VIDEO_LAYOUT=blurred_background
+VIDEO_CRF=18
+VIDEO_PRESET=slow
 RIGHTS_ACKNOWLEDGED=true
 ```
 
@@ -323,6 +326,9 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `CLIP_DURATION_SECONDS` | `30` | Preferred duration, 20–30 |
 | `SHORTS_SELECTION_MODE` | `full_coverage` | `full_coverage` or `ai_highlights` |
 | `MAX_SHORTS_PER_VIDEO` | `0` | `0` = duration-based automatic count; 1–100 = optional cap |
+| `VIDEO_LAYOUT` | `blurred_background` | Sharp full foreground or `center_crop` |
+| `VIDEO_CRF` | `18` | x264 quality; lower is higher quality/larger |
+| `VIDEO_PRESET` | `slow` | x264 compression preset |
 | `WORK_DIR` | `work` | Local media directory |
 | `DATABASE_PATH` | `work/jobs.db` | Local SQLite history |
 | `KEEP_WORK_FILES` | `true` | Keep local MP4s after publishing |
@@ -410,6 +416,31 @@ The workflow resumes partial downloads, forces IPv4, downloads conservatively, a
 HTTP/CDN failures with exponential backoff. A failed download does not remove its URL from
 `links.txt`. If all retries still fail, temporarily disable any VPN/proxy, allow Python through the
 firewall or antivirus web shield, or try another network such as a mobile hotspot.
+
+### Uploaded video looks blurry
+
+First wait for YouTube and Instagram to finish HD processing; immediately after upload they may only
+serve a low-resolution rendition. The default renderer preserves the complete source in a sharp
+foreground over a blurred vertical background, uses Lanczos scaling, keeps the source frame rate,
+and encodes H.264 at CRF 18 with the slow preset. Confirm `.env` contains:
+
+```dotenv
+VIDEO_LAYOUT=blurred_background
+VIDEO_CRF=18
+VIDEO_PRESET=slow
+```
+
+Landscape video cannot be center-cropped to 9:16 without taking a narrow slice and enlarging it,
+which softens detail. Use `center_crop` only when the important subject is centered. Also inspect the
+source resolution with `ffprobe`; a 360p or 480p source cannot become true 1080p through encoding.
+Existing rendered/uploaded files are not changed by a configuration update. To reuse the downloaded
+source, re-render all tracked clips with current settings, and upload new copies, run:
+
+```powershell
+python -m shorts_bot.file_queue --rebuild JOB_ID
+```
+
+The old platform posts remain online and must be deleted manually after checking the replacements.
 
 ### FFmpeg not found
 

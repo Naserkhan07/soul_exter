@@ -50,3 +50,10 @@ def test_saves_and_updates_multiple_clips(tmp_path: Path) -> None:
     assert updated.output_path == "short-001.mp4"
     assert updated.thumbnail_path == "thumbnail-001.jpg"
     assert updated.youtube_url == "https://youtube.com/shorts/youtube-1"
+
+    previous = repository.reset_clip_media(job.id)
+    reset = repository.list_clips(job.id)[0]
+    assert previous[0].youtube_video_id == "youtube-1"
+    assert reset.output_path is None
+    assert reset.thumbnail_path is None
+    assert reset.youtube_video_id is None
