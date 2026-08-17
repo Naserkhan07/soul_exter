@@ -481,15 +481,17 @@ python -m shorts_bot.file_queue --once
 
 ### YouTube says "Requested format is not available"
 
-Current YouTube downloads require an external JavaScript runtime and matching EJS challenge scripts.
-Pull the latest update and reinstall the project; it now requires a current `yt-dlp`, Deno, and
-`yt-dlp-ejs>=0.8`. The downloader always keeps the exact `bestvideo+bestaudio` selector. If exported
-account cookies expose only SABR/image formats for a public video, it retries that same selector
-without cookies rather than lowering source quality.
+Current YouTube downloads require an external JavaScript runtime, matching EJS challenge scripts,
+and sometimes a YouTube Proof-of-Origin token. Pull the latest update and reinstall the project; it
+requires a current `yt-dlp`, Deno, `yt-dlp-ejs>=0.8`, curl-cffi, and the WebPoClient token provider.
+The provider opens an automated temporary Chrome window only when YouTube requests a PO token; do not
+close that window while the download is starting. The downloader always keeps the exact
+`bestvideo+bestaudio` selector. If exported account cookies expose only SABR/image formats for a
+public video, it retries that same selector without cookies rather than lowering source quality.
 
 ```powershell
 git pull origin arena/01a00af0-soul-exter
-python -m pip install --upgrade "yt-dlp[default,deno]>=2026.7.4" "yt-dlp-ejs>=0.8,<1"
+python -m pip install --upgrade "yt-dlp[curl-cffi,default,deno]>=2026.7.4" "yt-dlp-ejs>=0.8,<1" "yt-dlp-getpot-wpc>=1.1.2,<2"
 python -m pip install -e ".[dev]"
 python -m yt_dlp --version
 deno --version
