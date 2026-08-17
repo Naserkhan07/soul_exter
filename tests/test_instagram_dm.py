@@ -56,6 +56,51 @@ async def test_sends_hosted_video_to_configured_instagram_chat(tmp_path: Path) -
     assert b"https://cdn.example.test/video.mp4" in request.content
 
 
+async def test_resolves_existing_chat_by_username_before_sending(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "conversation-1",
+                            "participants": {
+                                "data": [
+                                    {"id": "123", "username": "splitzz.isodope"},
+                                    {"id": "456", "username": "wzz.unfiltered"},
+                                ]
+                            },
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"recipient_id": "456", "message_id": "message-1"},
+        )
+
+    video = tmp_path / "short.mp4"
+    video.write_bytes(b"video")
+    messenger = InstagramDirectMessenger(
+        sender_id="123",
+        recipient_id="",
+        recipient_username="wzz.unfiltered",
+        access_token="secret-token",
+        temporary_host=FakeTemporaryHost(),
+        delay_min_seconds=0,
+        delay_max_seconds=0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert await messenger.send_video(video, "soul_exter/dm/job/clip-001") == "message-1"
+    assert messenger.recipient_id == "456"
+    assert calls == ["GET", "POST"]
+
+
 async def test_lists_recipient_igsids_and_excludes_sender() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v26.0/me/conversations"

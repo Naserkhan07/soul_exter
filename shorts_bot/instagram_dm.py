@@ -24,6 +24,7 @@ class InstagramDirectMessenger:
         recipient_id: str,
         access_token: str,
         temporary_host: TemporaryVideoHost,
+        recipient_username: str = "",
         api_version: str = "v26.0",
         delay_min_seconds: int = 3,
         delay_max_seconds: int = 4,
@@ -32,6 +33,7 @@ class InstagramDirectMessenger:
     ) -> None:
         self.sender_id = sender_id
         self.recipient_id = recipient_id
+        self.recipient_username = recipient_username.strip().lstrip("@")
         self.access_token = access_token
         self.temporary_host = temporary_host
         self.api_version = api_version
@@ -45,6 +47,7 @@ class InstagramDirectMessenger:
         if not video_path.exists():
             raise DirectMessageError(f"Instagram DM video does not exist: {video_path}")
 
+        await self._resolve_recipient_id()
         hosted_url = ""
         hosted_id = public_id
         try:
@@ -57,6 +60,36 @@ class InstagramDirectMessenger:
         finally:
             if hosted_url:
                 await self.temporary_host.delete(hosted_id)
+
+    async def _resolve_recipient_id(self) -> str:
+        if self.recipient_id:
+            return self.recipient_id
+        if not self.recipient_username:
+            raise DirectMessageError("No Instagram DM recipient was configured.")
+        chats = await list_instagram_chats(
+            self.access_token,
+            self.api_version,
+            sender_id=self.sender_id,
+            transport=self.transport,
+        )
+        matches = [
+            chat
+            for chat in chats
+            if chat["username"].casefold() == self.recipient_username.casefold()
+        ]
+        if not matches:
+            raise DirectMessageError(
+                f"No eligible Instagram chat was found for @{self.recipient_username}. "
+                "That account must send the Professional account a new message first."
+            )
+        recipient_ids = {chat["recipient_id"] for chat in matches}
+        if len(recipient_ids) != 1:
+            raise DirectMessageError(
+                f"Instagram returned multiple recipient IDs for @{self.recipient_username}; "
+                "configure INSTAGRAM_DM_RECIPIENT_ID explicitly."
+            )
+        self.recipient_id = recipient_ids.pop()
+        return self.recipient_id
 
     async def wait_before_next_message(self) -> None:
         delay = random.uniform(self.delay_min_seconds, self.delay_max_seconds)

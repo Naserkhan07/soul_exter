@@ -40,6 +40,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "SEND_INSTAGRAM_DM",
         "INSTAGRAM_DM_SENDER_ID",
         "INSTAGRAM_DM_RECIPIENT_ID",
+        "INSTAGRAM_DM_RECIPIENT_USERNAME",
         "INSTAGRAM_DM_ACCESS_TOKEN",
         "INSTAGRAM_DM_DELAY_MIN_SECONDS",
         "INSTAGRAM_DM_DELAY_MAX_SECONDS",
@@ -157,6 +158,24 @@ def test_api_market_enhancer_requires_private_hosting_credentials(
 
     with pytest.raises(ConfigurationError, match="APIMARKET_API_KEY"):
         settings.validate_pipeline()
+
+
+def test_instagram_dm_accepts_existing_chat_username(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "key")
+    monkeypatch.setenv("RIGHTS_ACKNOWLEDGED", "true")
+    monkeypatch.setenv("SEND_INSTAGRAM_DM", "true")
+    monkeypatch.setenv("INSTAGRAM_DM_SENDER_ID", "1789")
+    monkeypatch.setenv("INSTAGRAM_DM_RECIPIENT_USERNAME", "@wzz.unfiltered")
+    monkeypatch.setenv("INSTAGRAM_DM_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "cloud")
+    monkeypatch.setenv("CLOUDINARY_API_KEY", "key")
+    monkeypatch.setenv("CLOUDINARY_API_SECRET", "secret")
+    settings = Settings.from_env(env_file=None)
+
+    settings.validate_pipeline()
+    assert settings.instagram_dm_recipient_username == "wzz.unfiltered"
 
 
 def test_instagram_dm_requires_scoped_recipient_and_hosting(
