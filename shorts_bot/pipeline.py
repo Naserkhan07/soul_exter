@@ -17,6 +17,7 @@ from .downloader import VideoDownloader
 from .enhancer import APIMarketVideoEnhancer, CloudinaryTemporaryVideoHost
 from .errors import UploadLimitError, WorkflowError
 from .instagram import InstagramUploader
+from .instagram_dm import InstagramDirectMessenger
 from .media import MediaProcessor
 from .models import Job, JobClip, JobStatus, ShortPlan, SourceVideo
 from .youtube import YouTubeUploader
@@ -34,6 +35,7 @@ class WorkflowServices:
     enhancer: APIMarketVideoEnhancer | None
     youtube_uploader: YouTubeUploader | None
     instagram_uploader: InstagramUploader | None
+    instagram_messenger: InstagramDirectMessenger | None = None
 
     @classmethod
     def from_settings(cls, settings: Settings) -> WorkflowServices:
@@ -94,6 +96,23 @@ class WorkflowServices:
                     api_version=settings.instagram_graph_api_version,
                 )
                 if settings.upload_instagram
+                else None
+            ),
+            instagram_messenger=(
+                InstagramDirectMessenger(
+                    sender_id=settings.instagram_dm_sender_id,
+                    recipient_id=settings.instagram_dm_recipient_id,
+                    access_token=settings.instagram_dm_access_token,
+                    temporary_host=CloudinaryTemporaryVideoHost(
+                        cloud_name=settings.cloudinary_cloud_name,
+                        api_key=settings.cloudinary_api_key,
+                        api_secret=settings.cloudinary_api_secret,
+                    ),
+                    api_version=settings.instagram_graph_api_version,
+                    delay_min_seconds=settings.instagram_dm_delay_min_seconds,
+                    delay_max_seconds=settings.instagram_dm_delay_max_seconds,
+                )
+                if settings.send_instagram_dm
                 else None
             ),
         )
@@ -324,6 +343,8 @@ class WorkflowPipeline:
             platforms.append("YouTube")
         if self.services.instagram_uploader:
             platforms.append("Instagram")
+        if self.services.instagram_messenger:
+            platforms.append("Instagram DM")
         return platforms
 
     @staticmethod
@@ -513,6 +534,29 @@ class WorkflowPipeline:
                     JobStatus.UPLOADING,
                     "Instagram upload limit reached; continuing local generation",
                 )
+
+        if self.services.instagram_messenger and not clip.instagram_dm_message_id:
+            await self._status(
+                job.id,
+                JobStatus.UPLOADING,
+                f"Sending video {clip.clip_index}/{total_clips} to the configured Instagram chat",
+            )
+            message_id = await self.services.instagram_messenger.send_video(
+                output_path,
+                public_id=f"soul_exter/dm/{job.id}/clip-{clip.clip_index:03d}",
+            )
+            clip = self.repository.update_clip(
+                job.id,
+                clip.clip_index,
+                instagram_dm_message_id=message_id,
+                error=None,
+            )
+            await self._status(
+                job.id,
+                JobStatus.UPLOADING,
+                f"Video {clip.clip_index}/{total_clips} sent to Instagram chat",
+            )
+            await self.services.instagram_messenger.wait_before_next_message()
         return clip
 
     @staticmethod

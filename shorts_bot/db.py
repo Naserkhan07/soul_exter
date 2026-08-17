@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS job_clips (
     youtube_video_id TEXT,
     instagram_media_id TEXT,
     instagram_url TEXT,
+    instagram_dm_message_id TEXT,
     error TEXT,
     PRIMARY KEY (job_id, clip_index),
     FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
@@ -63,6 +64,7 @@ _CLIP_MIGRATION_COLUMNS = {
     "thumbnail_path": "TEXT",
     "metadata_ready": "INTEGER NOT NULL DEFAULT 0",
     "enhancement_complete": "INTEGER NOT NULL DEFAULT 0",
+    "instagram_dm_message_id": "TEXT",
 }
 
 
@@ -135,6 +137,7 @@ class JobRepository:
             youtube_video_id=row["youtube_video_id"],
             instagram_media_id=row["instagram_media_id"],
             instagram_url=row["instagram_url"],
+            instagram_dm_message_id=row["instagram_dm_message_id"],
             error=row["error"],
         )
 
@@ -261,6 +264,7 @@ class JobRepository:
             "youtube_video_id",
             "instagram_media_id",
             "instagram_url",
+            "instagram_dm_message_id",
             "error",
         }
         unknown = fields.keys() - allowed
@@ -293,7 +297,7 @@ class JobRepository:
                 SET metadata_ready = 0, enhancement_complete = 0,
                     output_path = NULL, thumbnail_path = NULL,
                     youtube_video_id = NULL, instagram_media_id = NULL,
-                    instagram_url = NULL, error = NULL
+                    instagram_url = NULL, instagram_dm_message_id = NULL, error = NULL
                 WHERE job_id = ?
                 """,
                 (job_id,),

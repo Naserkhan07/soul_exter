@@ -31,6 +31,7 @@ shorts-local = "shorts_bot.file_queue:main"
 shorts-cli = "shorts_bot.cli:main"
 shorts-queue = "shorts_bot.file_queue:main"
 shorts-auth = "shorts_bot.youtube_auth:main"
+instagram-dm-chats = "shorts_bot.instagram_dm:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

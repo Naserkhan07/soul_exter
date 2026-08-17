@@ -61,6 +61,7 @@ class JobClip:
     youtube_video_id: str | None
     instagram_media_id: str | None
     instagram_url: str | None
+    instagram_dm_message_id: str | None
     error: str | None
 
     @property

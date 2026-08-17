@@ -54,6 +54,8 @@ def build_job_folder(
             "youtube_url",
             "instagram_status",
             "instagram_url",
+            "instagram_dm_status",
+            "instagram_dm_message_id",
             "title",
             "youtube_description",
             "instagram_caption",
@@ -71,6 +73,8 @@ def build_job_folder(
                 clip.youtube_url or "",
                 "uploaded" if clip.instagram_media_id else "pending",
                 clip.instagram_url or "",
+                "sent" if clip.instagram_dm_message_id else "pending",
+                clip.instagram_dm_message_id or "",
                 clip.title,
                 clip.description,
                 clip.instagram_caption,
@@ -95,7 +99,7 @@ def build_job_folder(
             "This folder was created because a platform upload limit was reached.\n"
             "Open videos/ for MP4 files and thumbnails/ for covers.\n"
             "metadata.json and upload-manifest.csv contain titles, descriptions, captions, "
-            "platform URLs, and pending status.\n",
+            "platform URLs, DM message IDs, and pending status.\n",
             encoding="utf-8",
         )
         for clip in clips:
@@ -140,5 +144,6 @@ def _clip_metadata(clip: JobClip) -> dict[str, object]:
         "youtube_url": clip.youtube_url,
         "instagram_media_id": clip.instagram_media_id,
         "instagram_url": clip.instagram_url,
+        "instagram_dm_message_id": clip.instagram_dm_message_id,
         "error": clip.error,
     }

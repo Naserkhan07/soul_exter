@@ -233,6 +233,42 @@ The local program:
 
 Meta controls final visibility and can reject expired tokens, missing permissions, unsupported accounts, or policy-violating media.
 
+### Send every completed video to one Instagram chat
+
+The official Instagram Messaging API can send each final MP4 from the Professional account to one
+existing chat. The destination account must first send a new message to the Professional account.
+Use an Instagram Login token with `instagram_business_manage_messages`; a content-publishing token
+without that permission cannot send DMs.
+
+Configure the DM token first, then list eligible existing chats without exposing the token:
+
+```dotenv
+INSTAGRAM_DM_ACCESS_TOKEN=your_private_instagram_login_token
+```
+
+```powershell
+python -m shorts_bot.instagram_dm
+```
+
+Copy the numeric `recipient_id` shown for the intended chat into `.env`. Do not use the username or
+conversation ID:
+
+```dotenv
+SEND_INSTAGRAM_DM=true
+INSTAGRAM_DM_SENDER_ID=your_numeric_professional_account_id
+INSTAGRAM_DM_RECIPIENT_ID=the_numeric_igsid_from_the_chat_list
+INSTAGRAM_DM_DELAY_MIN_SECONDS=3
+INSTAGRAM_DM_DELAY_MAX_SECONDS=4
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_cloudinary_key
+CLOUDINARY_API_SECRET=your_cloudinary_secret
+```
+
+For every clip, the workflow temporarily hosts the final MP4 on Cloudinary, sends its HTTPS URL as a
+video attachment through `graph.instagram.com`, records Meta's returned message ID, deletes the
+temporary hosted copy, and waits a random three to four seconds before processing the next message.
+DM message IDs are stored per clip, so `--resume` skips clips already sent to the chat.
+
 ## 7. Optional API.market Real-ESRGAN enhancement
 
 API.market requires `video_path` to be a direct public HTTPS URL; it cannot read a Windows file path.
@@ -378,8 +414,14 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `YOUTUBE_PRIVACY_STATUS` | `public` | Requested YouTube visibility |
 | `YOUTUBE_TOKEN_FILE` | `youtube_token.json` | Local OAuth token |
 | `UPLOAD_INSTAGRAM` | `false` | Enable Instagram publishing |
-| `INSTAGRAM_ACCESS_TOKEN` | empty | Secret local Meta token |
+| `INSTAGRAM_ACCESS_TOKEN` | empty | Secret local Meta publishing token |
 | `INSTAGRAM_GRAPH_API_VERSION` | `v26.0` | Meta Graph API version |
+| `SEND_INSTAGRAM_DM` | `false` | Send each final MP4 to one existing Instagram chat |
+| `INSTAGRAM_DM_SENDER_ID` | Instagram user ID | Professional account sending the videos |
+| `INSTAGRAM_DM_RECIPIENT_ID` | empty | Chat participant's numeric Instagram-scoped ID |
+| `INSTAGRAM_DM_ACCESS_TOKEN` | publishing token | Token with `instagram_business_manage_messages` |
+| `INSTAGRAM_DM_DELAY_MIN_SECONDS` | `3` | Minimum wait after a confirmed DM |
+| `INSTAGRAM_DM_DELAY_MAX_SECONDS` | `4` | Maximum wait after a confirmed DM |
 | `LINKS_FILE` | `links.txt` | Local URL queue |
 | `DOWNLOADED_LINKS_LOG` | `work/downloaded-links.log` | Download audit log |
 | `LINKS_POLL_SECONDS` | `30` | Queue interval, 5–3600 seconds |
