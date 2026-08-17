@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import zipfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -301,11 +300,12 @@ async def test_full_coverage_uploads_each_clip_before_generating_the_next(tmp_pa
     assert instagram_1 < metadata_2
 
 
-async def test_upload_limits_create_one_local_zip_and_do_not_fail_job(tmp_path: Path) -> None:
+async def test_upload_limits_create_open_folder_and_do_not_fail_job(tmp_path: Path) -> None:
     settings = replace(
         settings_for(tmp_path),
         archive_on_upload_limit=True,
-        archive_dir=tmp_path / "archives",
+        archive_dir=tmp_path / "pending_uploads",
+        open_upload_limit_folder=False,
     )
     repository = JobRepository(settings.database_path)
     job = repository.create(0, 0, "https://youtu.be/example")
@@ -335,13 +335,11 @@ async def test_upload_limits_create_one_local_zip_and_do_not_fail_job(tmp_path: 
 
     assert result.status == JobStatus.COMPLETE
     assert result.archive_path is not None
-    archive_path = Path(result.archive_path)
-    assert archive_path.exists()
-    with zipfile.ZipFile(archive_path) as archive:
-        names = archive.namelist()
-        assert "metadata.json" in names
-        assert "upload-manifest.csv" in names
-        assert any(name.startswith("videos/") for name in names)
+    folder_path = Path(result.archive_path)
+    assert folder_path.is_dir()
+    assert (folder_path / "metadata.json").exists()
+    assert (folder_path / "upload-manifest.csv").exists()
+    assert list((folder_path / "videos").glob("*.mp4"))
 
 
 async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> None:

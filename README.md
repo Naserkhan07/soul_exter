@@ -314,15 +314,15 @@ reuse its downloaded source and create a new multi-clip batch, run:
 python -m shorts_bot.file_queue --expand JOB_ID
 ```
 
-## Automatic archive when upload limits are reached
+## Open folder when upload limits are reached
 
 When YouTube or Instagram reports a daily publishing/upload limit, that platform is disabled for the
 remainder of the current job. The other platform continues when still available. Metadata,
 enhancement, rendering, and thumbnails continue locally for every remaining clip. At the end, the
-workflow creates one uncompressed ZIP in `work/archives/` containing:
+workflow creates one ordinary folder under `work/pending_uploads/` containing:
 
-- every generated MP4
-- every thumbnail
+- `videos/` with every generated MP4
+- `thumbnails/` with every cover image
 - `metadata.json` with titles, descriptions, captions, IDs, URLs, and pending status
 - `upload-manifest.csv` for manual upload tracking
 - a short README
@@ -331,12 +331,13 @@ Configure:
 
 ```dotenv
 ARCHIVE_ON_UPLOAD_LIMIT=true
-ARCHIVE_DIR=work/archives
+ARCHIVE_DIR=work/pending_uploads
+OPEN_UPLOAD_LIMIT_FOLDER=true
 ```
 
-The terminal prints the final ZIP path. MP4s use ZIP `stored` mode because recompressing H.264 would
-waste time without reducing size. Resume the same job after the platform's daily reset; clips already
-uploaded are skipped and pending clips are retried.
+On Windows, Explorer opens the completed folder automatically. No ZIP extraction is needed. Resume
+the same job after the platform's daily reset; clips already uploaded are skipped and pending clips
+are retried.
 
 ## One-off URL command
 
@@ -396,8 +397,9 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `CLOUDINARY_CLOUD_NAME` | empty | Temporary input hosting account |
 | `CLOUDINARY_API_KEY` | empty | Temporary input hosting key |
 | `CLOUDINARY_API_SECRET` | empty | Temporary input hosting secret |
-| `ARCHIVE_ON_UPLOAD_LIMIT` | `true` | Build one ZIP when a platform publishing limit is reached |
-| `ARCHIVE_DIR` | `work/archives` | Local ZIP destination |
+| `ARCHIVE_ON_UPLOAD_LIMIT` | `true` | Build a normal folder when a publishing limit is reached |
+| `ARCHIVE_DIR` | `work/pending_uploads` | Local pending-video folder destination |
+| `OPEN_UPLOAD_LIMIT_FOLDER` | `true` | Open the completed folder in Windows Explorer |
 | `WORK_DIR` | `work` | Local media directory |
 | `DATABASE_PATH` | `work/jobs.db` | Local SQLite history |
 | `KEEP_WORK_FILES` | `true` | Keep local MP4s after publishing |

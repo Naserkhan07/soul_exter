@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .ai import AIPlanner, full_coverage_plans
-from .archive import build_job_archive
+from .archive import build_job_folder, open_local_folder
 from .config import Settings
 from .db import JobRepository
 from .downloader import VideoDownloader
@@ -248,22 +248,24 @@ class WorkflowPipeline:
                 await self._status(
                     job.id,
                     JobStatus.RENDERING,
-                    "Creating one local ZIP because upload limits were reached",
+                    "Creating and opening a local folder because upload limits were reached",
                 )
                 latest_job = self.repository.get(job.id) or job
                 archive_path = await asyncio.to_thread(
-                    build_job_archive,
+                    build_job_folder,
                     latest_job,
                     clips,
                     self.settings.archive_dir,
                     limited_platforms,
                 )
+                if self.settings.open_upload_limit_folder:
+                    await asyncio.to_thread(open_local_folder, archive_path)
 
             if limited_platforms:
                 limit_text = " and ".join(sorted(limited_platforms))
                 progress = f"Created {len(clips)} Shorts; {limit_text} limit reached"
                 if archive_path:
-                    progress += f"; ZIP saved at {archive_path}"
+                    progress += f"; pending-upload folder saved at {archive_path}"
             elif uploaded_platforms:
                 progress = (
                     f"Created {len(clips)} Shorts; published to {' and '.join(uploaded_platforms)}"

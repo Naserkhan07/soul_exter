@@ -108,6 +108,7 @@ class Settings:
     cloudinary_api_secret: str
     archive_on_upload_limit: bool
     archive_dir: Path
+    open_upload_limit_folder: bool
     work_dir: Path
     database_path: Path
     keep_work_files: bool
@@ -192,7 +193,10 @@ class Settings:
             cloudinary_api_key=os.getenv("CLOUDINARY_API_KEY", "").strip(),
             cloudinary_api_secret=os.getenv("CLOUDINARY_API_SECRET", "").strip(),
             archive_on_upload_limit=_bool_env("ARCHIVE_ON_UPLOAD_LIMIT", True),
-            archive_dir=Path(os.getenv("ARCHIVE_DIR", str(work_dir / "archives"))).expanduser(),
+            archive_dir=Path(
+                os.getenv("ARCHIVE_DIR", str(work_dir / "pending_uploads"))
+            ).expanduser(),
+            open_upload_limit_folder=_bool_env("OPEN_UPLOAD_LIMIT_FOLDER", True),
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),

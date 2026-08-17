@@ -3,29 +3,33 @@ from __future__ import annotations
 import csv
 import io
 import json
-import zipfile
+import logging
+import os
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .errors import WorkflowError
 from .models import Job, JobClip
 
+logger = logging.getLogger(__name__)
+
 
 class ArchiveError(WorkflowError):
-    """A local pending-upload archive could not be created."""
+    """A local pending-upload folder could not be created."""
 
 
-def build_job_archive(
+def build_job_folder(
     job: Job,
     clips: list[JobClip],
     destination_dir: Path,
     limited_platforms: set[str],
 ) -> Path:
-    """Bundle generated MP4s, thumbnails, and all metadata into one ZIP without recompression."""
+    """Copy generated videos, thumbnails, and metadata into one ordinary folder."""
     destination_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    archive_path = destination_dir / f"{job.id}-upload-limit-{timestamp}.zip"
-    temporary = archive_path.with_suffix(".zip.part")
+    folder_path = destination_dir / f"{job.id}-upload-limit-{timestamp}"
+    temporary = destination_dir / f".{folder_path.name}.building"
 
     metadata = {
         "job_id": job.id,
@@ -74,34 +78,52 @@ def build_job_archive(
         )
 
     try:
-        with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_STORED) as archive:
-            archive.writestr(
-                "metadata.json",
-                json.dumps(metadata, ensure_ascii=False, indent=2),
-            )
-            archive.writestr("upload-manifest.csv", csv_buffer.getvalue())
-            archive.writestr(
-                "README.txt",
-                "This archive was created because a platform upload limit was reached.\n"
-                "MP4 files are stored without ZIP recompression. See metadata.json or "
-                "upload-manifest.csv for titles, descriptions, captions, and upload status.\n",
-            )
-            for clip in clips:
-                for folder, path_value in (
-                    ("videos", clip.output_path),
-                    ("thumbnails", clip.thumbnail_path),
-                ):
-                    if not path_value:
-                        continue
-                    path = Path(path_value)
-                    if path.exists() and path.is_file():
-                        archive.write(path, arcname=f"{folder}/{clip.clip_index:03d}-{path.name}")
-        temporary.replace(archive_path)
-        return archive_path
-    except (OSError, zipfile.BadZipFile) as exc:
-        raise ArchiveError(f"Could not create local video archive: {exc}") from exc
+        shutil.rmtree(temporary, ignore_errors=True)
+        videos_dir = temporary / "videos"
+        thumbnails_dir = temporary / "thumbnails"
+        videos_dir.mkdir(parents=True)
+        thumbnails_dir.mkdir(parents=True)
+        (temporary / "metadata.json").write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (temporary / "upload-manifest.csv").write_text(
+            csv_buffer.getvalue(),
+            encoding="utf-8-sig",
+        )
+        (temporary / "README.txt").write_text(
+            "This folder was created because a platform upload limit was reached.\n"
+            "Open videos/ for MP4 files and thumbnails/ for covers.\n"
+            "metadata.json and upload-manifest.csv contain titles, descriptions, captions, "
+            "platform URLs, and pending status.\n",
+            encoding="utf-8",
+        )
+        for clip in clips:
+            for destination, path_value in (
+                (videos_dir, clip.output_path),
+                (thumbnails_dir, clip.thumbnail_path),
+            ):
+                if not path_value:
+                    continue
+                path = Path(path_value)
+                if path.exists() and path.is_file():
+                    shutil.copy2(path, destination / f"{clip.clip_index:03d}-{path.name}")
+        temporary.replace(folder_path)
+        return folder_path
+    except OSError as exc:
+        raise ArchiveError(f"Could not create local pending-upload folder: {exc}") from exc
     finally:
-        temporary.unlink(missing_ok=True)
+        shutil.rmtree(temporary, ignore_errors=True)
+
+
+def open_local_folder(path: Path) -> None:
+    """Open a folder in Windows Explorer; silently skip on other platforms or failures."""
+    if os.name != "nt":
+        return
+    try:
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    except OSError:
+        logger.warning("Could not open pending-upload folder %s", path)
 
 
 def _clip_metadata(clip: JobClip) -> dict[str, object]:
