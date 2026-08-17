@@ -16,8 +16,10 @@ Add authorized YouTube links to `links.txt`. The local program downloads each vi
 6. Uses Groq `whisper-large-v3-turbo` for timestamped transcription.
 7. In `full_coverage` mode, calculates the clip count from source duration and covers the timeline with consecutive 20–30 second sections.
 8. Generates a detailed YouTube title/description and a separate Instagram caption for every clip.
-9. Renders every section as a 1080×1920 H.264/AAC MP4 plus a local JPEG thumbnail.
-10. Uploads every result as a public YouTube Short and an Instagram Reel, using a custom YouTube thumbnail when the channel is eligible and a midpoint cover frame on Instagram.
+9. Renders every section as an H.264/AAC MP4 at the configured native-resolution policy.
+10. When enabled, temporarily hosts selected clips and runs API.market Real-ESRGAN before upload.
+11. Generates a JPEG thumbnail from the final (enhanced or original) clip.
+12. Uploads every result as a public YouTube Short and an Instagram Reel, using a custom YouTube thumbnail when the channel is eligible and a midpoint cover frame on Instagram.
 
 A downloaded URL is removed before AI/render/upload starts. If a later stage fails, the URL remains in `work/downloaded-links.log`; copy it back into `links.txt` when you want to retry.
 
@@ -231,7 +233,35 @@ The local program:
 
 Meta controls final visibility and can reject expired tokens, missing permissions, unsupported accounts, or policy-violating media.
 
-## 7. Add YouTube links
+## 7. Optional API.market Real-ESRGAN enhancement
+
+API.market requires `video_path` to be a direct public HTTPS URL; it cannot read a Windows file path.
+The workflow therefore uploads each selected local clip temporarily to Cloudinary, submits that URL
+to API.market, polls the asynchronous prediction, downloads the enhanced MP4, deletes the temporary
+Cloudinary input, generates the thumbnail from the enhanced result, and only then uploads to YouTube
+and Instagram.
+
+Any key visible in a screenshot or chat is compromised. Revoke it and put only the replacement in
+the gitignored `.env` file. Create a Cloudinary account and configure:
+
+```dotenv
+VIDEO_ENHANCER=api_market
+APIMARKET_API_KEY=YOUR_NEW_ROTATED_KEY
+APIMARKET_MODEL=RealESRGAN_x4plus
+APIMARKET_RESOLUTION=FHD
+APIMARKET_MAX_CLIPS=5
+APIMARKET_TIMEOUT_SECONDS=1200
+
+CLOUDINARY_CLOUD_NAME=YOUR_CLOUD_NAME
+CLOUDINARY_API_KEY=YOUR_CLOUDINARY_API_KEY
+CLOUDINARY_API_SECRET=YOUR_CLOUDINARY_API_SECRET
+```
+
+`APIMARKET_MAX_CLIPS=5` enhances only clips 1–5 as selected for the initial trial. Set it to `0` only
+when the account has enough paid units to enhance every clip. Each enhanced clip consumes a separate
+prediction. The temporary hosting object is deleted in cleanup even when enhancement fails.
+
+## 8. Add YouTube links
 
 Open `links.txt` in VS Code and add one URL per line:
 
@@ -243,7 +273,7 @@ https://youtube.com/shorts/VIDEO_THREE
 
 Save the file. Blank lines and comments beginning with `#` are preserved.
 
-## 8. Start locally from VS Code
+## 9. Start locally from VS Code
 
 ### Easiest method
 
@@ -334,6 +364,14 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `VIDEO_ALLOW_UPSCALE` | `false` | Keep native crop dimensions instead of enlarging pixels |
 | `VIDEO_CRF` | `18` | x264 quality; lower is higher quality/larger |
 | `VIDEO_PRESET` | `slow` | x264 compression preset |
+| `VIDEO_ENHANCER` | `none` | Set `api_market` to enable remote Real-ESRGAN |
+| `APIMARKET_API_KEY` | empty | Rotated private API.market key |
+| `APIMARKET_MODEL` | `RealESRGAN_x4plus` | Remote enhancement model |
+| `APIMARKET_RESOLUTION` | `FHD` | Requested output resolution |
+| `APIMARKET_MAX_CLIPS` | `5` | First N clips enhanced; `0` means all |
+| `CLOUDINARY_CLOUD_NAME` | empty | Temporary input hosting account |
+| `CLOUDINARY_API_KEY` | empty | Temporary input hosting key |
+| `CLOUDINARY_API_SECRET` | empty | Temporary input hosting secret |
 | `WORK_DIR` | `work` | Local media directory |
 | `DATABASE_PATH` | `work/jobs.db` | Local SQLite history |
 | `KEEP_WORK_FILES` | `true` | Keep local MP4s after publishing |

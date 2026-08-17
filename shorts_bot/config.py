@@ -95,6 +95,17 @@ class Settings:
     video_allow_upscale: bool
     video_crf: int
     video_preset: str
+    video_enhancer: str
+    apimarket_api_key: str
+    apimarket_base_url: str
+    apimarket_version: str
+    apimarket_model: str
+    apimarket_resolution: str
+    apimarket_max_clips: int
+    apimarket_timeout_seconds: int
+    cloudinary_cloud_name: str
+    cloudinary_api_key: str
+    cloudinary_api_secret: str
     work_dir: Path
     database_path: Path
     keep_work_files: bool
@@ -159,6 +170,25 @@ class Settings:
             video_allow_upscale=_bool_env("VIDEO_ALLOW_UPSCALE", False),
             video_crf=_int_env("VIDEO_CRF", 18),
             video_preset=os.getenv("VIDEO_PRESET", "slow").strip().lower(),
+            video_enhancer=os.getenv("VIDEO_ENHANCER", "none").strip().lower(),
+            apimarket_api_key=os.getenv("APIMARKET_API_KEY", "").strip(),
+            apimarket_base_url=os.getenv(
+                "APIMARKET_BASE_URL",
+                "https://prod.api.market/api/v1/magicapi/video-upscaler-high-resolution-api",
+            )
+            .strip()
+            .rstrip("/"),
+            apimarket_version=os.getenv(
+                "APIMARKET_VERSION",
+                "c23768236472c41b7a121ee735c8073e29080c01b32907740cfada61bff75320",
+            ).strip(),
+            apimarket_model=os.getenv("APIMARKET_MODEL", "RealESRGAN_x4plus").strip(),
+            apimarket_resolution=os.getenv("APIMARKET_RESOLUTION", "FHD").strip(),
+            apimarket_max_clips=_int_env("APIMARKET_MAX_CLIPS", 5),
+            apimarket_timeout_seconds=_int_env("APIMARKET_TIMEOUT_SECONDS", 1_200),
+            cloudinary_cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", "").strip(),
+            cloudinary_api_key=os.getenv("CLOUDINARY_API_KEY", "").strip(),
+            cloudinary_api_secret=os.getenv("CLOUDINARY_API_SECRET", "").strip(),
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),
@@ -199,6 +229,12 @@ class Settings:
             "veryslow",
         }:
             raise ConfigurationError("VIDEO_PRESET is not a supported x264 preset.")
+        if self.video_enhancer not in {"none", "api_market"}:
+            raise ConfigurationError("VIDEO_ENHANCER must be none or api_market.")
+        if not 0 <= self.apimarket_max_clips <= 100:
+            raise ConfigurationError("APIMARKET_MAX_CLIPS must be between 0 and 100.")
+        if not 60 <= self.apimarket_timeout_seconds <= 7_200:
+            raise ConfigurationError("APIMARKET_TIMEOUT_SECONDS must be between 60 and 7200.")
         if not 500 <= self.youtube_description_target_chars <= 4_500:
             raise ConfigurationError(
                 "YOUTUBE_DESCRIPTION_TARGET_CHARS must be between 500 and 4500."
@@ -228,6 +264,21 @@ class Settings:
             )
         if not self.groq_api_key:
             raise ConfigurationError("GROQ_API_KEY is required for AI clip planning.")
+        if self.video_enhancer == "api_market":
+            missing = [
+                name
+                for name, value in (
+                    ("APIMARKET_API_KEY", self.apimarket_api_key),
+                    ("CLOUDINARY_CLOUD_NAME", self.cloudinary_cloud_name),
+                    ("CLOUDINARY_API_KEY", self.cloudinary_api_key),
+                    ("CLOUDINARY_API_SECRET", self.cloudinary_api_secret),
+                )
+                if not value
+            ]
+            if missing:
+                raise ConfigurationError(
+                    "Missing API.market enhancer configuration: " + ", ".join(missing)
+                )
         if self.upload_youtube:
             if not self.youtube_channel_id:
                 raise ConfigurationError(

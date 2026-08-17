@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS job_clips (
     description TEXT NOT NULL,
     instagram_caption TEXT NOT NULL,
     metadata_ready INTEGER NOT NULL DEFAULT 0,
+    enhancement_complete INTEGER NOT NULL DEFAULT 0,
     output_path TEXT,
     thumbnail_path TEXT,
     youtube_video_id TEXT,
@@ -59,6 +60,7 @@ _MIGRATION_COLUMNS = {
 _CLIP_MIGRATION_COLUMNS = {
     "thumbnail_path": "TEXT",
     "metadata_ready": "INTEGER NOT NULL DEFAULT 0",
+    "enhancement_complete": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -124,6 +126,7 @@ class JobRepository:
             description=row["description"],
             instagram_caption=row["instagram_caption"],
             metadata_ready=bool(row["metadata_ready"]),
+            enhancement_complete=bool(row["enhancement_complete"]),
             output_path=row["output_path"],
             thumbnail_path=row["thumbnail_path"],
             youtube_video_id=row["youtube_video_id"],
@@ -248,6 +251,7 @@ class JobRepository:
             "description",
             "instagram_caption",
             "metadata_ready",
+            "enhancement_complete",
             "output_path",
             "thumbnail_path",
             "youtube_video_id",
@@ -282,7 +286,7 @@ class JobRepository:
             connection.execute(
                 """
                 UPDATE job_clips
-                SET metadata_ready = 0,
+                SET metadata_ready = 0, enhancement_complete = 0,
                     output_path = NULL, thumbnail_path = NULL,
                     youtube_video_id = NULL, instagram_media_id = NULL,
                     instagram_url = NULL, error = NULL

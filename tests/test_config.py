@@ -19,6 +19,12 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "VIDEO_ALLOW_UPSCALE",
         "VIDEO_CRF",
         "VIDEO_PRESET",
+        "VIDEO_ENHANCER",
+        "APIMARKET_API_KEY",
+        "APIMARKET_MAX_CLIPS",
+        "CLOUDINARY_CLOUD_NAME",
+        "CLOUDINARY_API_KEY",
+        "CLOUDINARY_API_SECRET",
         "YOUTUBE_DESCRIPTION_TARGET_CHARS",
         "INSTAGRAM_CAPTION_TARGET_CHARS",
         "INSTAGRAM_HASHTAGS_FILE",
@@ -59,6 +65,8 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.video_allow_upscale is False
     assert settings.video_crf == 18
     assert settings.video_preset == "slow"
+    assert settings.video_enhancer == "none"
+    assert settings.apimarket_max_clips == 5
     assert settings.youtube_description_target_chars == 4_200
     assert settings.instagram_caption_target_chars == 2_000
     assert settings.upload_youtube is False
@@ -116,6 +124,18 @@ def test_rejects_instagram_username_instead_of_numeric_id(
     settings = Settings.from_env(env_file=None)
 
     with pytest.raises(ConfigurationError, match="numeric Professional Account ID"):
+        settings.validate_pipeline()
+
+
+def test_api_market_enhancer_requires_private_hosting_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "key")
+    monkeypatch.setenv("RIGHTS_ACKNOWLEDGED", "true")
+    monkeypatch.setenv("VIDEO_ENHANCER", "api_market")
+    settings = Settings.from_env(env_file=None)
+
+    with pytest.raises(ConfigurationError, match="APIMARKET_API_KEY"):
         settings.validate_pipeline()
 
 

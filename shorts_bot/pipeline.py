@@ -13,6 +13,7 @@ from .ai import AIPlanner, full_coverage_plans
 from .config import Settings
 from .db import JobRepository
 from .downloader import VideoDownloader
+from .enhancer import APIMarketVideoEnhancer, CloudinaryTemporaryVideoHost
 from .errors import WorkflowError
 from .instagram import InstagramUploader
 from .media import MediaProcessor
@@ -29,6 +30,7 @@ class WorkflowServices:
     downloader: VideoDownloader
     media: MediaProcessor
     planner: AIPlanner
+    enhancer: APIMarketVideoEnhancer | None
     youtube_uploader: YouTubeUploader | None
     instagram_uploader: InstagramUploader | None
 
@@ -56,6 +58,23 @@ class WorkflowServices:
                 instagram_caption_target_chars=settings.instagram_caption_target_chars,
                 instagram_hashtags=settings.instagram_hashtags(),
                 metadata_delay_seconds=settings.groq_metadata_delay_seconds,
+            ),
+            enhancer=(
+                APIMarketVideoEnhancer(
+                    api_key=settings.apimarket_api_key,
+                    temporary_host=CloudinaryTemporaryVideoHost(
+                        cloud_name=settings.cloudinary_cloud_name,
+                        api_key=settings.cloudinary_api_key,
+                        api_secret=settings.cloudinary_api_secret,
+                    ),
+                    base_url=settings.apimarket_base_url,
+                    version=settings.apimarket_version,
+                    model=settings.apimarket_model,
+                    resolution=settings.apimarket_resolution,
+                    timeout_seconds=settings.apimarket_timeout_seconds,
+                )
+                if settings.video_enhancer == "api_market"
+                else None
             ),
             youtube_uploader=(
                 YouTubeUploader(
@@ -326,6 +345,43 @@ class WorkflowPipeline:
                 job.id,
                 clip.clip_index,
                 output_path=str(output_path),
+                error=None,
+            )
+
+        enhance_this_clip = bool(
+            self.services.enhancer
+            and (
+                self.settings.apimarket_max_clips == 0
+                or clip.clip_index <= self.settings.apimarket_max_clips
+            )
+        )
+        if enhance_this_clip and not clip.enhancement_complete:
+            await self._status(
+                job.id,
+                JobStatus.RENDERING,
+                f"Enhancing Short {clip.clip_index}/{total_clips} with Real-ESRGAN",
+            )
+            enhanced_path = job_dir / f"short-{clip.clip_index:03d}-enhanced.mp4"
+            enhanced_path.unlink(missing_ok=True)
+            assert self.services.enhancer is not None
+            await self.services.enhancer.enhance(
+                output_path,
+                enhanced_path,
+                public_id=f"soul_exter/{job.id}/clip-{clip.clip_index:03d}",
+            )
+            enhanced_duration = await asyncio.to_thread(
+                self.services.media.probe_duration,
+                enhanced_path,
+            )
+            if enhanced_duration < max(1, plan.duration_seconds - 1):
+                enhanced_path.unlink(missing_ok=True)
+                raise WorkflowError("Enhanced video is shorter than the rendered Short.")
+            output_path = enhanced_path
+            clip = self.repository.update_clip(
+                job.id,
+                clip.clip_index,
+                output_path=str(output_path),
+                enhancement_complete=1,
                 error=None,
             )
 

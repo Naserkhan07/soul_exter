@@ -124,6 +124,7 @@ async def test_pipeline_completes_and_uploads_to_both_platforms(tmp_path: Path) 
         downloader=FakeDownloader(),  # type: ignore[arg-type]
         media=FakeMedia(),  # type: ignore[arg-type]
         planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
         youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
         instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
     )
@@ -194,10 +195,17 @@ async def test_pipeline_renders_and_uploads_multiple_clips(tmp_path: Path) -> No
                 f"instagram-{suffix}", f"https://instagram.com/reel/{suffix}"
             )
 
+    class MultiEnhancer:
+        async def enhance(self, video_path: Path, output_path: Path, public_id: str) -> Path:
+            assert video_path.exists()
+            output_path.write_bytes(b"enhanced")
+            return output_path
+
     services = WorkflowServices(
         downloader=FakeDownloader(),  # type: ignore[arg-type]
         media=MultiMedia(),  # type: ignore[arg-type]
         planner=MultiPlanner(),  # type: ignore[arg-type]
+        enhancer=MultiEnhancer(),  # type: ignore[arg-type]
         youtube_uploader=MultiYouTube(),  # type: ignore[arg-type]
         instagram_uploader=MultiInstagram(),  # type: ignore[arg-type]
     )
@@ -207,6 +215,8 @@ async def test_pipeline_renders_and_uploads_multiple_clips(tmp_path: Path) -> No
     assert result.status == JobStatus.COMPLETE
     assert len(clips) == 2
     assert clips[0].youtube_video_id == "youtube-0"
+    assert clips[0].enhancement_complete is True
+    assert clips[0].output_path and clips[0].output_path.endswith("-enhanced.mp4")
     assert clips[1].youtube_video_id == "youtube-40"
     assert clips[1].instagram_media_id == "instagram-40"
 
@@ -276,6 +286,7 @@ async def test_full_coverage_uploads_each_clip_before_generating_the_next(tmp_pa
         downloader=FakeDownloader(),  # type: ignore[arg-type]
         media=StreamingMedia(),  # type: ignore[arg-type]
         planner=StreamingPlanner(),  # type: ignore[arg-type]
+        enhancer=None,
         youtube_uploader=StreamingYouTube(),  # type: ignore[arg-type]
         instagram_uploader=StreamingInstagram(),  # type: ignore[arg-type]
     )
@@ -305,6 +316,7 @@ async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> 
         downloader=FakeDownloader(),  # type: ignore[arg-type]
         media=FakeMedia(),  # type: ignore[arg-type]
         planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
         youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
         instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
     )
