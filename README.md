@@ -237,8 +237,7 @@ Meta controls final visibility and can reject expired tokens, missing permission
 
 The official Instagram Messaging API can send each final MP4 from the Professional account to one
 existing chat. The destination account must first send a new message to the Professional account.
-The bot can resolve the recipient's Instagram-scoped ID from that existing chat by username. Use an
-Instagram Login token with `instagram_business_manage_messages`; a content-publishing token
+Use an Instagram Login token with `instagram_business_manage_messages`; a content-publishing token
 without that permission cannot send DMs.
 
 Configure the DM token first, then list eligible existing chats without exposing the token:
@@ -251,14 +250,13 @@ INSTAGRAM_DM_ACCESS_TOKEN=your_private_instagram_login_token
 python -m shorts_bot.instagram_dm
 ```
 
-Configure either the intended account name or its numeric `recipient_id`. With a username, the bot
-finds the matching existing chat and resolves its Instagram-scoped ID automatically:
+Copy the numeric `recipient_id` shown for the intended chat into `.env`. Do not use the username or
+conversation ID:
 
 ```dotenv
 SEND_INSTAGRAM_DM=true
 INSTAGRAM_DM_SENDER_ID=your_numeric_professional_account_id
-INSTAGRAM_DM_RECIPIENT_USERNAME=wzz.unfiltered
-INSTAGRAM_DM_RECIPIENT_ID=
+INSTAGRAM_DM_RECIPIENT_ID=the_numeric_igsid_from_the_chat_list
 INSTAGRAM_DM_DELAY_MIN_SECONDS=3
 INSTAGRAM_DM_DELAY_MAX_SECONDS=4
 CLOUDINARY_CLOUD_NAME=your_cloud_name
@@ -420,8 +418,7 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `INSTAGRAM_GRAPH_API_VERSION` | `v26.0` | Meta Graph API version |
 | `SEND_INSTAGRAM_DM` | `false` | Send each final MP4 to one existing Instagram chat |
 | `INSTAGRAM_DM_SENDER_ID` | Instagram user ID | Professional account sending the videos |
-| `INSTAGRAM_DM_RECIPIENT_USERNAME` | empty | Account name of the existing destination chat |
-| `INSTAGRAM_DM_RECIPIENT_ID` | empty | Optional numeric scoped-ID fallback |
+| `INSTAGRAM_DM_RECIPIENT_ID` | empty | Chat participant's numeric Instagram-scoped ID |
 | `INSTAGRAM_DM_ACCESS_TOKEN` | publishing token | Token with `instagram_business_manage_messages` |
 | `INSTAGRAM_DM_DELAY_MIN_SECONDS` | `3` | Minimum wait after a confirmed DM |
 | `INSTAGRAM_DM_DELAY_MAX_SECONDS` | `4` | Maximum wait after a confirmed DM |

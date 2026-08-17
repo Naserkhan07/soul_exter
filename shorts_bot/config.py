@@ -89,7 +89,6 @@ class Settings:
     send_instagram_dm: bool
     instagram_dm_sender_id: str
     instagram_dm_recipient_id: str
-    instagram_dm_recipient_username: str
     instagram_dm_access_token: str
     instagram_dm_delay_min_seconds: int
     instagram_dm_delay_max_seconds: int
@@ -181,9 +180,6 @@ class Settings:
                 or _nested_string(channel_config, "instagram", "user_id")
             ),
             instagram_dm_recipient_id=os.getenv("INSTAGRAM_DM_RECIPIENT_ID", "").strip(),
-            instagram_dm_recipient_username=os.getenv("INSTAGRAM_DM_RECIPIENT_USERNAME", "")
-            .strip()
-            .lstrip("@"),
             instagram_dm_access_token=(
                 os.getenv("INSTAGRAM_DM_ACCESS_TOKEN", "").strip()
                 or os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
@@ -356,6 +352,7 @@ class Settings:
                 name
                 for name, value in (
                     ("INSTAGRAM_DM_SENDER_ID", self.instagram_dm_sender_id),
+                    ("INSTAGRAM_DM_RECIPIENT_ID", self.instagram_dm_recipient_id),
                     ("INSTAGRAM_DM_ACCESS_TOKEN", self.instagram_dm_access_token),
                     ("CLOUDINARY_CLOUD_NAME", self.cloudinary_cloud_name),
                     ("CLOUDINARY_API_KEY", self.cloudinary_api_key),
@@ -369,20 +366,10 @@ class Settings:
                 )
             if not self.instagram_dm_sender_id.isdigit():
                 raise ConfigurationError("INSTAGRAM_DM_SENDER_ID must be numeric.")
-            if not self.instagram_dm_recipient_id and not self.instagram_dm_recipient_username:
-                raise ConfigurationError(
-                    "Set INSTAGRAM_DM_RECIPIENT_USERNAME or INSTAGRAM_DM_RECIPIENT_ID."
-                )
-            if self.instagram_dm_recipient_id and not self.instagram_dm_recipient_id.isdigit():
+            if not self.instagram_dm_recipient_id.isdigit():
                 raise ConfigurationError(
                     "INSTAGRAM_DM_RECIPIENT_ID must be the numeric Instagram-scoped ID "
-                    "from the existing chat."
-                )
-            if self.instagram_dm_recipient_username and not re.fullmatch(
-                r"[A-Za-z0-9._]{1,30}", self.instagram_dm_recipient_username
-            ):
-                raise ConfigurationError(
-                    "INSTAGRAM_DM_RECIPIENT_USERNAME is not a valid Instagram username."
+                    "from the existing chat, not a username."
                 )
 
     def validate_file_queue(self) -> None:

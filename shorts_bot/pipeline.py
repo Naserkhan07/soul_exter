@@ -103,7 +103,6 @@ class WorkflowServices:
                     sender_id=settings.instagram_dm_sender_id,
                     recipient_id=settings.instagram_dm_recipient_id,
                     access_token=settings.instagram_dm_access_token,
-                    recipient_username=settings.instagram_dm_recipient_username,
                     temporary_host=CloudinaryTemporaryVideoHost(
                         cloud_name=settings.cloudinary_cloud_name,
                         api_key=settings.cloudinary_api_key,
