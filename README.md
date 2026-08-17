@@ -251,12 +251,12 @@ INSTAGRAM_DM_ACCESS_TOKEN=your_private_instagram_login_token
 python -m shorts_bot.instagram_dm
 ```
 
-Configure either the intended account name or its numeric `recipient_id`. With a username, the bot
-finds the matching existing chat and resolves its Instagram-scoped ID automatically:
+Configure either the intended account name or its numeric scoped `recipient_id`. Sending uses Meta's
+`/me/messages` endpoint, so the sender ID can remain blank:
 
 ```dotenv
 SEND_INSTAGRAM_DM=true
-INSTAGRAM_DM_SENDER_ID=your_numeric_professional_account_id
+INSTAGRAM_DM_SENDER_ID=
 INSTAGRAM_DM_RECIPIENT_USERNAME=wzz.unfiltered
 INSTAGRAM_DM_RECIPIENT_ID=
 INSTAGRAM_DM_DELAY_MIN_SECONDS=3
@@ -265,6 +265,12 @@ CLOUDINARY_CLOUD_NAME=your_cloud_name
 CLOUDINARY_API_KEY=your_cloudinary_key
 CLOUDINARY_API_SECRET=your_cloudinary_secret
 ```
+
+Meta may return an empty Conversations API result even for a valid existing chat. In that case, run
+`python -m shorts_bot.instagram_webhook`, expose port 8765 temporarily with a tunnel, configure its
+`/instagram-webhook` URL and printed verify token in Meta's Instagram webhook settings, subscribe to
+`messages`, and send one new message from the destination account. The capture server writes the
+incoming sender IGSID to `INSTAGRAM_DM_RECIPIENT_ID` and stops; no message content is persisted.
 
 For every clip, the workflow temporarily hosts the final MP4 on Cloudinary, sends its HTTPS URL as a
 video attachment through `graph.instagram.com`, records Meta's returned message ID, deletes the
@@ -419,12 +425,13 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `INSTAGRAM_ACCESS_TOKEN` | empty | Secret local Meta publishing token |
 | `INSTAGRAM_GRAPH_API_VERSION` | `v26.0` | Meta Graph API version |
 | `SEND_INSTAGRAM_DM` | `false` | Send each final MP4 to one existing Instagram chat |
-| `INSTAGRAM_DM_SENDER_ID` | Instagram user ID | Professional account sending the videos |
-| `INSTAGRAM_DM_RECIPIENT_USERNAME` | empty | Account name of the existing destination chat |
-| `INSTAGRAM_DM_RECIPIENT_ID` | empty | Optional numeric scoped-ID fallback |
+| `INSTAGRAM_DM_SENDER_ID` | empty | Optional Instagram Login account ID; sending uses `/me` |
+| `INSTAGRAM_DM_RECIPIENT_USERNAME` | empty | Account name used for Conversations API lookup |
+| `INSTAGRAM_DM_RECIPIENT_ID` | empty | Stable scoped ID from lookup or one-time webhook capture |
 | `INSTAGRAM_DM_ACCESS_TOKEN` | publishing token | Token with `instagram_business_manage_messages` |
 | `INSTAGRAM_DM_DELAY_MIN_SECONDS` | `3` | Minimum wait after a confirmed DM |
 | `INSTAGRAM_DM_DELAY_MAX_SECONDS` | `4` | Maximum wait after a confirmed DM |
+| `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | generated | One-time webhook verification secret |
 | `LINKS_FILE` | `links.txt` | Local URL queue |
 | `DOWNLOADED_LINKS_LOG` | `work/downloaded-links.log` | Download audit log |
 | `LINKS_POLL_SECONDS` | `30` | Queue interval, 5–3600 seconds |

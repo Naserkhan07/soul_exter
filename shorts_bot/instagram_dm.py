@@ -41,7 +41,7 @@ class InstagramDirectMessenger:
         self.delay_max_seconds = delay_max_seconds
         self.retry_attempts = max(1, retry_attempts)
         self.transport = transport
-        self.endpoint = f"https://graph.instagram.com/{self.api_version}/{self.sender_id}/messages"
+        self.endpoint = f"https://graph.instagram.com/{self.api_version}/me/messages"
 
     async def send_video(self, video_path: Path, public_id: str) -> str:
         if not video_path.exists():
@@ -243,6 +243,12 @@ def main() -> None:
 
     try:
         settings = Settings.from_env()
+        if settings.instagram_dm_recipient_id:
+            print(
+                "Instagram DM recipient is configured from a captured scoped ID; "
+                "chat lookup is no longer required."
+            )
+            return
         if not settings.instagram_dm_access_token:
             raise ConfigurationError("Add INSTAGRAM_DM_ACCESS_TOKEN to .env before listing chats.")
         chats = asyncio.run(
