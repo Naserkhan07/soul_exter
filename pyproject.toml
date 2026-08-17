@@ -7,7 +7,7 @@ name = "youtube-shorts-workflow"
 version = "0.1.0"
 description = "A local Groq workflow that turns authorized YouTube videos into Shorts and Reels."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
   "cloudinary>=1.44,<2",
   "google-api-python-client>=2.160,<3",

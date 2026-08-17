@@ -49,7 +49,7 @@ The program intentionally does not accept YouTube, Google, Facebook, or Instagra
 
 Install:
 
-- Python 3.11 or newer
+- Python 3.11, 3.12, or 3.13 (Python 3.14 is not supported by the Chrome PO-token provider)
 - VS Code
 - VS Code Python extension
 - FFmpeg and ffprobe
@@ -485,13 +485,19 @@ Current YouTube downloads require an external JavaScript runtime, matching EJS c
 and sometimes a YouTube Proof-of-Origin token. Pull the latest update and reinstall the project; it
 requires a current `yt-dlp`, Deno, `yt-dlp-ejs>=0.8`, curl-cffi, and the WebPoClient token provider.
 The provider opens an automated temporary Chrome window only when YouTube requests a PO token; do not
-close that window while the download is starting. The downloader always keeps the exact
+close that window while the download is starting. Its current browser dependency does not load under
+Python 3.14, so create `.venv` with Python 3.11–3.13. The downloader always keeps the exact
 `bestvideo+bestaudio` selector. If exported account cookies expose only SABR/image formats for a
 public video, it retries that same selector without cookies rather than lowering source quality.
 
 ```powershell
+winget install --exact --id Python.Python.3.13
 git pull origin arena/01a00af0-soul-exter
-python -m pip install --upgrade "yt-dlp[curl-cffi,default,deno]>=2026.7.4" "yt-dlp-ejs>=0.8,<1" "yt-dlp-getpot-wpc>=1.1.2,<2"
+deactivate 2>$null
+Remove-Item -Recurse -Force .venv
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 python -m yt_dlp --version
 deno --version
