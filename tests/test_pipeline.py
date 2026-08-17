@@ -113,10 +113,12 @@ async def test_pipeline_completes_and_uploads_to_both_platforms(tmp_path: Path) 
     repository = JobRepository(settings.database_path)
     job = repository.create(1, 2, "https://youtu.be/example")
     statuses: list[JobStatus] = []
+    messages: list[str] = []
     downloaded: list[str] = []
 
     async def notify(updated, message: str) -> None:  # noqa: ANN001
         statuses.append(updated.status)
+        messages.append(message)
 
     async def on_download(updated, source: SourceVideo) -> None:  # noqa: ANN001
         downloaded.append(updated.source_url)
@@ -139,10 +141,14 @@ async def test_pipeline_completes_and_uploads_to_both_platforms(tmp_path: Path) 
     assert result.instagram_url == "https://instagram.com/reel/example"
     assert result.short_title == "Short title #Shorts"
     assert downloaded == ["https://youtu.be/example"]
+    assert any("youtube.com/shorts/youtube-id" in message for message in messages)
+    assert any("instagram.com/reel/example" in message for message in messages)
     assert statuses == [
         JobStatus.DOWNLOADING,
         JobStatus.ANALYZING,
         JobStatus.RENDERING,
+        JobStatus.UPLOADING,
+        JobStatus.UPLOADING,
         JobStatus.UPLOADING,
         JobStatus.UPLOADING,
         JobStatus.COMPLETE,

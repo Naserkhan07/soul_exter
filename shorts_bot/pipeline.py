@@ -461,6 +461,12 @@ class WorkflowPipeline:
                 )
                 if clip.clip_index == 1:
                     self.repository.update(job.id, youtube_video_id=youtube_video_id)
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    f"YouTube Short {clip.clip_index}/{total_clips} is public: "
+                    f"https://www.youtube.com/shorts/{youtube_video_id}",
+                )
             except UploadLimitError:
                 limited_platforms.add("YouTube")
                 await self._status(
@@ -494,6 +500,12 @@ class WorkflowPipeline:
                         instagram_media_id=instagram.media_id,
                         instagram_url=instagram.permalink,
                     )
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    f"Instagram Reel {clip.clip_index}/{total_clips} is published: "
+                    f"{instagram.permalink}",
+                )
             except UploadLimitError:
                 limited_platforms.add("Instagram")
                 await self._status(

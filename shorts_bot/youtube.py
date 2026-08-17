@@ -20,6 +20,26 @@ logger = logging.getLogger(__name__)
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
 YOUTUBE_SCOPES = [YOUTUBE_UPLOAD_SCOPE, YOUTUBE_READONLY_SCOPE]
+YOUTUBE_TITLE_MAX_CHARS = 100
+YOUTUBE_DESCRIPTION_MAX_CHARS = 5000
+
+
+def _shorts_title(title: str) -> str:
+    cleaned = " ".join(title.split()) or "YouTube Short"
+    if "#shorts" in cleaned.casefold():
+        return cleaned[:YOUTUBE_TITLE_MAX_CHARS].rstrip()
+    suffix = " #Shorts"
+    base = cleaned[: YOUTUBE_TITLE_MAX_CHARS - len(suffix)].rstrip(" -|:")
+    return f"{base}{suffix}"
+
+
+def _shorts_description(description: str) -> str:
+    cleaned = description.strip()
+    if "#shorts" in cleaned.casefold():
+        return cleaned[:YOUTUBE_DESCRIPTION_MAX_CHARS].rstrip()
+    suffix = "\n\n#Shorts"
+    base = cleaned[: YOUTUBE_DESCRIPTION_MAX_CHARS - len(suffix)].rstrip()
+    return f"{base}{suffix}" if base else "#Shorts"
 
 
 class YouTubeUploader:
@@ -83,8 +103,8 @@ class YouTubeUploader:
                 notifySubscribers=False,
                 body={
                     "snippet": {
-                        "title": plan.title,
-                        "description": plan.description,
+                        "title": _shorts_title(plan.title),
+                        "description": _shorts_description(plan.description),
                         "categoryId": "22",
                     },
                     "status": {

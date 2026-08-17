@@ -6,7 +6,12 @@ from googleapiclient.errors import HttpError
 from httplib2 import Response
 
 from shorts_bot.errors import UploadError
-from shorts_bot.youtube import YouTubeUploader, _is_youtube_upload_limit
+from shorts_bot.youtube import (
+    YouTubeUploader,
+    _is_youtube_upload_limit,
+    _shorts_description,
+    _shorts_title,
+)
 
 
 class FakeChannelRequest:
@@ -27,6 +32,16 @@ class FakeYouTube:
 
     def channels(self) -> FakeChannelRequest:
         return self.request
+
+
+def test_adds_shorts_metadata_within_youtube_limits() -> None:
+    assert _shorts_title("A useful title") == "A useful title #Shorts"
+    assert _shorts_title("A useful title #Shorts") == "A useful title #Shorts"
+    assert len(_shorts_title("x" * 150)) <= 100
+
+    assert _shorts_description("A factual description").endswith("#Shorts")
+    assert _shorts_description("A factual description #Shorts").count("#Shorts") == 1
+    assert len(_shorts_description("x" * 6000)) <= 5000
 
 
 def test_verifies_oauth_channel_matches_configuration() -> None:
