@@ -13,7 +13,7 @@ class MediaProcessor:
         self,
         ffmpeg: str = "ffmpeg",
         ffprobe: str = "ffprobe",
-        video_layout: str = "center_crop",
+        video_layout: str = "fit_black",
         allow_upscale: bool = False,
         video_crf: int = 18,
         video_preset: str = "slow",
@@ -109,6 +109,27 @@ class MediaProcessor:
                     "0:a?",
                 ]
             )
+        elif self.video_layout == "fit_black":
+            if self.allow_upscale:
+                scale_filter = (
+                    "scale=1080:1920:force_original_aspect_ratio=decrease:force_divisible_by=2"
+                )
+            else:
+                scale_filter = (
+                    "scale='min(iw,1080)':'min(ih,1920)':"
+                    "force_original_aspect_ratio=decrease:force_divisible_by=2"
+                )
+            video_filter = f"{scale_filter},pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+            command.extend(
+                [
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "0:a?",
+                    "-vf",
+                    video_filter,
+                ]
+            )
         else:
             if self.allow_upscale:
                 video_filter = (
@@ -177,6 +198,12 @@ class MediaProcessor:
                 "[blurred][front]overlay=(W-w)/2:(H-h)/2"
             )
             command.extend(["-filter_complex", thumbnail_filter])
+        elif self.video_layout == "fit_black":
+            thumbnail_filter = (
+                "scale=1280:720:force_original_aspect_ratio=decrease,"
+                "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black"
+            )
+            command.extend(["-vf", thumbnail_filter])
         else:
             thumbnail_filter = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720"
             command.extend(["-vf", thumbnail_filter])

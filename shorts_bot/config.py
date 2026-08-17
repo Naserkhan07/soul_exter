@@ -175,7 +175,7 @@ class Settings:
             .strip()
             .lower(),
             max_shorts_per_video=_int_env("MAX_SHORTS_PER_VIDEO", 0),
-            video_layout=os.getenv("VIDEO_LAYOUT", "center_crop").strip().lower(),
+            video_layout=os.getenv("VIDEO_LAYOUT", "fit_black").strip().lower(),
             video_allow_upscale=_bool_env("VIDEO_ALLOW_UPSCALE", False),
             video_crf=_int_env("VIDEO_CRF", 18),
             video_preset=os.getenv("VIDEO_PRESET", "slow").strip().lower(),
@@ -227,8 +227,10 @@ class Settings:
             )
         if not 0 <= self.max_shorts_per_video <= 100:
             raise ConfigurationError("MAX_SHORTS_PER_VIDEO must be between 0 and 100.")
-        if self.video_layout not in {"blurred_background", "center_crop"}:
-            raise ConfigurationError("VIDEO_LAYOUT must be blurred_background or center_crop.")
+        if self.video_layout not in {"fit_black", "blurred_background", "center_crop"}:
+            raise ConfigurationError(
+                "VIDEO_LAYOUT must be fit_black, blurred_background, or center_crop."
+            )
         if not 14 <= self.video_crf <= 28:
             raise ConfigurationError("VIDEO_CRF must be between 14 and 28.")
         if self.video_preset not in {

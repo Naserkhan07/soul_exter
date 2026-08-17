@@ -136,7 +136,7 @@ INSTAGRAM_HASHTAGS_FILE=instagram_hashtags.txt
 CLIP_DURATION_SECONDS=30
 SHORTS_SELECTION_MODE=full_coverage
 MAX_SHORTS_PER_VIDEO=0
-VIDEO_LAYOUT=center_crop
+VIDEO_LAYOUT=fit_black
 VIDEO_ALLOW_UPSCALE=false
 VIDEO_CRF=18
 VIDEO_PRESET=slow
@@ -386,8 +386,8 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `CLIP_DURATION_SECONDS` | `30` | Preferred duration, 20–30 |
 | `SHORTS_SELECTION_MODE` | `full_coverage` | `full_coverage` or `ai_highlights` |
 | `MAX_SHORTS_PER_VIDEO` | `0` | `0` = duration-based automatic count; 1–100 = optional cap |
-| `VIDEO_LAYOUT` | `center_crop` | Full-frame crop with no blurred bars; optional `blurred_background` |
-| `VIDEO_ALLOW_UPSCALE` | `false` | Keep native crop dimensions instead of enlarging pixels |
+| `VIDEO_LAYOUT` | `fit_black` | Full source with black space; optional `center_crop` or `blurred_background` |
+| `VIDEO_ALLOW_UPSCALE` | `false` | Do not enlarge the source inside the vertical canvas |
 | `VIDEO_CRF` | `18` | x264 quality; lower is higher quality/larger |
 | `VIDEO_PRESET` | `slow` | x264 compression preset |
 | `VIDEO_ENHANCER` | `none` | Set `api_market` to enable remote Real-ESRGAN |
@@ -503,21 +503,22 @@ firewall or antivirus web shield, or try another network such as a mobile hotspo
 ### Uploaded video looks blurry
 
 First wait for YouTube and Instagram to finish HD processing; immediately after upload they may only
-serve a low-resolution rendition. The default renderer fills the frame with a native-resolution 9:16
-center crop—there are no blurred bars and no enlargement. It preserves the source frame rate and
-encodes H.264 at CRF 18 with the slow preset. Confirm `.env` contains:
+serve a low-resolution rendition. The default renderer now shows the complete source without zooming
+or cropping. It centers the source inside a 1080×1920 canvas and fills unused space with solid black.
+It preserves the source frame rate and encodes H.264 at CRF 18 with the slow preset. Confirm `.env`
+contains:
 
 ```dotenv
-VIDEO_LAYOUT=center_crop
+VIDEO_LAYOUT=fit_black
 VIDEO_ALLOW_UPSCALE=false
 VIDEO_CRF=18
 VIDEO_PRESET=slow
 ```
 
-The downloader keeps yt-dlp's highest available source streams without AI enhancement. For Shorts,
-FFmpeg must still crop the source to 9:16 and re-encode the selected time range, but with upscaling
-disabled it preserves the crop's native pixel dimensions instead of stretching it to 1080×1920.
-A 360p or 480p source therefore stays low resolution but does not receive invented/upscaled pixels.
+The downloader keeps yt-dlp's highest available source streams. FFmpeg still cuts and re-encodes each
+Short, but `fit_black` preserves the full composition and `VIDEO_ALLOW_UPSCALE=false` prevents a
+low-resolution source from being enlarged. This is the only non-distorted way to show an entire
+landscape frame inside a vertical phone canvas without the zoomed-in center crop.
 Existing rendered/uploaded files are not changed by a configuration update. To reuse the downloaded
 source, re-render all tracked clips with current settings, and upload new copies, run:
 
