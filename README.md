@@ -339,6 +339,14 @@ On Windows, Explorer opens the completed folder automatically. No ZIP extraction
 the same job after the platform's daily reset; clips already uploaded are skipped and pending clips
 are retried.
 
+### Personal messaging accounts are not used for storage
+
+The workflow intentionally does not automate personal Instagram DMs or personal WhatsApp Web. A
+phone number alone cannot authorize official WhatsApp automation; official sending requires a
+WhatsApp Business Cloud API account, Phone Number ID, access token, and recipient opt-in. Pending
+videos therefore remain in the ordinary local folder above. If the project is inside a OneDrive
+Documents directory, that folder can also sync to the OneDrive mobile app.
+
 ## One-off URL command
 
 To process URLs without editing `links.txt`:
