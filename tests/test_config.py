@@ -37,12 +37,6 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "YTDLP_COOKIE_FILE",
         "UPLOAD_YOUTUBE",
         "UPLOAD_INSTAGRAM",
-        "SEND_INSTAGRAM_DM",
-        "INSTAGRAM_DM_SENDER_ID",
-        "INSTAGRAM_DM_RECIPIENT_ID",
-        "INSTAGRAM_DM_ACCESS_TOKEN",
-        "INSTAGRAM_DM_DELAY_MIN_SECONDS",
-        "INSTAGRAM_DM_DELAY_MAX_SECONDS",
         "AUTO_UPLOAD",
         "CLIP_DURATION_SECONDS",
         "WORK_DIR",
@@ -84,9 +78,6 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.instagram_caption_target_chars == 2_000
     assert settings.upload_youtube is False
     assert settings.upload_instagram is False
-    assert settings.send_instagram_dm is False
-    assert settings.instagram_dm_delay_min_seconds == 3
-    assert settings.instagram_dm_delay_max_seconds == 4
     assert settings.youtube_privacy_status == "public"
 
 
@@ -156,24 +147,6 @@ def test_api_market_enhancer_requires_private_hosting_credentials(
     settings = Settings.from_env(env_file=None)
 
     with pytest.raises(ConfigurationError, match="APIMARKET_API_KEY"):
-        settings.validate_pipeline()
-
-
-def test_instagram_dm_requires_scoped_recipient_and_hosting(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("GROQ_API_KEY", "key")
-    monkeypatch.setenv("RIGHTS_ACKNOWLEDGED", "true")
-    monkeypatch.setenv("SEND_INSTAGRAM_DM", "true")
-    monkeypatch.setenv("INSTAGRAM_DM_SENDER_ID", "1789")
-    monkeypatch.setenv("INSTAGRAM_DM_RECIPIENT_ID", "not-a-username")
-    monkeypatch.setenv("INSTAGRAM_DM_ACCESS_TOKEN", "token")
-    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "cloud")
-    monkeypatch.setenv("CLOUDINARY_API_KEY", "key")
-    monkeypatch.setenv("CLOUDINARY_API_SECRET", "secret")
-    settings = Settings.from_env(env_file=None)
-
-    with pytest.raises(ConfigurationError, match="numeric Instagram-scoped ID"):
         settings.validate_pipeline()
 
 

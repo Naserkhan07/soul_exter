@@ -22,10 +22,6 @@ class UploadError(WorkflowError):
     """A platform upload failed."""
 
 
-class DirectMessageError(UploadError):
-    """Sending a generated video to the configured direct-message chat failed."""
-
-
 class UploadLimitError(UploadError):
     """A platform's daily/rate publishing allowance was exhausted."""
 

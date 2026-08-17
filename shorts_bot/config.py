@@ -86,12 +86,6 @@ class Settings:
     instagram_graph_api_version: str
     instagram_hashtags_file: Path
     upload_instagram: bool
-    send_instagram_dm: bool
-    instagram_dm_sender_id: str
-    instagram_dm_recipient_id: str
-    instagram_dm_access_token: str
-    instagram_dm_delay_min_seconds: int
-    instagram_dm_delay_max_seconds: int
     youtube_description_target_chars: int
     instagram_caption_target_chars: int
     groq_metadata_delay_seconds: int
@@ -173,19 +167,6 @@ class Settings:
                 os.getenv("INSTAGRAM_HASHTAGS_FILE", "instagram_hashtags.txt")
             ).expanduser(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
-            send_instagram_dm=_bool_env("SEND_INSTAGRAM_DM", False),
-            instagram_dm_sender_id=(
-                os.getenv("INSTAGRAM_DM_SENDER_ID", "").strip()
-                or os.getenv("INSTAGRAM_USER_ID", "").strip()
-                or _nested_string(channel_config, "instagram", "user_id")
-            ),
-            instagram_dm_recipient_id=os.getenv("INSTAGRAM_DM_RECIPIENT_ID", "").strip(),
-            instagram_dm_access_token=(
-                os.getenv("INSTAGRAM_DM_ACCESS_TOKEN", "").strip()
-                or os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
-            ),
-            instagram_dm_delay_min_seconds=_int_env("INSTAGRAM_DM_DELAY_MIN_SECONDS", 3),
-            instagram_dm_delay_max_seconds=_int_env("INSTAGRAM_DM_DELAY_MAX_SECONDS", 4),
             youtube_description_target_chars=_int_env("YOUTUBE_DESCRIPTION_TARGET_CHARS", 4_200),
             instagram_caption_target_chars=_int_env("INSTAGRAM_CAPTION_TARGET_CHARS", 2_000),
             groq_metadata_delay_seconds=_int_env("GROQ_METADATA_DELAY_SECONDS", 30),
@@ -282,12 +263,6 @@ class Settings:
             raise ConfigurationError("YOUTUBE_PRIVACY_STATUS must be private, unlisted, or public.")
         if not re.fullmatch(r"v\d+\.\d+", self.instagram_graph_api_version):
             raise ConfigurationError("INSTAGRAM_GRAPH_API_VERSION must look like v26.0.")
-        if not 0 <= self.instagram_dm_delay_min_seconds <= 60:
-            raise ConfigurationError("INSTAGRAM_DM_DELAY_MIN_SECONDS must be between 0 and 60.")
-        if not self.instagram_dm_delay_min_seconds <= self.instagram_dm_delay_max_seconds <= 60:
-            raise ConfigurationError(
-                "INSTAGRAM_DM_DELAY_MAX_SECONDS must be between the minimum delay and 60."
-            )
         if not 5 <= self.links_poll_seconds <= 3600:
             raise ConfigurationError("LINKS_POLL_SECONDS must be between 5 and 3600.")
         if (
@@ -347,37 +322,12 @@ class Settings:
                 raise ConfigurationError(
                     "INSTAGRAM_ACCESS_TOKEN is required for Instagram publishing."
                 )
-        if self.send_instagram_dm:
-            missing = [
-                name
-                for name, value in (
-                    ("INSTAGRAM_DM_SENDER_ID", self.instagram_dm_sender_id),
-                    ("INSTAGRAM_DM_RECIPIENT_ID", self.instagram_dm_recipient_id),
-                    ("INSTAGRAM_DM_ACCESS_TOKEN", self.instagram_dm_access_token),
-                    ("CLOUDINARY_CLOUD_NAME", self.cloudinary_cloud_name),
-                    ("CLOUDINARY_API_KEY", self.cloudinary_api_key),
-                    ("CLOUDINARY_API_SECRET", self.cloudinary_api_secret),
-                )
-                if not value
-            ]
-            if missing:
-                raise ConfigurationError(
-                    "Missing Instagram DM configuration: " + ", ".join(missing)
-                )
-            if not self.instagram_dm_sender_id.isdigit():
-                raise ConfigurationError("INSTAGRAM_DM_SENDER_ID must be numeric.")
-            if not self.instagram_dm_recipient_id.isdigit():
-                raise ConfigurationError(
-                    "INSTAGRAM_DM_RECIPIENT_ID must be the numeric Instagram-scoped ID "
-                    "from the existing chat, not a username."
-                )
 
     def validate_file_queue(self) -> None:
         self.validate_pipeline()
-        if not self.upload_youtube and not self.upload_instagram and not self.send_instagram_dm:
+        if not self.upload_youtube and not self.upload_instagram:
             raise ConfigurationError(
-                "Enable UPLOAD_YOUTUBE, UPLOAD_INSTAGRAM, or SEND_INSTAGRAM_DM for the "
-                "automated link queue."
+                "Enable UPLOAD_YOUTUBE or UPLOAD_INSTAGRAM for the automated link queue."
             )
 
     def instagram_hashtags(self) -> list[str]:
