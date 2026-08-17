@@ -3,7 +3,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from shorts_bot.errors import UploadLimitError
+from shorts_bot.errors import UploadError, UploadLimitError
 from shorts_bot.instagram import InstagramUploader
 from shorts_bot.models import ShortPlan
 
@@ -74,3 +74,14 @@ def test_detects_instagram_content_publishing_limit() -> None:
 
     with pytest.raises(UploadLimitError, match="Instagram upload limit reached"):
         InstagramUploader._raise_for_meta_error(response, "Instagram Graph API")
+
+
+def test_surfaces_instagram_plain_message_error() -> None:
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://rupload.facebook.com/upload"),
+        json={"message": "Video format was rejected"},
+    )
+
+    with pytest.raises(UploadError, match="Video format was rejected"):
+        InstagramUploader._raise_for_meta_error(response, "Instagram video upload")

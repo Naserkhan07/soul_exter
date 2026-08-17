@@ -170,11 +170,16 @@ class InstagramUploader:
         code = 0
         try:
             payload = response.json()
-            error = payload.get("error", {})
-            detail = str(error.get("error_user_msg") or error.get("message") or detail)
-            code = int(error.get("code") or 0)
+            error = payload.get("error", {}) if isinstance(payload, dict) else {}
+            if isinstance(error, dict):
+                detail = str(error.get("error_user_msg") or error.get("message") or detail)
+                code = int(error.get("code") or 0)
+            if detail == f"HTTP {response.status_code}" and isinstance(payload, dict):
+                detail = str(payload.get("message") or payload.get("error_msg") or detail)
         except (ValueError, TypeError, AttributeError):
-            pass
+            body = response.text.strip()
+            if body:
+                detail = f"HTTP {response.status_code}: {body[:500]}"
         normalized = detail.casefold()
         limit_markers = (
             "publishing limit",
