@@ -114,6 +114,41 @@ class VideoDownloader:
             )
         return options
 
+    @staticmethod
+    def _extract_info(url: str, options: dict[str, object]) -> dict[str, object]:
+        with yt_dlp.YoutubeDL(options) as downloader:
+            info = downloader.extract_info(url, download=True)
+        if not isinstance(info, dict):
+            raise DownloadError("YouTube returned no video metadata.")
+        return info
+
+    def _download_error_detail(self, detail: str) -> str:
+        normalized = detail.casefold()
+        if "failed to decrypt with dpapi" in normalized:
+            return (
+                "Chrome cookies use Windows app-bound encryption and cannot be read directly. "
+                "Export YouTube cookies in Netscape format, set "
+                "YTDLP_COOKIE_FILE=youtube-cookies.txt, and clear "
+                "YTDLP_COOKIES_FROM_BROWSER."
+            )
+        if "sign in to confirm" in normalized:
+            if self.cookies_from_browser:
+                return (
+                    f"YouTube rejected cookies from {self.cookies_from_browser}. "
+                    "Confirm that you are signed in to YouTube in that browser, "
+                    "close the browser, and retry."
+                )
+            return (
+                "YouTube requires signed-in cookies. Refresh the Netscape-format "
+                "youtube-cookies.txt export and retry."
+            )
+        if "requested format is not available" in normalized:
+            return (
+                "YouTube did not expose separate best-video and best-audio streams. "
+                "Update yt-dlp and yt-dlp-ejs, then refresh youtube-cookies.txt."
+            )
+        return detail
+
     def _download_sync(self, url: str, destination: Path) -> SourceVideo:
         destination.mkdir(parents=True, exist_ok=True)
         output_template = str(destination / "source.%(ext)s")
@@ -124,30 +159,31 @@ class VideoDownloader:
             self.cookie_file,
         )
         try:
-            with yt_dlp.YoutubeDL(options) as downloader:
-                info = downloader.extract_info(url, download=True)
+            info = self._extract_info(url, options)
         except yt_dlp.utils.DownloadError as exc:
             detail = str(exc)
-            if "failed to decrypt with dpapi" in detail.lower():
-                detail = (
-                    "Chrome cookies use Windows app-bound encryption and cannot be read directly. "
-                    "Export YouTube cookies in Netscape format, set "
-                    "YTDLP_COOKIE_FILE=youtube-cookies.txt, and clear "
-                    "YTDLP_COOKIES_FROM_BROWSER."
-                )
-            elif "sign in to confirm" in detail.lower():
-                if self.cookies_from_browser:
-                    detail = (
-                        f"YouTube rejected cookies from {self.cookies_from_browser}. "
-                        "Confirm that you are signed in to YouTube in that browser, "
-                        "close the browser, and retry."
-                    )
-                else:
-                    detail = (
-                        "YouTube requires signed-in browser cookies. Set "
-                        "YTDLP_COOKIES_FROM_BROWSER=brave (or your browser) in .env and retry."
-                    )
-            raise DownloadError(f"YouTube download failed: {detail}") from exc
+            authenticated = "cookiefile" in options or "cookiesfrombrowser" in options
+            if "requested format is not available" in detail.casefold() and authenticated:
+                # Account cookies can occasionally be assigned a YouTube client experiment that
+                # exposes only SABR/image formats. Retry the exact same bestvideo+bestaudio
+                # selector without authentication; this often restores normal public streams.
+                public_options = dict(options)
+                public_options.pop("cookiefile", None)
+                public_options.pop("cookiesfrombrowser", None)
+                try:
+                    info = self._extract_info(url, public_options)
+                except yt_dlp.utils.DownloadError as public_exc:
+                    public_detail = self._download_error_detail(str(public_exc))
+                    raise DownloadError(
+                        "YouTube exposed no separate bestvideo+bestaudio streams with the "
+                        "configured cookies, and the public retry also failed. Update the "
+                        "project dependencies and refresh youtube-cookies.txt. Public retry: "
+                        f"{public_detail}"
+                    ) from public_exc
+            else:
+                raise DownloadError(
+                    f"YouTube download failed: {self._download_error_detail(detail)}"
+                ) from exc
         except Exception as exc:
             raise DownloadError(f"Unexpected downloader error: {exc}") from exc
 

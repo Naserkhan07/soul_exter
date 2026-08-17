@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+import yt_dlp
+
 from shorts_bot.downloader import VideoDownloader, extract_youtube_urls, is_youtube_url
 
 
@@ -57,3 +60,49 @@ def test_cookie_file_takes_precedence_over_chrome_dpapi_extraction(tmp_path: Pat
 
     assert options["cookiefile"] == str(cookie_file)
     assert "cookiesfrombrowser" not in options
+
+
+def test_retries_exact_format_without_cookies_when_cookie_client_hides_streams(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            self.options = options
+            calls.append(options)
+
+        def __enter__(self):  # noqa: ANN204
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def extract_info(self, url: str, download: bool) -> dict[str, object]:
+            assert download is True
+            assert url == "https://youtu.be/example"
+            if "cookiefile" in self.options:
+                raise yt_dlp.utils.DownloadError(
+                    "Requested format is not available. Use --list-formats"
+                )
+            output = Path(str(self.options["outtmpl"]).replace("%(ext)s", "mkv"))
+            output.write_bytes(b"source")
+            return {
+                "duration": 60,
+                "webpage_url": url,
+                "id": "example",
+                "title": "Example",
+                "uploader": "Creator",
+            }
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYoutubeDL)
+    downloader = VideoDownloader(cookie_file=tmp_path / "youtube-cookies.txt")
+
+    source = downloader._download_sync("https://youtu.be/example", tmp_path / "job")
+
+    assert source.path.name == "source.mkv"
+    assert len(calls) == 2
+    assert calls[0]["format"] == "bestvideo+bestaudio"
+    assert calls[1]["format"] == "bestvideo+bestaudio"
+    assert "cookiefile" in calls[0]
+    assert "cookiefile" not in calls[1]
