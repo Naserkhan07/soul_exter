@@ -1,9 +1,12 @@
+import json
 from pathlib import Path
 
 import pytest
+from googleapiclient.errors import HttpError
+from httplib2 import Response
 
 from shorts_bot.errors import UploadError
-from shorts_bot.youtube import YouTubeUploader
+from shorts_bot.youtube import YouTubeUploader, _is_youtube_upload_limit
 
 
 class FakeChannelRequest:
@@ -33,3 +36,21 @@ def test_verifies_oauth_channel_matches_configuration() -> None:
 
     with pytest.raises(UploadError, match="channels.toml specifies UC-correct"):
         uploader._verify_channel(FakeYouTube(["UC-wrong"]))
+
+
+def test_detects_youtube_daily_upload_limit_reason() -> None:
+    content = json.dumps(
+        {
+            "error": {
+                "errors": [
+                    {
+                        "reason": "uploadLimitExceeded",
+                        "message": "The user has exceeded the number of videos they may upload.",
+                    }
+                ]
+            }
+        }
+    ).encode()
+    error = HttpError(Response({"status": "403", "reason": "Forbidden"}), content)
+
+    assert _is_youtube_upload_limit(error, "uploadLimitExceeded")

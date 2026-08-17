@@ -106,6 +106,8 @@ class Settings:
     cloudinary_cloud_name: str
     cloudinary_api_key: str
     cloudinary_api_secret: str
+    archive_on_upload_limit: bool
+    archive_dir: Path
     work_dir: Path
     database_path: Path
     keep_work_files: bool
@@ -189,6 +191,8 @@ class Settings:
             cloudinary_cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", "").strip(),
             cloudinary_api_key=os.getenv("CLOUDINARY_API_KEY", "").strip(),
             cloudinary_api_secret=os.getenv("CLOUDINARY_API_SECRET", "").strip(),
+            archive_on_upload_limit=_bool_env("ARCHIVE_ON_UPLOAD_LIMIT", True),
+            archive_dir=Path(os.getenv("ARCHIVE_DIR", str(work_dir / "archives"))).expanduser(),
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),
@@ -332,3 +336,4 @@ class Settings:
         self.links_file.parent.mkdir(parents=True, exist_ok=True)
         self.links_file.touch(exist_ok=True)
         self.downloaded_links_log.parent.mkdir(parents=True, exist_ok=True)
+        self.archive_dir.mkdir(parents=True, exist_ok=True)

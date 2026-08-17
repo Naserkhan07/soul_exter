@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from .errors import UploadError
+from .errors import UploadError, UploadLimitError
 from .models import InstagramUploadResult, ShortPlan
 
 
@@ -167,10 +167,25 @@ class InstagramUploader:
         if response.is_success:
             return
         detail = f"HTTP {response.status_code}"
+        code = 0
         try:
             payload = response.json()
             error = payload.get("error", {})
             detail = str(error.get("error_user_msg") or error.get("message") or detail)
-        except (ValueError, AttributeError):
+            code = int(error.get("code") or 0)
+        except (ValueError, TypeError, AttributeError):
             pass
+        normalized = detail.casefold()
+        limit_markers = (
+            "publishing limit",
+            "content publishing limit",
+            "rate limit",
+            "too many",
+            "quota",
+            "limit reached",
+        )
+        if any(marker in normalized for marker in limit_markers) or (
+            code in {4, 9, 17, 32, 613} and "limit" in normalized
+        ):
+            raise UploadLimitError("Instagram", detail)
         raise UploadError(f"{operation} failed: {detail}")

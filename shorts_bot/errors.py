@@ -19,4 +19,13 @@ class AIError(WorkflowError):
 
 
 class UploadError(WorkflowError):
-    """YouTube upload failed."""
+    """A platform upload failed."""
+
+
+class UploadLimitError(UploadError):
+    """A platform's daily/rate publishing allowance was exhausted."""
+
+    def __init__(self, platform: str, detail: str) -> None:
+        self.platform = platform
+        self.detail = detail
+        super().__init__(f"{platform} upload limit reached: {detail}")

@@ -25,6 +25,8 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "CLOUDINARY_CLOUD_NAME",
         "CLOUDINARY_API_KEY",
         "CLOUDINARY_API_SECRET",
+        "ARCHIVE_ON_UPLOAD_LIMIT",
+        "ARCHIVE_DIR",
         "YOUTUBE_DESCRIPTION_TARGET_CHARS",
         "INSTAGRAM_CAPTION_TARGET_CHARS",
         "INSTAGRAM_HASHTAGS_FILE",
@@ -67,6 +69,8 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.video_preset == "slow"
     assert settings.video_enhancer == "none"
     assert settings.apimarket_max_clips == 5
+    assert settings.archive_on_upload_limit is True
+    assert settings.archive_dir == tmp_path / "work" / "archives"
     assert settings.youtube_description_target_chars == 4_200
     assert settings.instagram_caption_target_chars == 2_000
     assert settings.upload_youtube is False

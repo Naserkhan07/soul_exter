@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     youtube_video_id TEXT,
     instagram_media_id TEXT,
     instagram_url TEXT,
+    archive_path TEXT,
     error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -56,6 +57,7 @@ _MIGRATION_COLUMNS = {
     "instagram_caption": "TEXT",
     "instagram_media_id": "TEXT",
     "instagram_url": "TEXT",
+    "archive_path": "TEXT",
 }
 _CLIP_MIGRATION_COLUMNS = {
     "thumbnail_path": "TEXT",
@@ -110,6 +112,7 @@ class JobRepository:
             youtube_video_id=row["youtube_video_id"],
             instagram_media_id=row["instagram_media_id"],
             instagram_url=row["instagram_url"],
+            archive_path=row["archive_path"],
             error=row["error"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -178,6 +181,7 @@ class JobRepository:
             "youtube_video_id",
             "instagram_media_id",
             "instagram_url",
+            "archive_path",
             "error",
         }
         unknown = fields.keys() - allowed
@@ -298,7 +302,8 @@ class JobRepository:
                 """
                 UPDATE jobs
                 SET output_path = NULL, youtube_video_id = NULL,
-                    instagram_media_id = NULL, instagram_url = NULL, error = NULL
+                    instagram_media_id = NULL, instagram_url = NULL,
+                    archive_path = NULL, error = NULL
                 WHERE id = ?
                 """,
                 (job_id,),

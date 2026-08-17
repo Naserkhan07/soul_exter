@@ -9,6 +9,7 @@ def test_job_lifecycle(tmp_path: Path) -> None:
     job = repository.create(101, 202, "https://youtu.be/example")
 
     assert job.status == JobStatus.QUEUED
+    assert job.archive_path is None
     assert repository.list_recent(202) == [job]
 
     updated = repository.update(

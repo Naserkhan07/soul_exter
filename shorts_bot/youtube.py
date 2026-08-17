@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -10,7 +12,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
-from .errors import UploadError
+from .errors import UploadError, UploadLimitError
 from .models import ShortPlan
 
 logger = logging.getLogger(__name__)
@@ -106,10 +108,14 @@ class YouTubeUploader:
             if thumbnail_path and thumbnail_path.exists():
                 self._try_set_thumbnail(youtube, str(video_id), thumbnail_path)
             return str(video_id)
+        except UploadLimitError:
+            raise
         except UploadError:
             raise
         except HttpError as exc:
-            detail = getattr(exc, "reason", None) or str(exc)
+            detail = _youtube_http_error_detail(exc)
+            if _is_youtube_upload_limit(exc, detail):
+                raise UploadLimitError("YouTube", detail) from exc
             raise UploadError(f"YouTube API rejected the upload: {detail}") from exc
         except Exception as exc:
             raise UploadError(f"YouTube upload failed: {exc}") from exc
@@ -126,8 +132,6 @@ class YouTubeUploader:
                 ),
             ).execute()
         except HttpError as exc:
-            # Shorts thumbnail eligibility varies by channel/rollout. Keep the video upload
-            # successful when YouTube refuses the custom image and uses its generated frame.
             logger.warning("YouTube did not accept the custom thumbnail: %s", exc.reason)
 
     def _verify_channel(self, youtube: object) -> None:
@@ -141,3 +145,38 @@ class YouTubeUploader:
                 f"OAuth is authorized for {found}, but channels.toml specifies "
                 f"{self.expected_channel_id}. Run shorts-auth with the correct account."
             )
+
+
+def _youtube_http_error_payload(exc: HttpError) -> dict[str, Any]:
+    try:
+        content = exc.content.decode("utf-8") if isinstance(exc.content, bytes) else exc.content
+        payload = json.loads(content or "{}")
+        return payload if isinstance(payload, dict) else {}
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _youtube_http_error_detail(exc: HttpError) -> str:
+    payload = _youtube_http_error_payload(exc)
+    error = payload.get("error", {})
+    if isinstance(error, dict):
+        errors = error.get("errors", [])
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+            return str(errors[0].get("message") or errors[0].get("reason") or exc.reason)
+        return str(error.get("message") or exc.reason)
+    return str(getattr(exc, "reason", None) or exc)
+
+
+def _is_youtube_upload_limit(exc: HttpError, detail: str) -> bool:
+    payload = _youtube_http_error_payload(exc)
+    text = f"{detail} {json.dumps(payload)}".casefold()
+    markers = (
+        "quotaexceeded",
+        "dailylimitexceeded",
+        "uploadlimitexceeded",
+        "uploadratelimitexceeded",
+        "daily upload limit",
+        "upload limit",
+        "quota exceeded",
+    )
+    return any(marker in text for marker in markers)

@@ -10,11 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .ai import AIPlanner, full_coverage_plans
+from .archive import build_job_archive
 from .config import Settings
 from .db import JobRepository
 from .downloader import VideoDownloader
 from .enhancer import APIMarketVideoEnhancer, CloudinaryTemporaryVideoHost
-from .errors import WorkflowError
+from .errors import UploadLimitError, WorkflowError
 from .instagram import InstagramUploader
 from .media import MediaProcessor
 from .models import Job, JobClip, JobStatus, ShortPlan, SourceVideo
@@ -192,6 +193,7 @@ class WorkflowPipeline:
                 full_transcript = await self.services.planner.transcribe(audio_path)
 
             uploaded_platforms = self._configured_platforms()
+            limited_platforms: set[str] = set()
             total_clips = len(clips)
             metadata_requests = 0
             for clip in clips:
@@ -229,6 +231,7 @@ class WorkflowPipeline:
                         clip,
                         total_clips,
                         job_dir,
+                        limited_platforms,
                     )
                 except Exception as exc:
                     self.repository.update_clip(
@@ -240,11 +243,34 @@ class WorkflowPipeline:
 
             clips = self.repository.list_clips(job.id)
             first = clips[0]
-            progress = (
-                f"Created {len(clips)} Shorts; published to {' and '.join(uploaded_platforms)}"
-                if uploaded_platforms
-                else f"Created {len(clips)} local Shorts"
-            )
+            archive_path: Path | None = None
+            if limited_platforms and self.settings.archive_on_upload_limit:
+                await self._status(
+                    job.id,
+                    JobStatus.RENDERING,
+                    "Creating one local ZIP because upload limits were reached",
+                )
+                latest_job = self.repository.get(job.id) or job
+                archive_path = await asyncio.to_thread(
+                    build_job_archive,
+                    latest_job,
+                    clips,
+                    self.settings.archive_dir,
+                    limited_platforms,
+                )
+
+            if limited_platforms:
+                limit_text = " and ".join(sorted(limited_platforms))
+                progress = f"Created {len(clips)} Shorts; {limit_text} limit reached"
+                if archive_path:
+                    progress += f"; ZIP saved at {archive_path}"
+            elif uploaded_platforms:
+                progress = (
+                    f"Created {len(clips)} Shorts; published to {' and '.join(uploaded_platforms)}"
+                )
+            else:
+                progress = f"Created {len(clips)} local Shorts"
+
             completed = self.repository.update(
                 job.id,
                 status=JobStatus.COMPLETE,
@@ -256,11 +282,14 @@ class WorkflowPipeline:
                 youtube_video_id=first.youtube_video_id,
                 instagram_media_id=first.instagram_media_id,
                 instagram_url=first.instagram_url,
+                archive_path=str(archive_path) if archive_path else None,
                 error=None,
             )
             await self._notify(completed, completed.progress_message)
 
-            if uploaded_platforms and not self.settings.keep_work_files:
+            # Keep source and clip files whenever a platform is pending so --resume can retry
+            # after the daily reset, even if a ZIP was also created.
+            if uploaded_platforms and not self.settings.keep_work_files and not limited_platforms:
                 shutil.rmtree(job_dir, ignore_errors=True)
                 for clip in clips:
                     self.repository.update_clip(
@@ -311,6 +340,7 @@ class WorkflowPipeline:
         clip: JobClip,
         total_clips: int,
         job_dir: Path,
+        limited_platforms: set[str],
     ) -> JobClip:
         plan = self._plan_from_clip(clip)
         output_path = (
@@ -403,46 +433,70 @@ class WorkflowPipeline:
                 thumbnail_path=str(thumbnail_path),
             )
 
-        if self.services.youtube_uploader and not clip.youtube_video_id:
+        if (
+            self.services.youtube_uploader
+            and not clip.youtube_video_id
+            and "YouTube" not in limited_platforms
+        ):
             await self._status(
                 job.id,
                 JobStatus.UPLOADING,
                 f"Uploading Short {clip.clip_index}/{total_clips} to YouTube as "
                 f"{self.settings.youtube_privacy_status}",
             )
-            youtube_video_id = await self.services.youtube_uploader.upload(
-                output_path,
-                plan,
-                thumbnail_path,
-            )
-            clip = self.repository.update_clip(
-                job.id,
-                clip.clip_index,
-                youtube_video_id=youtube_video_id,
-                error=None,
-            )
-            if clip.clip_index == 1:
-                self.repository.update(job.id, youtube_video_id=youtube_video_id)
+            try:
+                youtube_video_id = await self.services.youtube_uploader.upload(
+                    output_path,
+                    plan,
+                    thumbnail_path,
+                )
+                clip = self.repository.update_clip(
+                    job.id,
+                    clip.clip_index,
+                    youtube_video_id=youtube_video_id,
+                    error=None,
+                )
+                if clip.clip_index == 1:
+                    self.repository.update(job.id, youtube_video_id=youtube_video_id)
+            except UploadLimitError:
+                limited_platforms.add("YouTube")
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    "YouTube upload limit reached; continuing local generation",
+                )
 
-        if self.services.instagram_uploader and not clip.instagram_media_id:
+        if (
+            self.services.instagram_uploader
+            and not clip.instagram_media_id
+            and "Instagram" not in limited_platforms
+        ):
             await self._status(
                 job.id,
                 JobStatus.UPLOADING,
                 f"Publishing Reel {clip.clip_index}/{total_clips} to Instagram",
             )
-            instagram = await self.services.instagram_uploader.upload(output_path, plan)
-            clip = self.repository.update_clip(
-                job.id,
-                clip.clip_index,
-                instagram_media_id=instagram.media_id,
-                instagram_url=instagram.permalink,
-                error=None,
-            )
-            if clip.clip_index == 1:
-                self.repository.update(
+            try:
+                instagram = await self.services.instagram_uploader.upload(output_path, plan)
+                clip = self.repository.update_clip(
                     job.id,
+                    clip.clip_index,
                     instagram_media_id=instagram.media_id,
                     instagram_url=instagram.permalink,
+                    error=None,
+                )
+                if clip.clip_index == 1:
+                    self.repository.update(
+                        job.id,
+                        instagram_media_id=instagram.media_id,
+                        instagram_url=instagram.permalink,
+                    )
+            except UploadLimitError:
+                limited_platforms.add("Instagram")
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    "Instagram upload limit reached; continuing local generation",
                 )
         return clip
 

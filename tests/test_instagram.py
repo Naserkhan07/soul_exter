@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import httpx
+import pytest
 
+from shorts_bot.errors import UploadLimitError
 from shorts_bot.instagram import InstagramUploader
 from shorts_bot.models import ShortPlan
 
@@ -56,3 +58,19 @@ async def test_instagram_resumable_reel_publish_flow(tmp_path: Path) -> None:
         ("POST", "/v26.0/1789/media_publish"),
         ("GET", "/v26.0/media-id"),
     ]
+
+
+def test_detects_instagram_content_publishing_limit() -> None:
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://graph.facebook.com/media_publish"),
+        json={
+            "error": {
+                "code": 9,
+                "message": "Content publishing limit reached for this account",
+            }
+        },
+    )
+
+    with pytest.raises(UploadLimitError, match="Instagram upload limit reached"):
+        InstagramUploader._raise_for_meta_error(response, "Instagram Graph API")

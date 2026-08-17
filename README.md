@@ -314,6 +314,30 @@ reuse its downloaded source and create a new multi-clip batch, run:
 python -m shorts_bot.file_queue --expand JOB_ID
 ```
 
+## Automatic archive when upload limits are reached
+
+When YouTube or Instagram reports a daily publishing/upload limit, that platform is disabled for the
+remainder of the current job. The other platform continues when still available. Metadata,
+enhancement, rendering, and thumbnails continue locally for every remaining clip. At the end, the
+workflow creates one uncompressed ZIP in `work/archives/` containing:
+
+- every generated MP4
+- every thumbnail
+- `metadata.json` with titles, descriptions, captions, IDs, URLs, and pending status
+- `upload-manifest.csv` for manual upload tracking
+- a short README
+
+Configure:
+
+```dotenv
+ARCHIVE_ON_UPLOAD_LIMIT=true
+ARCHIVE_DIR=work/archives
+```
+
+The terminal prints the final ZIP path. MP4s use ZIP `stored` mode because recompressing H.264 would
+waste time without reducing size. Resume the same job after the platform's daily reset; clips already
+uploaded are skipped and pending clips are retried.
+
 ## One-off URL command
 
 To process URLs without editing `links.txt`:
@@ -372,6 +396,8 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `CLOUDINARY_CLOUD_NAME` | empty | Temporary input hosting account |
 | `CLOUDINARY_API_KEY` | empty | Temporary input hosting key |
 | `CLOUDINARY_API_SECRET` | empty | Temporary input hosting secret |
+| `ARCHIVE_ON_UPLOAD_LIMIT` | `true` | Build one ZIP when a platform publishing limit is reached |
+| `ARCHIVE_DIR` | `work/archives` | Local ZIP destination |
 | `WORK_DIR` | `work` | Local media directory |
 | `DATABASE_PATH` | `work/jobs.db` | Local SQLite history |
 | `KEEP_WORK_FILES` | `true` | Keep local MP4s after publishing |

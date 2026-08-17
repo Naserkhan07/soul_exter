@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import zipfile
 from dataclasses import replace
 from pathlib import Path
 
 from shorts_bot.config import Settings
 from shorts_bot.db import JobRepository
+from shorts_bot.errors import UploadLimitError
 from shorts_bot.models import (
     InstagramUploadResult,
     JobStatus,
@@ -297,6 +299,49 @@ async def test_full_coverage_uploads_each_clip_before_generating_the_next(tmp_pa
     metadata_2 = events.index("Generating detailed metadata for Short 2/3")
     instagram_1 = events.index("Publishing Reel 1/3 to Instagram")
     assert instagram_1 < metadata_2
+
+
+async def test_upload_limits_create_one_local_zip_and_do_not_fail_job(tmp_path: Path) -> None:
+    settings = replace(
+        settings_for(tmp_path),
+        archive_on_upload_limit=True,
+        archive_dir=tmp_path / "archives",
+    )
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    class LimitedYouTube:
+        async def upload(
+            self,
+            video_path: Path,
+            plan: ShortPlan,
+            thumbnail_path: Path | None = None,
+        ) -> str:
+            raise UploadLimitError("YouTube", "daily limit")
+
+    class LimitedInstagram:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> InstagramUploadResult:
+            raise UploadLimitError("Instagram", "publishing limit")
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=LimitedYouTube(),  # type: ignore[arg-type]
+        instagram_uploader=LimitedInstagram(),  # type: ignore[arg-type]
+    )
+    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+
+    assert result.status == JobStatus.COMPLETE
+    assert result.archive_path is not None
+    archive_path = Path(result.archive_path)
+    assert archive_path.exists()
+    with zipfile.ZipFile(archive_path) as archive:
+        names = archive.namelist()
+        assert "metadata.json" in names
+        assert "upload-manifest.csv" in names
+        assert any(name.startswith("videos/") for name in names)
 
 
 async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> None:
