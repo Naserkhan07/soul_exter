@@ -60,6 +60,41 @@ async def test_instagram_resumable_reel_publish_flow(tmp_path: Path) -> None:
     ]
 
 
+async def test_retries_temporary_instagram_binary_upload_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts = 0
+    delays: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(500, json={"message": "Temporary Meta server error"})
+        return httpx.Response(200, json={"success": True})
+
+    async def fake_sleep(delay: int) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("shorts_bot.instagram.asyncio.sleep", fake_sleep)
+    video_path = tmp_path / "short.mp4"
+    video_path.write_bytes(b"video")
+    uploader = InstagramUploader(
+        user_id="1789",
+        access_token="secret-token",
+        upload_retry_attempts=4,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await uploader._upload_binary(
+            client,
+            "https://rupload.facebook.com/ig-api-upload/v26.0/container-id",
+            video_path,
+        )
+
+    assert attempts == 3
+    assert delays == [1, 2]
+
+
 def test_detects_instagram_content_publishing_limit() -> None:
     response = httpx.Response(
         400,
@@ -74,6 +109,16 @@ def test_detects_instagram_content_publishing_limit() -> None:
 
     with pytest.raises(UploadLimitError, match="Instagram upload limit reached"):
         InstagramUploader._raise_for_meta_error(response, "Instagram Graph API")
+
+
+def test_detects_instagram_http_rate_limit() -> None:
+    response = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://rupload.facebook.com/upload"),
+    )
+
+    with pytest.raises(UploadLimitError, match="Instagram upload limit reached"):
+        InstagramUploader._raise_for_meta_error(response, "Instagram video upload")
 
 
 def test_surfaces_instagram_plain_message_error() -> None:

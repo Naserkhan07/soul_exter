@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,8 @@ import httpx
 
 from .errors import UploadError, UploadLimitError
 from .models import InstagramUploadResult, ShortPlan
+
+logger = logging.getLogger(__name__)
 
 
 class InstagramUploader:
@@ -20,6 +23,7 @@ class InstagramUploader:
         api_version: str = "v26.0",
         poll_interval_seconds: int = 5,
         processing_timeout_seconds: int = 600,
+        upload_retry_attempts: int = 4,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.user_id = user_id
@@ -27,6 +31,7 @@ class InstagramUploader:
         self.api_version = api_version
         self.poll_interval_seconds = poll_interval_seconds
         self.processing_timeout_seconds = processing_timeout_seconds
+        self.upload_retry_attempts = max(1, upload_retry_attempts)
         self.transport = transport
         self.graph_base = f"https://graph.facebook.com/{api_version}"
 
@@ -78,23 +83,44 @@ class InstagramUploader:
         video_path: Path,
     ) -> None:
         file_size = video_path.stat().st_size
-        try:
-            with video_path.open("rb") as video_file:
-                response = await client.post(
-                    upload_uri,
-                    headers={
-                        "Authorization": f"OAuth {self.access_token}",
-                        "Content-Type": "video/mp4",
-                        "offset": "0",
-                        "file_size": str(file_size),
-                    },
-                    content=video_file.read(),
-                )
-            self._raise_for_meta_error(response, "Instagram video upload")
-        except UploadError:
-            raise
-        except httpx.HTTPError as exc:
-            raise UploadError(f"Instagram video upload request failed: {exc}") from exc
+        for attempt in range(1, self.upload_retry_attempts + 1):
+            try:
+                with video_path.open("rb") as video_file:
+                    response = await client.post(
+                        upload_uri,
+                        headers={
+                            "Authorization": f"OAuth {self.access_token}",
+                            "Content-Type": "video/mp4",
+                            "offset": "0",
+                            "file_size": str(file_size),
+                        },
+                        content=video_file.read(),
+                    )
+                if response.status_code < 500:
+                    self._raise_for_meta_error(response, "Instagram video upload")
+                    return
+                if attempt == self.upload_retry_attempts:
+                    self._raise_for_meta_error(response, "Instagram video upload")
+            except UploadLimitError:
+                raise
+            except UploadError:
+                raise
+            except httpx.HTTPError as exc:
+                if attempt == self.upload_retry_attempts:
+                    raise UploadError(
+                        f"Instagram video upload request failed after "
+                        f"{self.upload_retry_attempts} attempts: {exc}"
+                    ) from exc
+
+            delay = min(30, 2 ** (attempt - 1))
+            logger.warning(
+                "Instagram video upload returned a temporary server/network error; "
+                "retrying in %s seconds (%s/%s)",
+                delay,
+                attempt + 1,
+                self.upload_retry_attempts,
+            )
+            await asyncio.sleep(delay)
 
     async def _wait_until_ready(
         self,
@@ -181,6 +207,8 @@ class InstagramUploader:
             if body:
                 detail = f"HTTP {response.status_code}: {body[:500]}"
         normalized = detail.casefold()
+        if response.status_code == 429:
+            raise UploadLimitError("Instagram", detail)
         limit_markers = (
             "publishing limit",
             "content publishing limit",
