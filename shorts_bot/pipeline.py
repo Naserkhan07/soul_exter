@@ -41,6 +41,7 @@ class WorkflowServices:
             downloader=VideoDownloader(
                 cookies_from_browser=settings.ytdlp_cookies_from_browser,
                 browser_profile=settings.ytdlp_browser_profile,
+                cookie_file=settings.ytdlp_cookie_file,
             ),
             media=MediaProcessor(
                 video_layout=settings.video_layout,

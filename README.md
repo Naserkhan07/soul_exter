@@ -370,8 +370,9 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `YOUTUBE_DESCRIPTION_TARGET_CHARS` | `4200` | Target detailed description length, max 4500 |
 | `INSTAGRAM_CAPTION_TARGET_CHARS` | `2000` | Caption limit including hashtags, max 2000 |
 | `INSTAGRAM_HASHTAGS_FILE` | `instagram_hashtags.txt` | Editable pool rotated in groups of 30 |
-| `YTDLP_COOKIES_FROM_BROWSER` | empty | Local signed-in browser cookies for YouTube |
+| `YTDLP_COOKIES_FROM_BROWSER` | empty | Direct browser extraction (Firefox recommended on Windows) |
 | `YTDLP_BROWSER_PROFILE` | empty | Optional browser profile name/path |
+| `YTDLP_COOKIE_FILE` | empty | Netscape cookie export for Chrome DPAPI workaround |
 | `CHANNEL_CONFIG_FILE` | `channels.toml` | Local non-secret account IDs |
 | `UPLOAD_YOUTUBE` | `false` | Enable YouTube publishing |
 | `YOUTUBE_PRIVACY_STATUS` | `public` | Requested YouTube visibility |
@@ -440,24 +441,35 @@ wait until Groq's reported reset time or upgrade the Groq service tier.
 
 ### YouTube says "Sign in to confirm you're not a bot"
 
-Sign in to YouTube in your normal local browser, then set that browser in `.env`. For Brave:
+Sign in to YouTube in a supported browser. Firefox cookies can usually be read directly. Modern
+Chrome on Windows may return `Failed to decrypt with DPAPI` because application-bound encryption
+prevents `yt-dlp` from decrypting the browser database, even under the same Windows account.
+
+For Firefox direct extraction:
 
 ```dotenv
-YTDLP_COOKIES_FROM_BROWSER=brave
+YTDLP_COOKIES_FROM_BROWSER=firefox
 YTDLP_BROWSER_PROFILE=
+YTDLP_COOKIE_FILE=
 ```
 
-Other supported values include `chrome`, `edge`, and `firefox`. Save `.env`, completely close the
-selected browser so Windows releases its cookie database, and retry:
+To keep using Chrome, export only your YouTube session to a Netscape-format cookie file using the
+procedure in yt-dlp's official cookie-exporting guide, save it locally as `youtube-cookies.txt`, then
+configure:
+
+```dotenv
+YTDLP_COOKIES_FROM_BROWSER=
+YTDLP_BROWSER_PROFILE=
+YTDLP_COOKIE_FILE=youtube-cookies.txt
+```
+
+The cookie file takes precedence and avoids Chrome DPAPI extraction. It is ignored by Git, but it is
+still equivalent to account access: never share, upload, screenshot, or commit it. Delete it and sign
+out of the exported browser session when it is no longer needed. Retry with:
 
 ```powershell
 python -m shorts_bot.file_queue --once
 ```
-
-The program asks `yt-dlp` to read the selected browser's existing YouTube cookies locally. It does
-not export or commit them. Browser cookies provide account access, so never share or upload them.
-If the wrong browser profile is selected, set `YTDLP_BROWSER_PROFILE` to its profile name, such as
-`Default` or `Profile 1`.
 
 ### YouTube says "Requested format is not available"
 

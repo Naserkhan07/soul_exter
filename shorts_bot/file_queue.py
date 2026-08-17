@@ -132,6 +132,7 @@ async def run_file_queue(
         return 1 if result.error else 0
 
     any_failures = False
+    failed_urls_this_session: set[str] = set()
     if watch:
         print(
             f"Local watcher started. Add YouTube URLs to {settings.links_file}. "
@@ -142,9 +143,19 @@ async def run_file_queue(
     while True:
         urls = link_queue.pending_urls()
         for url in urls:
+            if url in failed_urls_this_session:
+                continue
             job = repository.create(chat_id=0, user_id=0, source_url=url)
             result = await pipeline.process(job.id)
-            any_failures = any_failures or bool(result.error)
+            if result.error:
+                any_failures = True
+                failed_urls_this_session.add(url)
+                if watch:
+                    print(
+                        f"[{job.id}] URL will not retry again in this session. "
+                        "Fix the error and restart the watcher.",
+                        flush=True,
+                    )
 
         if not watch:
             return 1 if any_failures else 0

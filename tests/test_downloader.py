@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from shorts_bot.downloader import VideoDownloader, extract_youtube_urls, is_youtube_url
 
 
@@ -43,3 +45,15 @@ def test_download_options_can_use_local_browser_cookies() -> None:
     )
 
     assert options["cookiesfrombrowser"] == ("brave", "Profile 1", None, None)
+
+
+def test_cookie_file_takes_precedence_over_chrome_dpapi_extraction(tmp_path: Path) -> None:
+    cookie_file = tmp_path / "youtube-cookies.txt"
+    options = VideoDownloader._download_options(
+        "source.%(ext)s",
+        cookies_from_browser="chrome",
+        cookie_file=cookie_file,
+    )
+
+    assert options["cookiefile"] == str(cookie_file)
+    assert "cookiesfrombrowser" not in options

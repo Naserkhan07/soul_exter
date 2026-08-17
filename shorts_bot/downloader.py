@@ -41,9 +41,15 @@ def extract_youtube_urls(text: str) -> list[str]:
 
 
 class VideoDownloader:
-    def __init__(self, cookies_from_browser: str = "", browser_profile: str = "") -> None:
+    def __init__(
+        self,
+        cookies_from_browser: str = "",
+        browser_profile: str = "",
+        cookie_file: Path | None = None,
+    ) -> None:
         self.cookies_from_browser = cookies_from_browser
         self.browser_profile = browser_profile
+        self.cookie_file = cookie_file
 
     async def download(self, url: str, destination: Path) -> SourceVideo:
         if not is_youtube_url(url):
@@ -61,6 +67,7 @@ class VideoDownloader:
         output_template: str,
         cookies_from_browser: str = "",
         browser_profile: str = "",
+        cookie_file: Path | None = None,
     ) -> dict[str, object]:
         options: dict[str, object] = {
             # Exact Python API equivalent of: yt-dlp -f "bestvideo+bestaudio" URL
@@ -94,7 +101,11 @@ class VideoDownloader:
                 "extractor": cls._retry_delay,
             },
         }
-        if cookies_from_browser:
+        if cookie_file:
+            # A Netscape-format export avoids Windows Chromium DPAPI/app-bound encryption.
+            # Never combine it with browser extraction, which would still trigger decryption.
+            options["cookiefile"] = str(cookie_file)
+        elif cookies_from_browser:
             options["cookiesfrombrowser"] = (
                 cookies_from_browser,
                 browser_profile or None,
@@ -110,13 +121,21 @@ class VideoDownloader:
             output_template,
             self.cookies_from_browser,
             self.browser_profile,
+            self.cookie_file,
         )
         try:
             with yt_dlp.YoutubeDL(options) as downloader:
                 info = downloader.extract_info(url, download=True)
         except yt_dlp.utils.DownloadError as exc:
             detail = str(exc)
-            if "sign in to confirm" in detail.lower():
+            if "failed to decrypt with dpapi" in detail.lower():
+                detail = (
+                    "Chrome cookies use Windows app-bound encryption and cannot be read directly. "
+                    "Export YouTube cookies in Netscape format, set "
+                    "YTDLP_COOKIE_FILE=youtube-cookies.txt, and clear "
+                    "YTDLP_COOKIES_FROM_BROWSER."
+                )
+            elif "sign in to confirm" in detail.lower():
                 if self.cookies_from_browser:
                     detail = (
                         f"YouTube rejected cookies from {self.cookies_from_browser}. "

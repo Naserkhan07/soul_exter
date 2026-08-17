@@ -74,6 +74,7 @@ class Settings:
     groq_max_transcript_chars: int
     ytdlp_cookies_from_browser: str
     ytdlp_browser_profile: str
+    ytdlp_cookie_file: Path | None
     channel_config_file: Path
     youtube_channel_id: str
     youtube_client_secrets_file: Path
@@ -138,6 +139,11 @@ class Settings:
             groq_max_transcript_chars=_int_env("GROQ_MAX_TRANSCRIPT_CHARS", 8_000),
             ytdlp_cookies_from_browser=os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip().lower(),
             ytdlp_browser_profile=os.getenv("YTDLP_BROWSER_PROFILE", "").strip(),
+            ytdlp_cookie_file=(
+                Path(os.environ["YTDLP_COOKIE_FILE"].strip()).expanduser()
+                if os.getenv("YTDLP_COOKIE_FILE", "").strip()
+                else None
+            ),
             channel_config_file=channel_config_file,
             youtube_channel_id=(
                 os.getenv("YOUTUBE_CHANNEL_ID", "").strip()
@@ -272,6 +278,8 @@ class Settings:
             )
         if not self.groq_api_key:
             raise ConfigurationError("GROQ_API_KEY is required for AI clip planning.")
+        if self.ytdlp_cookie_file and not self.ytdlp_cookie_file.exists():
+            raise ConfigurationError(f"YTDLP_COOKIE_FILE was not found: {self.ytdlp_cookie_file}")
         if self.video_enhancer == "api_market":
             missing = [
                 name

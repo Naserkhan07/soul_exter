@@ -34,6 +34,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "GROQ_METADATA_DELAY_SECONDS",
         "YTDLP_COOKIES_FROM_BROWSER",
         "YTDLP_BROWSER_PROFILE",
+        "YTDLP_COOKIE_FILE",
         "UPLOAD_YOUTUBE",
         "UPLOAD_INSTAGRAM",
         "AUTO_UPLOAD",
@@ -98,13 +99,17 @@ def test_reads_browser_cookie_configuration(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(tmp_path / "missing.toml"))
+    cookie_file = tmp_path / "youtube-cookies.txt"
+    cookie_file.write_text("# Netscape HTTP Cookie File", encoding="utf-8")
     monkeypatch.setenv("YTDLP_COOKIES_FROM_BROWSER", "BRAVE")
     monkeypatch.setenv("YTDLP_BROWSER_PROFILE", "Profile 1")
+    monkeypatch.setenv("YTDLP_COOKIE_FILE", str(cookie_file))
 
     settings = Settings.from_env(env_file=None)
 
     assert settings.ytdlp_cookies_from_browser == "brave"
     assert settings.ytdlp_browser_profile == "Profile 1"
+    assert settings.ytdlp_cookie_file == cookie_file
 
 
 def test_rejects_duration_outside_shorts_range(monkeypatch: pytest.MonkeyPatch) -> None:
