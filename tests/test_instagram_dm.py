@@ -49,7 +49,7 @@ async def test_sends_hosted_video_to_configured_instagram_chat(tmp_path: Path) -
     assert host.deleted == ["soul_exter/dm/job/clip-001-stored"]
     assert len(requests) == 1
     request = requests[0]
-    assert request.url == "https://graph.instagram.com/v26.0/me/messages"
+    assert request.url == "https://graph.instagram.com/v26.0/123/messages"
     assert request.headers["authorization"] == "Bearer secret-token"
     assert b'"id":"456"' in request.content
     assert b'"type":"video"' in request.content

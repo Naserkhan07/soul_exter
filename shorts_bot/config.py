@@ -175,7 +175,11 @@ class Settings:
             ).expanduser(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
             send_instagram_dm=_bool_env("SEND_INSTAGRAM_DM", False),
-            instagram_dm_sender_id=os.getenv("INSTAGRAM_DM_SENDER_ID", "").strip(),
+            instagram_dm_sender_id=(
+                os.getenv("INSTAGRAM_DM_SENDER_ID", "").strip()
+                or os.getenv("INSTAGRAM_USER_ID", "").strip()
+                or _nested_string(channel_config, "instagram", "user_id")
+            ),
             instagram_dm_recipient_id=os.getenv("INSTAGRAM_DM_RECIPIENT_ID", "").strip(),
             instagram_dm_recipient_username=os.getenv("INSTAGRAM_DM_RECIPIENT_USERNAME", "")
             .strip()
@@ -351,6 +355,7 @@ class Settings:
             missing = [
                 name
                 for name, value in (
+                    ("INSTAGRAM_DM_SENDER_ID", self.instagram_dm_sender_id),
                     ("INSTAGRAM_DM_ACCESS_TOKEN", self.instagram_dm_access_token),
                     ("CLOUDINARY_CLOUD_NAME", self.cloudinary_cloud_name),
                     ("CLOUDINARY_API_KEY", self.cloudinary_api_key),
@@ -362,8 +367,8 @@ class Settings:
                 raise ConfigurationError(
                     "Missing Instagram DM configuration: " + ", ".join(missing)
                 )
-            if self.instagram_dm_sender_id and not self.instagram_dm_sender_id.isdigit():
-                raise ConfigurationError("INSTAGRAM_DM_SENDER_ID must be numeric when set.")
+            if not self.instagram_dm_sender_id.isdigit():
+                raise ConfigurationError("INSTAGRAM_DM_SENDER_ID must be numeric.")
             if not self.instagram_dm_recipient_id and not self.instagram_dm_recipient_username:
                 raise ConfigurationError(
                     "Set INSTAGRAM_DM_RECIPIENT_USERNAME or INSTAGRAM_DM_RECIPIENT_ID."
