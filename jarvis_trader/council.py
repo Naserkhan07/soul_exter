@@ -33,6 +33,7 @@ WEIGHTS = {
     "gemini": 1.1,
     "groq": 1.1,
     "forecaster": 1.2,     # Chronos time-series foundation model (HF, local)
+    "micro": 1.3,          # order-book microstructure model (own-trained, shadow)
 }
 
 _llm_status = {"gemini": "untested", "groq": "untested"}
@@ -271,6 +272,21 @@ def analyze(asset, use_llms=True, interval="5m"):
                                "exp_move_pct": fc["exp_move"],
                                "model": "amazon/chronos-bolt-small",
                                "horizon": f"12x{interval}"}}
+    except Exception:
+        pass
+
+    # MICRO: own-trained order-book microstructure model. Votes only when a
+    # trained model exists for this symbol AND the live recorder is feeding
+    # features (SHADOW mode - its vote counts, its precision is tracked).
+    try:
+        from .micro import predictor as micro_pred
+        from .micro import live as micro_live
+        if micro_pred.available(asset["symbol"]):
+            frow = micro_live.latest_features(asset["symbol"])
+            if frow:
+                mv = micro_pred.council_score(asset["symbol"], frow)
+                if mv:
+                    members["micro"] = mv
     except Exception:
         pass
 

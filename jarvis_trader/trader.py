@@ -238,6 +238,13 @@ class TradingEngine:
                      "'pip install -r requirements-ai.txt' if missing")
         except Exception:
             pass
+        # MICRO order-book recorder (opt-in via MICRO_RECORD=true in .env):
+        # records training data 24/7 + feeds live MICRO council predictions
+        try:
+            from .micro import live as micro_live
+            micro_live.start_if_enabled(log=self.log)
+        except Exception:
+            pass
         self.log("Engine started: live tracking " +
                  f"{len(config.WATCHLIST)} assets across crypto/stocks/forex/futures/indices/funds")
 

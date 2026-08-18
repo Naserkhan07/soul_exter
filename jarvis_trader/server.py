@@ -146,6 +146,51 @@ def api_journal():
     return ENGINE.get_journal()
 
 
+@app.get("/api/micro")
+def api_micro():
+    """Microstructure system status: recorder, dataset sizes, model, shadow."""
+    from .micro import live as micro_live
+    from .micro import predictor as micro_pred
+    from .micro.recorder import MICRO_DIR
+    out = {"recorder": micro_live.status(), "symbols": {}}
+    if MICRO_DIR.exists():
+        for d in MICRO_DIR.iterdir():
+            if d.is_dir():
+                sym = d.name
+                shards = list(d.glob("*.jsonl"))
+                size_mb = sum(f.stat().st_size for f in shards) / 1e6
+                out["symbols"][sym] = {
+                    "shards": len(shards),
+                    "data_mb": round(size_mb, 1),
+                    "model_trained": micro_pred.available(sym),
+                }
+    return out
+
+
+@app.post("/api/micro/train/{symbol}")
+def api_micro_train(symbol: str):
+    """Build features -> label -> train the micro model for a symbol."""
+    from .micro import microfeatures, labeler, train_micro
+
+    def _run():
+        try:
+            ENGINE.act("jarvis", f"MICRO: building features for {symbol}...")
+            microfeatures.build(symbol, log=ENGINE.log)
+            ENGINE.act("jarvis", f"MICRO: triple-barrier labeling {symbol}...")
+            labeler.label(symbol, log=ENGINE.log)
+            ENGINE.act("jarvis", f"MICRO: training LightGBM for {symbol} "
+                       "(walk-forward + hard examples)...")
+            b = train_micro.train(symbol, log=ENGINE.log)
+            if b:
+                ENGINE.act("jarvis", f"MICRO model trained for {symbol}: "
+                           f"{b['n_rows']} rows - now voting in SHADOW mode")
+        except Exception as e:
+            ENGINE.log(f"MICRO train error {symbol}: {e}")
+
+    _threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "started": True, "symbol": symbol}
+
+
 @app.get("/api/selection")
 def api_selection_get():
     """Current asset selection (empty = tracking all)."""
