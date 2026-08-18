@@ -6,3 +6,4 @@ data_store/
 *.pkl
 .venv/
 training/jarvis_dataset.jsonl
+training/orderbook_dataset.jsonl

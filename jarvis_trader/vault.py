@@ -40,6 +40,11 @@ FIELDS = {
     "TV_WEBHOOK_SECRET": ("TradingView", "Webhook secret (optional)", True,
                           "protects /webhook/tradingview; TradingView has no "
                           "official order API - use alerts/webhooks or MT5"),
+    # Your own trained Qwen order-book brain (served locally via Ollama)
+    "TRADING_BRAIN_URL":   ("Qwen Brain", "Ollama URL", False,
+                            "e.g. http://localhost:11434 after 'ollama create micro-jarvis'"),
+    "TRADING_BRAIN_MODEL": ("Qwen Brain", "Ollama model name", False,
+                            "default micro-jarvis"),
     # Bot settings
     "PAPER_START_BALANCE":     ("Bot", "Paper starting balance", False, ""),
     "RISK_PER_TRADE_PCT":      ("Bot", "Risk per trade %", False, ""),

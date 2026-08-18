@@ -34,6 +34,7 @@ WEIGHTS = {
     "groq": 1.1,
     "forecaster": 1.2,     # Chronos time-series foundation model (HF, local)
     "micro": 1.3,          # order-book microstructure model (own-trained, shadow)
+    "qwen_micro": 1.2,     # YOUR fine-tuned Qwen order-book brain (via Ollama)
 }
 
 _llm_status = {"gemini": "untested", "groq": "untested"}
@@ -287,6 +288,20 @@ def analyze(asset, use_llms=True, interval="5m"):
                 mv = micro_pred.council_score(asset["symbol"], frow)
                 if mv:
                     members["micro"] = mv
+    except Exception:
+        pass
+
+    # QWEN-MICRO: your fine-tuned Qwen order-book brain served locally via
+    # Ollama (TRADING_BRAIN_URL). Votes when Ollama is up + recorder feeding.
+    try:
+        from .micro import qwen_brain
+        from .micro import live as micro_live2
+        if qwen_brain.available():
+            frow2 = micro_live2.latest_features(asset["symbol"])
+            if frow2:
+                qv = qwen_brain.council_score(frow2)
+                if qv:
+                    members["qwen_micro"] = qv
     except Exception:
         pass
 
