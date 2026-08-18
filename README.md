@@ -125,8 +125,8 @@ Edit `.env`:
 
 ```dotenv
 GROQ_API_KEY=gsk_your_key
-GROQ_MODEL=llama-3.1-8b-instant
-GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
+GROQ_MODEL=qwen/qwen3.6-27b
+GROQ_FALLBACK_MODEL=qwen/qwen3.6-27b
 GROQ_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
 GROQ_MAX_TRANSCRIPT_CHARS=8000
 GROQ_METADATA_DELAY_SECONDS=30
@@ -370,8 +370,8 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | Variable | Default | Purpose |
 |---|---:|---|
 | `GROQ_API_KEY` | empty | Required Groq API key |
-| `GROQ_MODEL` | `llama-3.1-8b-instant` | Token-efficient highlight/metadata model |
-| `GROQ_FALLBACK_MODEL` | `llama-3.1-8b-instant` | Used if the primary model is rate-limited |
+| `GROQ_MODEL` | `qwen/qwen3.6-27b` | Active non-OpenAI Groq highlight/metadata model |
+| `GROQ_FALLBACK_MODEL` | `qwen/qwen3.6-27b` | Non-OpenAI Groq fallback model |
 | `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Timestamped transcription |
 | `GROQ_MAX_TRANSCRIPT_CHARS` | `8000` | Sampled planning transcript budget |
 | `GROQ_METADATA_DELAY_SECONDS` | `30` | Pacing between detailed per-clip metadata calls |
@@ -427,13 +427,14 @@ A VS Code **Run tests** task is included.
 
 ### Groq daily token limit reached
 
-The project defaults to `llama-3.1-8b-instant`, whose free daily token allowance is larger than the
-70B model's allowance. Long transcripts are compacted into contiguous candidate blocks sampled
-across the full timeline before planning. If an existing `.env` still selects the 70B model, use:
+Groq retired `llama-3.1-8b-instant` and `llama-3.3-70b-versatile` on August 16, 2026.
+The project now uses Groq-hosted Qwen, which needs only the existing Groq API key and no OpenAI
+account or API key. Old Llama values in `.env` are migrated automatically at startup. Long
+transcripts are still compacted into contiguous candidate blocks before planning. Use:
 
 ```dotenv
-GROQ_MODEL=llama-3.1-8b-instant
-GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
+GROQ_MODEL=qwen/qwen3.6-27b
+GROQ_FALLBACK_MODEL=qwen/qwen3.6-27b
 GROQ_MAX_TRANSCRIPT_CHARS=8000
 ```
 

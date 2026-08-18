@@ -61,7 +61,7 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     settings.validate_pipeline()
 
     assert settings.clip_duration_seconds == 30
-    assert settings.groq_model == "llama-3.1-8b-instant"
+    assert settings.groq_model == "qwen/qwen3.6-27b"
     assert settings.groq_max_transcript_chars == 8_000
     assert settings.shorts_selection_mode == "full_coverage"
     assert settings.max_shorts_per_video == 0
@@ -79,6 +79,16 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.upload_youtube is False
     assert settings.upload_instagram is False
     assert settings.youtube_privacy_status == "public"
+
+
+def test_migrates_retired_groq_models_to_qwen(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    monkeypatch.setenv("GROQ_FALLBACK_MODEL", "llama-3.3-70b-versatile")
+
+    settings = Settings.from_env(env_file=None)
+
+    assert settings.groq_model == "qwen/qwen3.6-27b"
+    assert settings.groq_fallback_model == "qwen/qwen3.6-27b"
 
 
 def test_reads_non_secret_ids_from_toml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

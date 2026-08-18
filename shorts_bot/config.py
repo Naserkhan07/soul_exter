@@ -13,6 +13,11 @@ from .errors import ConfigurationError
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off", ""}
+_DEFAULT_GROQ_MODEL = "qwen/qwen3.6-27b"
+_DEPRECATED_GROQ_MODELS = {
+    "llama-3.1-8b-instant": _DEFAULT_GROQ_MODEL,
+    "llama-3.3-70b-versatile": _DEFAULT_GROQ_MODEL,
+}
 _SUPPORTED_COOKIE_BROWSERS = {
     "brave",
     "chrome",
@@ -46,6 +51,11 @@ def _int_env(name: str, default: int) -> int:
         return int(value)
     except ValueError as exc:
         raise ConfigurationError(f"{name} must be an integer.") from exc
+
+
+def _groq_model_env(name: str) -> str:
+    configured = os.getenv(name, _DEFAULT_GROQ_MODEL).strip()
+    return _DEPRECATED_GROQ_MODELS.get(configured, configured)
 
 
 def _read_channel_config(path: Path) -> dict[str, Any]:
@@ -131,8 +141,8 @@ class Settings:
 
         settings = cls(
             groq_api_key=os.getenv("GROQ_API_KEY", "").strip(),
-            groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip(),
-            groq_fallback_model=os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant").strip(),
+            groq_model=_groq_model_env("GROQ_MODEL"),
+            groq_fallback_model=_groq_model_env("GROQ_FALLBACK_MODEL"),
             groq_transcription_model=os.getenv(
                 "GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
             ).strip(),
