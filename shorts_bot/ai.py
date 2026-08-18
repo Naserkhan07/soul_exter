@@ -288,20 +288,18 @@ repetition, and return only the corrected JSON object.
         for model in models:
             for token_budget in token_budgets:
                 try:
-                    response = await self.client.chat.completions.create(
-                        model=model,
-                        temperature=0.3,
-                        max_tokens=token_budget,
-                        response_format={"type": "json_object"},
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt},
-                        ],
+                    request = _completion_request(
+                        model,
+                        system_prompt,
+                        prompt,
+                        token_budget,
+                        json_mode=True,
                     )
+                    response = await self.client.chat.completions.create(**request)
                     content = response.choices[0].message.content
                     if not content:
                         raise AIError(f"Groq model {model} returned an empty editing plan.")
-                    return json.loads(content)
+                    return _parse_json_object(content)
                 except RateLimitError as exc:
                     last_rate_limit = exc
                     break
@@ -314,6 +312,32 @@ repetition, and return only the corrected JSON object.
                     )
                     if truncated_json and token_budget != token_budgets[-1]:
                         continue
+                    if (
+                        exc.status_code == 400
+                        and "json_validate_failed" in detail
+                        and model.startswith("qwen/")
+                    ):
+                        try:
+                            fallback_request = _completion_request(
+                                model,
+                                system_prompt,
+                                prompt,
+                                token_budget,
+                                json_mode=False,
+                            )
+                            fallback_response = await self.client.chat.completions.create(
+                                **fallback_request
+                            )
+                            fallback_content = fallback_response.choices[0].message.content
+                            if not fallback_content:
+                                raise AIError(f"Groq model {model} returned an empty editing plan.")
+                            return _parse_json_object(fallback_content)
+                        except AIError:
+                            raise
+                        except Exception as fallback_exc:
+                            raise AIError(
+                                f"Groq JSON retry with {model} failed: {fallback_exc}"
+                            ) from fallback_exc
                     if exc.status_code == 413:
                         raise _PromptTooLargeError(str(exc)) from exc
                     raise AIError(f"Groq clip planning with {model} failed: {exc}") from exc
@@ -357,6 +381,74 @@ repetition, and return only the corrected JSON object.
         if not lines:
             raise AIError("No speech could be transcribed from this video.")
         return "\n".join(lines)
+
+
+def _completion_request(
+    model: str,
+    system_prompt: str,
+    prompt: str,
+    max_tokens: int,
+    *,
+    json_mode: bool,
+) -> dict[str, Any]:
+    request: dict[str, Any] = {
+        "model": model,
+        "temperature": 0.3,
+        "max_tokens": max_tokens,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    if json_mode:
+        request["response_format"] = {"type": "json_object"}
+
+    if model.startswith("qwen/"):
+        # Groq recommends no system message and non-thinking mode for efficient Qwen
+        # dialogue/JSON requests. Hidden reasoning is required when JSON mode is active.
+        json_instruction = (
+            "\n\nReturn only one valid JSON object with no markdown fences or commentary."
+            if not json_mode
+            else ""
+        )
+        request.update(
+            {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "reasoning_effort": "none",
+                "reasoning_format": "hidden",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": f"{system_prompt}\n\n{prompt}{json_instruction}",
+                    }
+                ],
+            }
+        )
+    return request
+
+
+def _parse_json_object(content: str) -> dict[str, Any]:
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    try:
+        payload = json.loads(cleaned)
+        if isinstance(payload, dict):
+            return payload
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", cleaned):
+        try:
+            payload, _ = decoder.raw_decode(cleaned[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise json.JSONDecodeError("No valid JSON object found", cleaned, 0)
 
 
 def transcript_excerpt(

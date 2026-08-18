@@ -170,6 +170,46 @@ async def test_retries_json_generation_with_larger_completion_budget() -> None:
     assert token_budgets == [650, 2_050]
 
 
+async def test_qwen_disables_reasoning_and_retries_json_validation_as_text() -> None:
+    requests: list[dict[str, object]] = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):  # noqa: ANN003, ANN201
+            requests.append(kwargs)
+            if len(requests) == 1:
+                response = httpx.Response(
+                    400,
+                    request=httpx.Request("POST", "https://api.groq.com/test"),
+                )
+                raise APIStatusError(
+                    "json_validate_failed",
+                    response=response,
+                    body={"error": {"code": "json_validate_failed"}},
+                )
+            message = SimpleNamespace(content='```json\n{"title": "Recovered"}\n```')
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    planner = AIPlanner(
+        api_key="test-key",
+        model="qwen/qwen3.6-27b",
+        fallback_model="qwen/qwen3.6-27b",
+        transcription_model="whisper-large-v3-turbo",
+    )
+    planner.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=FakeCompletions())
+    )
+
+    payload = await planner._request_plan("Return JSON")
+
+    assert payload == {"title": "Recovered"}
+    assert len(requests) == 2
+    assert requests[0]["reasoning_effort"] == "none"
+    assert requests[0]["reasoning_format"] == "hidden"
+    assert requests[0]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in requests[1]
+    assert [message["role"] for message in requests[0]["messages"]] == ["user"]
+
+
 async def test_uses_fallback_model_when_primary_is_rate_limited() -> None:
     requested_models: list[str] = []
 
