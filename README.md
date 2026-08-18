@@ -489,7 +489,8 @@ The provider opens an automated temporary Chrome window only when YouTube reques
 close that window while the download is starting. Its current browser dependency does not load under
 Python 3.14, so create `.venv` with Python 3.11–3.13. The downloader always keeps the exact
 `bestvideo+bestaudio` selector. If exported account cookies expose only SABR/image formats for a
-public video, it retries that same selector without cookies rather than lowering source quality.
+public video, it retries that same selector without cookies. If the default public URL then returns
+HTTP 403, it forces PO-token-capable mweb/web_safari clients while preserving the same quality.
 
 ```powershell
 winget install --exact --id Python.Python.3.13

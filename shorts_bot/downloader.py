@@ -173,13 +173,25 @@ class VideoDownloader:
                 try:
                     info = self._extract_info(url, public_options)
                 except yt_dlp.utils.DownloadError as public_exc:
-                    public_detail = self._download_error_detail(str(public_exc))
-                    raise DownloadError(
-                        "YouTube exposed no separate bestvideo+bestaudio streams with the "
-                        "configured cookies, and the public retry also failed. Update the "
-                        "project dependencies and refresh youtube-cookies.txt. Public retry: "
-                        f"{public_detail}"
-                    ) from public_exc
+                    # A public default client can expose a format URL that later returns 403
+                    # when YouTube requires a GVS Proof-of-Origin token. Force mweb/web_safari
+                    # so the installed WebPoClient provider is asked to mint that token.
+                    token_options = dict(public_options)
+                    token_options["extractor_args"] = {
+                        "youtube": {"player_client": ["mweb", "web_safari"]}
+                    }
+                    try:
+                        info = self._extract_info(url, token_options)
+                    except yt_dlp.utils.DownloadError as token_exc:
+                        public_detail = self._download_error_detail(str(public_exc))
+                        token_detail = self._download_error_detail(str(token_exc))
+                        raise DownloadError(
+                            "YouTube exposed no separate bestvideo+bestaudio streams with the "
+                            "configured cookies, and both public retries failed. Confirm the WPC "
+                            "PO Token Provider is active and keep its temporary Chrome window "
+                            f"open. Default public retry: {public_detail}. "
+                            f"PO-token client retry: {token_detail}"
+                        ) from token_exc
             else:
                 raise DownloadError(
                     f"YouTube download failed: {self._download_error_detail(detail)}"

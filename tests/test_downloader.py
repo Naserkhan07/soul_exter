@@ -106,3 +106,46 @@ def test_retries_exact_format_without_cookies_when_cookie_client_hides_streams(
     assert calls[1]["format"] == "bestvideo+bestaudio"
     assert "cookiefile" in calls[0]
     assert "cookiefile" not in calls[1]
+
+
+def test_retries_with_po_token_clients_after_public_403(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            self.options = options
+            calls.append(options)
+
+        def __enter__(self):  # noqa: ANN204
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def extract_info(self, url: str, download: bool) -> dict[str, object]:
+            if "cookiefile" in self.options:
+                raise yt_dlp.utils.DownloadError("Requested format is not available")
+            if "extractor_args" not in self.options:
+                raise yt_dlp.utils.DownloadError("HTTP Error 403: Forbidden")
+            output = Path(str(self.options["outtmpl"]).replace("%(ext)s", "mkv"))
+            output.write_bytes(b"source")
+            return {
+                "duration": 60,
+                "webpage_url": url,
+                "id": "example",
+                "title": "Example",
+                "uploader": "Creator",
+            }
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYoutubeDL)
+    downloader = VideoDownloader(cookie_file=tmp_path / "youtube-cookies.txt")
+
+    source = downloader._download_sync("https://youtu.be/example", tmp_path / "job")
+
+    assert source.path.name == "source.mkv"
+    assert len(calls) == 3
+    assert calls[2]["format"] == "bestvideo+bestaudio"
+    assert "cookiefile" not in calls[2]
+    assert calls[2]["extractor_args"] == {"youtube": {"player_client": ["mweb", "web_safari"]}}
