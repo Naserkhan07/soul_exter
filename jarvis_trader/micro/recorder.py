@@ -226,8 +226,11 @@ class Recorder:
                                     self.stats[s]["snapshots"] += 1
             except Exception as e:
                 if self.running:
-                    print(f"[recorder] spot ws error: {e} - reconnecting in 5s")
-                    await asyncio.sleep(5)
+                    self._retry = min(getattr(self, "_retry", 5) * 1.6, 300)
+                    if getattr(self, "_retry", 5) <= 15 or int(self._retry) % 60 < 10:
+                        print(f"[recorder] spot ws error: {e or 'unreachable'} - "
+                              f"retrying in {int(self._retry)}s")
+                    await asyncio.sleep(self._retry)
 
     async def futures_loop(self):
         """Liquidations + mark/funding from the futures stream."""
@@ -277,11 +280,12 @@ class Recorder:
 
     async def stats_loop(self):
         while self.running:
-            await asyncio.sleep(60)
+            await asyncio.sleep(300)
             for s in self.symbols:
                 st = self.stats[s]
-                print(f"[recorder] {s}: {st['events']} events, "
-                      f"{st['trades']} trades, {st['snapshots']} snaps")
+                if st["events"] or st["trades"]:
+                    print(f"[recorder] {s}: {st['events']} events, "
+                          f"{st['trades']} trades, {st['snapshots']} snaps")
 
     async def run(self):
         if websockets is None:
