@@ -67,109 +67,29 @@ def _is_doji(c, tol=0.12):
 #  CANDLESTICK DETECTORS - each checks the pattern ENDING at index i
 # ------------------------------------------------------------------ #
 def _detect_candles_at(candles, i):
-    """Return list of candlestick pattern hits ending at bar i."""
+    """Return list of candlestick pattern hits ending at bar i.
+
+    TRIPLE+ CANDLE PATTERNS ONLY (per user decision): single- and
+    double-candle patterns (hammer, doji, engulfing, harami, tweezers,
+    kickers, windows, piercing, dark cloud...) fire constantly on intraday
+    charts and carry little edge alone - removed. Multi-bar sequences
+    encode real structure and stay:
+      Morning/Evening Star (+ Doji Star), Three White Soldiers,
+      Three Black Crows, Upside/Downside Tasuki Gap,
+      Side-by-Side White Lines, Rising/Falling Three Methods.
+    """
     hits = []
+    if i < 2:
+        return hits
     c0 = candles[i]
-    c1 = candles[i - 1] if i >= 1 else None
-    c2 = candles[i - 2] if i >= 2 else None
+    c1 = candles[i - 1]
+    c2 = candles[i - 2]
     ab = _avg_body(candles[:i + 1])
     tr = _trend_before(candles, i)
 
     def add(name, direction, score, note=""):
         hits.append({"name": name, "kind": "candle", "direction": direction,
                      "score": score, "note": note})
-
-    body, rng, up, lo = _body(c0), _range(c0), _upper(c0), _lower(c0)
-
-    # --- single candle ---
-    if _is_doji(c0):
-        if lo >= 0.6 * rng and up <= 0.15 * rng:
-            add("Dragonfly Doji", "bullish", 35 if tr < 0 else 10)
-        elif up >= 0.6 * rng and lo <= 0.15 * rng:
-            add("Gravestone Doji", "bearish", -35 if tr > 0 else -10)
-        else:
-            add("Doji", "neutral", 0, "indecision")
-    else:
-        small_body = body <= 0.35 * rng
-        if small_body and lo >= 2 * body and up <= 0.6 * body:
-            if tr < 0:
-                add("Hammer", "bullish", 45, "long lower wick after decline")
-            elif tr > 0:
-                add("Hanging Man", "bearish", -30, "hammer shape at top of rise")
-        if small_body and up >= 2 * body and lo <= 0.6 * body:
-            if tr < 0:
-                add("Inverted Hammer", "bullish", 30)
-            elif tr > 0:
-                add("Shooting Star", "bearish", -45, "long upper wick after rise")
-
-    if c1 is None:
-        return hits
-
-    b1 = _body(c1)
-
-    # --- two candle ---
-    # engulfing
-    if _green(c0) and _red(c1) and c0["c"] >= c1["o"] and c0["o"] <= c1["c"] and body > b1:
-        add("Bullish Engulfing", "bullish", 55 if tr < 0 else 30)
-    if _red(c0) and _green(c1) and c0["o"] >= c1["c"] and c0["c"] <= c1["o"] and body > b1:
-        add("Bearish Engulfing", "bearish", -55 if tr > 0 else -30)
-
-    # harami / harami cross
-    if b1 > 1.2 * ab and max(c0["c"], c0["o"]) <= max(c1["c"], c1["o"]) \
-            and min(c0["c"], c0["o"]) >= min(c1["c"], c1["o"]):
-        if _is_doji(c0):
-            if _red(c1):
-                add("Bullish Harami Cross", "bullish", 40 if tr < 0 else 15)
-            else:
-                add("Bearish Harami Cross", "bearish", -40 if tr > 0 else -15)
-        elif _red(c1) and _green(c0):
-            add("Bullish Harami", "bullish", 35 if tr < 0 else 12)
-        elif _green(c1) and _red(c0):
-            add("Bearish Harami", "bearish", -35 if tr > 0 else -12)
-
-    # inside bar (any small bar fully inside previous range)
-    if c0["h"] <= c1["h"] and c0["l"] >= c1["l"]:
-        if _green(c0):
-            add("Bullish Inside Bar", "bullish", 15, "compression, watch break")
-        elif _red(c0):
-            add("Bearish Inside Bar", "bearish", -15, "compression, watch break")
-
-    # piercing / dark cloud cover
-    if _red(c1) and _green(c0) and c0["o"] < c1["l"] + 0.2 * _range(c1) \
-            and c0["c"] > _mid(c1) and c0["c"] < c1["o"]:
-        add("Piercing Line", "bullish", 45)
-    if _green(c1) and _red(c0) and c0["o"] > c1["h"] - 0.2 * _range(c1) \
-            and c0["c"] < _mid(c1) and c0["c"] > c1["o"]:
-        add("Dark Cloud Cover", "bearish", -45)
-
-    # tweezers
-    tol = 0.15 * _range(c1)
-    if tr > 0 and abs(c0["h"] - c1["h"]) <= tol and _green(c1) and _red(c0):
-        add("Tweezer Top", "bearish", -40, "double rejection of same high")
-    if tr < 0 and abs(c0["l"] - c1["l"]) <= tol and _red(c1) and _green(c0):
-        add("Tweezer Bottom", "bullish", 40, "double defense of same low")
-
-    # kickers (gap + opposite color, strong)
-    if _red(c1) and _green(c0) and c0["o"] > c1["o"] and body > 1.2 * ab:
-        add("Bullish Kicker", "bullish", 60, "violent sentiment flip")
-    if _green(c1) and _red(c0) and c0["o"] < c1["o"] and body > 1.2 * ab:
-        add("Bearish Kicker", "bearish", -60, "violent sentiment flip")
-
-    # windows (gaps)
-    if c0["l"] > c1["h"]:
-        add("Rising Window (Gap Up)", "bullish", 35, "gap acts as support")
-    if c0["h"] < c1["l"]:
-        add("Falling Window (Gap Down)", "bearish", -35, "gap acts as resistance")
-
-    # separating lines
-    if abs(c0["o"] - c1["o"]) <= 0.1 * _range(c1):
-        if tr > 0 and _red(c1) and _green(c0):
-            add("Bullish Separating Line", "bullish", 30, "uptrend resumes")
-        if tr < 0 and _green(c1) and _red(c0):
-            add("Bearish Separating Line", "bearish", -30, "downtrend resumes")
-
-    if c2 is None:
-        return hits
 
     # --- three candle ---
     # morning / evening star (+ doji variants)

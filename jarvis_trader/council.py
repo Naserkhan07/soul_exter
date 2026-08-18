@@ -293,13 +293,15 @@ def analyze(asset, use_llms=True, interval="5m"):
 
     # QWEN-MICRO: your fine-tuned Qwen order-book brain served locally via
     # Ollama (TRADING_BRAIN_URL). Votes when Ollama is up + recorder feeding.
+    # Fed the T-60..NOW SEQUENCE (same format it was trained on).
     try:
         from .micro import qwen_brain
         from .micro import live as micro_live2
         if qwen_brain.available():
-            frow2 = micro_live2.latest_features(asset["symbol"])
-            if frow2:
-                qv = qwen_brain.council_score(frow2)
+            seq2 = micro_live2.latest_sequence(asset["symbol"])
+            payload = seq2 or micro_live2.latest_features(asset["symbol"])
+            if payload:
+                qv = qwen_brain.council_score(payload)
                 if qv:
                     members["qwen_micro"] = qv
     except Exception:

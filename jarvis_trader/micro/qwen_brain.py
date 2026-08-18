@@ -56,12 +56,18 @@ def ask(feature_row, timeout=20):
     url, model = _cfg()
     if not url or not feature_row:
         return None
-    # reuse the exact training-time rendering
+    # reuse the exact training-time rendering (sequence preferred)
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-    from training.export_orderbook_dataset import render_market_state
-    prompt = render_market_state(feature_row)
+    from training.export_orderbook_dataset import (render_sequence,
+                                                   render_market_state)
+    seq = feature_row if isinstance(feature_row, list) else None
+    if seq:
+        prompt = render_sequence(seq)
+        feature_row = seq[-1][1]
+    else:
+        prompt = render_market_state(feature_row)
     try:
         r = requests.post(url + "/api/chat", json={
             "model": model, "stream": False,

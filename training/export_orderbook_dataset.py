@@ -40,44 +40,58 @@ OUT = Path(__file__).parent / "orderbook_dataset.jsonl"
 
 SYSTEM = (
     "You are MICRO-JARVIS, a market-microstructure trading model. "
-    "You receive order-book and trade-flow evidence for one moment in time. "
-    "Decide BUY, SELL or NO TRADE. Reply ONLY in this exact format:\n"
+    "You receive the ORDER-BOOK SEQUENCE - how the book and trade flow "
+    "evolved over the last 60 seconds (T-60s to NOW) - for one market. "
+    "Read the evolution (liquidity appearing/pulling, aggression building, "
+    "absorption) and decide BUY, SELL or NO TRADE. Reply ONLY in this exact "
+    "format:\n"
     "SIGNAL: <BUY|SELL|NO TRADE>\nENTRY: <price or ->\nTP: <price or ->\n"
     "SL: <price or ->\nCONFIDENCE: <0-100>%\nREASON: <one short line>. "
     "Prefer NO TRADE unless the evidence is strong."
 )
 
+# sequence config: how many past feature rows Qwen sees and their spacing
+SEQ_STEPS = (60, 45, 30, 20, 10, 5, 0)     # seconds back from decision time
 
-def render_market_state(r):
-    """Human/LLM-readable rendering of one feature row (the model input)."""
-    lines = [f"MARKET STATE @ mid {r['mid']:.2f}"]
-    lines.append(f"Order-book imbalance  L1 {r['imb_l1']:+.3f}  "
-                 f"L5 {r['imb_l5']:+.3f}  L10 {r['imb_l10']:+.3f}  "
-                 f"L20 {r['imb_l20']:+.3f}")
-    lines.append(f"Spread {r['spread_bps']:.2f} bps | microprice "
-                 f"{r['micro_dist_bps']:+.2f} bps | depth ratio "
-                 f"{r['depth_ratio']:.2f}")
-    lines.append(f"Trade delta  1s {r['delta_1s']:+.2f}  5s {r['delta_5s']:+.2f} "
-                 f" 10s {r['delta_10s']:+.2f}  30s {r['delta_30s']:+.2f}")
-    lines.append(f"Volume 5s {r['vol_5s']:.2f} | 30s {r['vol_30s']:.2f} | "
-                 f"intensity {r['trade_intensity']:.1f}/s | large-trade share "
-                 f"{r['large_trade_ratio']:.2f}")
-    lines.append(f"Bid cancel-rate {r['bid_cancel_rate']:.2f} add-rate "
-                 f"{r['bid_add_rate']:.3f} | Ask cancel-rate "
-                 f"{r['ask_cancel_rate']:.2f} add-rate {r['ask_add_rate']:.3f}")
-    lines.append(f"Absorption {r['absorption']:.2f} | liquidity consumed 10s "
-                 f"{r['liq_consumed_10s']:.2f}")
-    lines.append(f"Returns  1s {r['ret_1s_bps']:+.2f}  5s {r['ret_5s_bps']:+.2f} "
-                 f" 30s {r['ret_30s_bps']:+.2f} bps | realized vol "
-                 f"{r['rvol_1m_bps']:.2f} bps | accel {r['accel_bps']:+.2f}")
-    if r.get("liq_buy_30s") or r.get("liq_sell_30s"):
-        lines.append(f"Liquidations 30s  long {r['liq_sell_30s']:.0f}  "
-                     f"short {r['liq_buy_30s']:.0f}")
-    if r.get("funding_bps"):
-        lines.append(f"Funding {r['funding_bps']:+.2f} bps | OI 5m change "
-                     f"{r.get('oi_chg_5m', 0):+.1f} bps")
+
+def _seq_line(offset, r):
+    """One compact line of the evolution block for a single feature row."""
+    tag = "NOW " if offset == 0 else f"T-{offset:02d}s"
+    return (f"{tag} mid {r['mid']:.2f} | imbL1 {r['imb_l1']:+.2f} "
+            f"L5 {r['imb_l5']:+.2f} L20 {r['imb_l20']:+.2f} | "
+            f"delta5s {r['delta_5s']:+.2f} | vol5s {r['vol_5s']:.1f} | "
+            f"cancB {r['bid_cancel_rate']:.2f} cancA {r['ask_cancel_rate']:.2f} | "
+            f"absorb {r['absorption']:.1f} | ret5s {r['ret_5s_bps']:+.1f}bps")
+
+
+def render_sequence(seq):
+    """seq = [(seconds_back, feature_row), ...] oldest first, 0 = now.
+    This is the model INPUT: how the book EVOLVED into this moment."""
+    r0 = seq[-1][1]
+    lines = ["ORDER-BOOK SEQUENCE (oldest to now):"]
+    for off, r in seq:
+        lines.append(_seq_line(off, r))
+    lines.append(
+        f"NOW detail: spread {r0['spread_bps']:.2f}bps | micro "
+        f"{r0['micro_dist_bps']:+.2f}bps | depth {r0['depth_ratio']:.2f} | "
+        f"delta1s {r0['delta_1s']:+.2f} 10s {r0['delta_10s']:+.2f} "
+        f"30s {r0['delta_30s']:+.2f} | intensity {r0['trade_intensity']:.1f}/s | "
+        f"large {r0['large_trade_ratio']:.2f} | addB {r0['bid_add_rate']:.3f} "
+        f"addA {r0['ask_add_rate']:.3f} | liqCons {r0['liq_consumed_10s']:.1f} | "
+        f"rvol {r0['rvol_1m_bps']:.2f}bps | accel {r0['accel_bps']:+.2f}")
+    if r0.get("liq_buy_30s") or r0.get("liq_sell_30s"):
+        lines.append(f"Liquidations 30s: long {r0['liq_sell_30s']:.0f} "
+                     f"short {r0['liq_buy_30s']:.0f}")
+    if r0.get("funding_bps"):
+        lines.append(f"Funding {r0['funding_bps']:+.2f}bps | OI5m "
+                     f"{r0.get('oi_chg_5m', 0):+.1f}bps")
     lines.append("Decision?")
     return "\n".join(lines)
+
+
+def render_market_state(r):
+    """Back-compat single-state rendering (live fallback when no history)."""
+    return render_sequence([(0, r)])
 
 
 def _reason(r, y):
@@ -108,7 +122,7 @@ def _reason(r, y):
     return "Conflicting evidence; risk/reward not attractive"
 
 
-def make_sample(r):
+def make_sample(r, seq):
     y = r["y"]
     entry = r["mid"]
     tp_bps, sl_bps = r["tp_bps"], r["sl_bps"]
@@ -129,7 +143,7 @@ def make_sample(r):
                f"CONFIDENCE: {conf_lo}%\nREASON: {_reason(r, y)}")
     return {"messages": [
         {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": render_market_state(r)},
+        {"role": "user", "content": render_sequence(seq)},
         {"role": "assistant", "content": ans}]}
 
 
@@ -151,19 +165,49 @@ def main():
             print(f"         python -m jarvis_trader.micro.recorder {sym}")
             continue
         rows = [json.loads(l) for l in open(lab, encoding="utf-8")]
-        buys = [r for r in rows if r["y"] == 2]
-        sells = [r for r in rows if r["y"] == 0]
-        notrades = [r for r in rows if r["y"] == 1]
-        # balance: all directional samples + up to 1.5x that many NO-TRADEs
-        # (keeps "when NOT to trade" strongly represented but not drowning)
+        # index rows by time for sequence lookback
+        by_time = [(r["t"], i) for i, r in enumerate(rows)]
+
+        def sequence_for(idx):
+            """Build the (seconds_back, row) sequence ending at rows[idx].
+            Uses only PAST rows (leak-free). None if history is too thin."""
+            t0 = rows[idx]["t"]
+            seq = []
+            j = idx
+            for back in SEQ_STEPS:
+                target = t0 - back
+                # walk back from idx to find the row closest at/before target
+                while j > 0 and rows[j - 1]["t"] >= target - 2.5:
+                    j -= 1
+                k = j
+                best = None
+                while k <= idx and rows[k]["t"] <= target + 2.5:
+                    best = k
+                    k += 1
+                if best is None:
+                    return None
+                seq.append((back, rows[best]))
+            return seq if len(seq) == len(SEQ_STEPS) else None
+
+        buys = [i for i, r in enumerate(rows) if r["y"] == 2]
+        sells = [i for i, r in enumerate(rows) if r["y"] == 0]
+        notrades = [i for i, r in enumerate(rows) if r["y"] == 1]
         random.seed(42)
         random.shuffle(notrades)
         keep_nt = notrades[:int(1.5 * max(len(buys) + len(sells), 50))]
         chosen = buys + sells + keep_nt
         random.shuffle(chosen)
-        all_samples += [make_sample(r) for r in chosen]
+        made = skipped = 0
+        for idx in chosen:
+            seq = sequence_for(idx)
+            if not seq:
+                skipped += 1
+                continue
+            all_samples.append(make_sample(rows[idx], seq))
+            made += 1
         print(f"[export] {sym}: BUY {len(buys)} SELL {len(sells)} "
-              f"NO-TRADE kept {len(keep_nt)}")
+              f"NO-TRADE kept {len(keep_nt)} | sequences built {made}, "
+              f"skipped (thin history) {skipped}")
 
     with open(OUT, "w", encoding="utf-8") as f:
         for s in all_samples:

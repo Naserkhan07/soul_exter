@@ -19,6 +19,7 @@ from .. import config
 from .microfeatures import FeatureEngine
 
 _engines = {}
+_history = {}       # symbol -> list[(t, feature_row)] rolling ~90s
 _lock = threading.Lock()
 _started = False
 STATUS = {"running": False, "symbols": [], "records": 0, "error": ""}
@@ -31,9 +32,46 @@ def latest_features(symbol):
     if not eng:
         return None
     try:
-        return eng.features(time.time())
+        row = eng.features(time.time())
     except Exception:
         return None
+    if row:
+        with _lock:
+            h = _history.setdefault(symbol, [])
+            if not h or row["t"] - h[-1][0] >= 2.0:
+                h.append((row["t"], row))
+                while h and h[0][0] < row["t"] - 95:
+                    h.pop(0)
+    return row
+
+
+def latest_sequence(symbol, steps=(60, 45, 30, 20, 10, 5, 0)):
+    """(seconds_back, row) sequence ending NOW - matches the Qwen training
+    format. None until enough history has accumulated (~60s of runtime)."""
+    now_row = latest_features(symbol)
+    if not now_row:
+        return None
+    with _lock:
+        hist = list(_history.get(symbol, []))
+    if not hist:
+        return None
+    t0 = now_row["t"]
+    seq = []
+    for back in steps:
+        if back == 0:
+            seq.append((0, now_row))
+            continue
+        target = t0 - back
+        best = None
+        for t, r in hist:
+            if t <= target + 2.5:
+                best = r
+            else:
+                break
+        if best is None:
+            return None
+        seq.append((back, best))
+    return seq
 
 
 def _run_recorder(symbols):

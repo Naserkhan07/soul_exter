@@ -36,11 +36,11 @@ KNOWLEDGE = {
         "Session timing: forex moves most in London/NY overlap; indices at cash open; crypto is 24/7 but follows US hours.",
     ],
     "candlestick_patterns": [
-        "Reversal candles need context: Hammer/Dragonfly Doji/Piercing/Morning Star/Tweezer Bottom matter AFTER a decline; Shooting Star/Hanging Man/Gravestone/Dark Cloud/Evening Star/Tweezer Top matter AFTER a rise.",
-        "Engulfing and Kicker patterns are the strongest 1-2 bar signals - a full body takeover or gap-flip in sentiment. Harami and Inside Bars signal compression; trade the breakout of their range.",
-        "Three White Soldiers / Three Black Crows show sustained conviction; Rising/Falling Three Methods and Separating Lines are continuation - the prior trend usually resumes.",
-        "Gaps (Rising/Falling Windows) act as support/resistance; Tasuki Gaps and Side-by-Side White Lines confirm the gap holds and trend continues.",
-        "A Doji alone means indecision, not reversal - after a strong jump it warns 'confusion, upside only slightly preferred'.",
+        "Only MULTI-BAR (3+) candle sequences carry reliable intraday edge; single/double-candle patterns fire constantly and are ignored by this system.",
+        "Morning Star / Evening Star (and Doji Star variants): big move candle, indecision pause, strong reversal candle - reversal AFTER a clear trend leg.",
+        "Three White Soldiers / Three Black Crows show sustained conviction across three full-bodied bars; strongest when bodies stay above average size.",
+        "Rising/Falling Three Methods: a strong bar, a tight 3-bar pause inside its range, then continuation - the prior trend usually resumes.",
+        "Tasuki Gaps and Side-by-Side White Lines confirm a gap is holding and the trend continues; a filled gap invalidates the signal.",
     ],
     "chart_patterns": [
         "Double/Triple Tops and Head & Shoulders are reversal patterns - confirmed only when the neckline breaks; target = pattern height projected from the break.",
