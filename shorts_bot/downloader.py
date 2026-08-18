@@ -57,9 +57,15 @@ class VideoDownloader:
         return await asyncio.to_thread(self._download_sync, url, destination)
 
     @staticmethod
-    def _retry_delay(attempt: int) -> int:
-        """Use bounded exponential backoff for temporary CDN/network failures."""
-        return min(2 ** max(0, attempt - 1), 20)
+    def _retry_delay(
+        attempt: int = 1,
+        *,
+        n: int | None = None,
+        **_: object,
+    ) -> int:
+        """Use bounded backoff across old and current yt-dlp callback signatures."""
+        retry_number = n if n is not None else attempt
+        return min(2 ** max(0, retry_number - 1), 20)
 
     @classmethod
     def _download_options(

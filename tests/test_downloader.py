@@ -38,6 +38,8 @@ def test_download_options_retry_transient_network_failures() -> None:
     assert options["js_runtimes"] == {"deno": {}}
     assert VideoDownloader._retry_delay(1) == 1
     assert VideoDownloader._retry_delay(10) == 20
+    assert VideoDownloader._retry_delay(n=3) == 4
+    assert VideoDownloader._retry_delay(n=10, error="HTTP 403") == 20
 
 
 def test_download_options_can_use_local_browser_cookies() -> None:
