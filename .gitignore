@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+data_store/
+*.db
+*.pkl
+.venv/
+training/jarvis_dataset.jsonl
+training/orderbook_dataset.jsonl

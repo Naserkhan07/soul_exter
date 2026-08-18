@@ -1,0 +1,13 @@
+streamlit
+fastapi
+uvicorn
+requests
+feedparser
+pandas
+numpy
+scikit-learn
+python-dotenv
+websockets
+numpy
+scikit-learn
+lightgbm

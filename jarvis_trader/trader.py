@@ -1,0 +1,1078 @@
+"""
+Execution engine.
+
+- Scans the whole watchlist continuously (live tracking of all markets).
+- When the AI council's confidence >= threshold, auto-places a trade with
+  auto TP / SL (ATR based), breakeven move at +1R and ATR trailing stop.
+- Paper broker executes against live prices; every closed trade is fed
+  back into Jarvis's brain (online self-training).
+- Emits a command queue for external executors:
+    * TradingView alert/webhook bridge
+    * MT5 Expert Advisor bridge (polls /mt5/commands)
+  so the same signals can drive real accounts when you connect them.
+"""
+import copy
+import json
+import os
+import threading
+import time
+import uuid
+
+from . import config, feeds, council, jarvis, news, market_hours
+
+STATE_PATH = config.DATA_DIR / "trader_state.json"
+JOURNAL_PATH = config.DATA_DIR / "trade_journal.json"
+
+
+def _hf_status():
+    try:
+        from . import hf_models
+        return hf_models.status()
+    except Exception:
+        return {"finbert": "module missing", "chronos": "module missing"}
+
+
+class PaperBroker:
+    def __init__(self, balance):
+        self.balance = balance
+        self.equity = balance
+        self.positions = {}      # id -> position dict
+        self.history = []        # closed trades
+
+    def open(self, symbol, side, qty, entry, tp, sl, meta):
+        pid = uuid.uuid4().hex[:10]
+        self.positions[pid] = {
+            "id": pid, "symbol": symbol, "side": side, "qty": qty,
+            "entry": entry, "tp": tp, "sl": sl, "initial_sl": sl,
+            "opened": time.time(), "meta": meta, "be_moved": False,
+            "pnl": 0.0,
+        }
+        return pid
+
+    def mark(self, symbol, price):
+        for p in self.positions.values():
+            if p["symbol"] != symbol:
+                continue
+            d = 1 if p["side"] == "BUY" else -1
+            p["pnl"] = (price - p["entry"]) * d * p["qty"]
+        self.equity = self.balance + sum(p["pnl"] for p in self.positions.values())
+
+    def close(self, pid, price, reason):
+        p = self.positions.pop(pid, None)
+        if not p:
+            return None
+        d = 1 if p["side"] == "BUY" else -1
+        pnl = (price - p["entry"]) * d * p["qty"]
+        pnl += p.get("banked_pnl", 0.0)          # include partial-TP profits
+        self.balance += pnl
+        p.update({"exit": price, "pnl": round(pnl, 4), "closed": time.time(),
+                  "reason": reason})
+        self.history.append(p)
+        self.history = self.history[-300:]
+        return p
+
+    def partial_close(self, pid, price, fraction):
+        """Bank `fraction` of the position at `price`. Returns banked pnl."""
+        p = self.positions.get(pid)
+        if not p or fraction <= 0 or fraction >= 1:
+            return 0.0
+        d = 1 if p["side"] == "BUY" else -1
+        qty_out = p["qty"] * fraction
+        realized = (price - p["entry"]) * d * qty_out
+        p["qty"] -= qty_out
+        p["banked_pnl"] = p.get("banked_pnl", 0.0) + realized
+        p["partial_done"] = True
+        return realized
+
+
+class TradingEngine:
+    def __init__(self):
+        self.broker = PaperBroker(config.PAPER_START_BALANCE)
+        self.auto_trade = config.AUTO_TRADE
+        self.min_conf = config.MIN_CONFIDENCE_TO_TRADE
+        self.risk_pct = config.RISK_PER_TRADE_PCT
+        self.trade_capital = config.TRADE_CAPITAL   # 0 = use full balance
+        self.market = {}                 # symbol -> latest quote/mini-analysis
+        self.last_analysis = {}          # symbol -> latest full council verdict
+        self.signals = {}                # symbol -> scanned trade setup awaiting YOUR click
+        self.signals_scanned = 0         # total setups found since start
+        self.journal = []                # full closed-trade journal (persisted)
+        self.logs = []
+        self.commands = []               # queue for MT5 / TradingView executors
+        self.lock = threading.RLock()
+        self.running = False
+        self.scan_idx = 0
+        self.jarvis_bootstrapping = False
+        self.pending_predictions = []    # live-learning: predictions awaiting resolution
+        self.live_lessons = 0
+        self.activity = []               # live "what am I doing right now" feed
+        self.counters = {"price_ticks": 0, "council_runs": 0, "news_refreshes": 0,
+                         "patterns_seen": 0, "llm_calls": 0, "skipped_closed": 0}
+        self.interval = "5m"             # selected analysis timeframe
+        # ---- ASSET SELECTION: only ticked assets get analyzed/tracked ----
+        # empty set = track everything. Persisted to data_store/selection.json
+        self.selected = self._load_selection()
+        # ---- AUTO accuracy gate: council total confidence must be >= this
+        # (with LLM votes included) for the bot to place a trade itself
+        self.auto_min_conf = float(os.getenv("AUTO_MIN_CONFIDENCE", "75"))
+        self.final_setup = None          # the ONE best trade setup right now
+        self.symbol_cooldown = {}        # symbol -> ts until which no re-entry
+        self.confirm_count = {}          # symbol -> (side, consecutive confirmations)
+        self.pending_orders = {}         # symbol -> pullback limit order dict
+        self.loss_streak = 0             # consecutive losses (risk throttle)
+        self.day_pnl = 0.0               # realized PnL today
+        self.day_stamp = time.strftime("%Y-%m-%d")
+        self._load()
+
+    SELECTION_PATH = config.DATA_DIR / "selection.json"
+
+    def _load_selection(self):
+        try:
+            data = json.loads(self.SELECTION_PATH.read_text(encoding="utf-8"))
+            return set(data.get("selected", []))
+        except Exception:
+            return set()
+
+    def set_selection(self, symbols):
+        """Set which assets to analyze. Empty list = ALL assets."""
+        valid = {a["symbol"] for a in config.WATCHLIST}
+        sel = {s for s in symbols if s in valid}
+        with self.lock:
+            self.selected = sel
+            # retire signals for now-unselected assets
+            for sym, sig in list(self.signals.items()):
+                if sel and sym not in sel and sig["status"] == "waiting":
+                    sig["status"] = "expired"
+            self.final_setup = None
+        try:
+            self.SELECTION_PATH.write_text(
+                json.dumps({"selected": sorted(sel)}), encoding="utf-8")
+        except Exception:
+            pass
+        if sel:
+            self.log(f"Asset selection: tracking ONLY {len(sel)} assets: "
+                     f"{', '.join(sorted(sel)[:10])}"
+                     + ("..." if len(sel) > 10 else "")
+                     + " - all others ignored (saves tokens/CPU)")
+            self.act("analyze", f"selection changed: analyzing only "
+                     f"{len(sel)} ticked assets")
+        else:
+            self.log("Asset selection cleared: tracking ALL assets")
+        return sorted(sel)
+
+    def is_selected(self, symbol):
+        """True if this asset should be analyzed (empty selection = all)."""
+        return not self.selected or symbol in self.selected
+
+    def set_interval(self, interval):
+        from . import feeds
+        if interval not in feeds.VALID_INTERVALS:
+            return False
+        if interval != self.interval:
+            self.interval = interval
+            with self.lock:
+                # timeframe changed -> stale signals/analysis no longer valid
+                for s in self.signals.values():
+                    if s["status"] == "waiting":
+                        s["status"] = "expired"
+                self.final_setup = None
+            self.log(f"Timeframe switched to {interval} - re-analyzing all markets "
+                     "on this timeframe only")
+            self.act("analyze", f"timeframe set to {interval}: all analysis, signals "
+                     "and TP/SL now computed on {0} candles".format(interval))
+        return True
+
+    def act(self, kind, msg):
+        """Record a live activity event (the bot narrating what it's doing)."""
+        with self.lock:
+            self.activity.append({"ts": time.time(), "kind": kind, "msg": msg})
+            self.activity = self.activity[-250:]
+
+    # -------------------------------------------------------------- #
+    def log(self, msg):
+        with self.lock:
+            self.logs.append({"ts": time.time(), "msg": msg})
+            self.logs = self.logs[-400:]
+        print(f"[jarvis-trader] {msg}", flush=True)
+
+    def _load(self):
+        try:
+            d = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+            self.broker.balance = d.get("balance", self.broker.balance)
+            self.broker.history = d.get("history", [])
+        except Exception:
+            pass
+        try:
+            self.journal = json.loads(JOURNAL_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            self.journal = []
+
+    def save(self):
+        try:
+            STATE_PATH.write_text(json.dumps({
+                "balance": self.broker.balance,
+                "history": self.broker.history[-200:],
+            }, indent=1), encoding="utf-8")
+            JOURNAL_PATH.write_text(json.dumps(self.journal[-500:], indent=1),
+                                    encoding="utf-8")
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------- #
+    def start(self):
+        if self.running:
+            return
+        self.running = True
+        threading.Thread(target=self._bootstrap_jarvis, daemon=True).start()
+        threading.Thread(target=self._price_loop, daemon=True).start()
+        threading.Thread(target=self._council_loop, daemon=True).start()
+        threading.Thread(target=self._news_loop, daemon=True).start()
+        threading.Thread(target=self._live_learn_loop, daemon=True).start()
+        # HF models (FinBERT sentiment + Chronos forecaster) load in the
+        # background if installed; the bot runs fine without them
+        try:
+            from . import hf_models
+            hf_models.warmup_async()
+            self.log("HF models warming up in background (FinBERT news "
+                     "sentiment + Chronos forecaster) - install with "
+                     "'pip install -r requirements-ai.txt' if missing")
+        except Exception:
+            pass
+        # MICRO order-book recorder (opt-in via MICRO_RECORD=true in .env):
+        # records training data 24/7 + feeds live MICRO council predictions
+        try:
+            from .micro import live as micro_live
+            micro_live.start_if_enabled(log=self.log)
+        except Exception:
+            pass
+        self.log("Engine started: live tracking " +
+                 f"{len(config.WATCHLIST)} assets across crypto/stocks/forex/futures/indices/funds")
+
+    def _bootstrap_jarvis(self):
+        if jarvis.BRAIN.bootstrap_done and jarvis.BRAIN.samples_trained > 200:
+            self.log(f"Jarvis brain loaded: {jarvis.BRAIN.samples_trained} samples, "
+                     f"live feedback={jarvis.BRAIN.live_feedback}, accuracy={jarvis.BRAIN.accuracy}%")
+            return
+        self.jarvis_bootstrapping = True
+        self.log("Jarvis AUTO-TRAIN: bootstrapping on historical candles of all watchlist assets...")
+        n = jarvis.BRAIN.bootstrap_train(feeds.get_candles, config.WATCHLIST, log=self.log)
+        self.jarvis_bootstrapping = False
+        self.log(f"Jarvis AUTO-TRAIN complete: learned from {n} historical samples "
+                 f"(total {jarvis.BRAIN.samples_trained}) + built-in knowledge base")
+
+    # -------------------------------------------------------------- #
+    def _news_loop(self):
+        while self.running:
+            try:
+                self.act("news", f"scraping {len(news.FEEDS)} news sources "
+                         "(Yahoo, CNBC, Bloomberg, NSE, BSE, Investing, Nasdaq, "
+                         "MarketWatch, Koyfin, StockAnalysis, ForexFactory...)")
+                news.ENGINE.refresh(force=True)
+                with self.lock:
+                    self.counters["news_refreshes"] += 1
+                ok = len(news.ENGINE.sources_ok)
+                if ok:
+                    self.log(f"News refreshed: {len(news.ENGINE.headlines)} headlines "
+                             f"from {ok} sources")
+                    self.act("news", f"got {len(news.ENGINE.headlines)} headlines "
+                             f"from {ok}/{len(news.FEEDS)+1} sources")
+                else:
+                    self.act("news", "all news sources unreachable from this network "
+                             "- sentiment neutral until they respond")
+            except Exception as e:
+                self.log(f"news error: {e}")
+            time.sleep(config.PERF["news_every"])
+
+    def _price_loop(self):
+        """Fast loop: track every asset's live price + manage open positions."""
+        cycle = 0
+        while self.running:
+            cycle += 1
+            fetched = 0
+            for asset in config.WATCHLIST:
+                try:
+                    if not self.is_selected(asset["symbol"]):
+                        # unselected: no fetch, no analysis - zero cost
+                        with self.lock:
+                            q = self.market.get(asset["symbol"])
+                            if not q or q.get("source") != "-":
+                                self.market[asset["symbol"]] = {
+                                    "symbol": asset["symbol"], "name": asset["name"],
+                                    "type": asset["type"], "price": None,
+                                    "change_pct": 0.0, "tick": "down",
+                                    "source": "-", "ts": time.time(),
+                                    "market_open": None, "venue": "",
+                                    "session": "not selected", "unselected": True,
+                                }
+                        continue
+                    mh = market_hours.market_status(asset)
+                    if not mh["open"]:
+                        # CLOSED market: do NOT fetch/scan - keep last known quote
+                        with self.lock:
+                            q = self.market.get(asset["symbol"])
+                            if q:
+                                q["market_open"] = False
+                                q["session"] = mh["session"]
+                            else:
+                                self.market[asset["symbol"]] = {
+                                    "symbol": asset["symbol"], "name": asset["name"],
+                                    "type": asset["type"], "price": None,
+                                    "change_pct": 0.0, "tick": "down",
+                                    "source": "-", "ts": time.time(),
+                                    "market_open": False, "venue": mh["venue"],
+                                    "session": mh["session"],
+                                }
+                        continue
+                    candles, source = feeds.get_candles(asset, self.interval, 60)
+                    fetched += 1
+                    price = candles[-1]["c"]
+                    prev = candles[-2]["c"] if len(candles) > 1 else price
+                    day_open = candles[0]["c"]
+                    with self.lock:
+                        self.counters["price_ticks"] += 1
+                        self.market[asset["symbol"]] = {
+                            "symbol": asset["symbol"], "name": asset["name"],
+                            "type": asset["type"], "price": price,
+                            "change_pct": round((price / day_open - 1) * 100, 3),
+                            "tick": "up" if price >= prev else "down",
+                            "source": source, "ts": time.time(),
+                            "market_open": mh["open"], "venue": mh["venue"],
+                            "session": mh["session"],
+                        }
+                    if mh["open"]:
+                        self._manage_positions(asset["symbol"], price, candles)
+                        self._check_pending_order(asset["symbol"], price)
+                except Exception as e:
+                    self.log(f"price loop error {asset['symbol']}: {e}")
+            self.broker.equity = self.broker.balance + sum(
+                p["pnl"] for p in self.broker.positions.values())
+            if cycle % 3 == 1:
+                open_n = sum(1 for m in self.market.values() if m.get("market_open"))
+                self.act("track", f"tick cycle #{cycle}: fetched {fetched} OPEN-market "
+                         f"prices ({open_n}/{len(config.WATCHLIST)} markets open, "
+                         f"closed markets not scanned), managing "
+                         f"{len(self.broker.positions)} positions")
+            time.sleep(config.PERF["price_sleep"])
+
+    def _manage_positions(self, symbol, price, candles):
+        """Auto TP/SL hit detection + breakeven + ATR trailing."""
+        from . import indicators as ind
+        self.broker.mark(symbol, price)
+        a = ind.atr(candles) or price * 0.005
+        to_close = []
+        with self.lock:
+            positions = [p for p in self.broker.positions.values() if p["symbol"] == symbol]
+        for p in positions:
+            d = 1 if p["side"] == "BUY" else -1
+            r_dist = abs(p["entry"] - p["initial_sl"])
+            move = (price - p["entry"]) * d
+
+            # ---- PROFIT LADDER (regime-adaptive multi-level exits) ----
+            # Level 1: bank 50% at +partial_at_r (regime decides: 0.7R in
+            #          high-vol, 0.8R ranging, 1.0-1.2R in trends), SL->entry.
+            # Level 2: bank another 25% at +2R, lock SL at +1R.
+            # Rest rides the ATR trail toward full TP.
+            partial_r = p["meta"].get("partial_at_r", 1.0)
+            if not p.get("partial_done") and r_dist > 0 and move >= partial_r * r_dist:
+                banked = self.broker.partial_close(p["id"], price, 0.5)
+                p["sl"] = p["entry"]
+                p["be_moved"] = True
+                self.log(f"{symbol} {p['side']} LADDER 1: banked {banked:+.2f} "
+                         f"(50% @ +{partial_r}R), SL -> entry, rest risk-free")
+                self.act("trade", f"{symbol} ladder-1 profit {banked:+.2f} banked "
+                         f"@ +{partial_r}R - remainder is a free trade")
+            if p.get("partial_done") and not p.get("partial2_done") \
+                    and r_dist > 0 and move >= 2.0 * r_dist:
+                banked2 = self.broker.partial_close(p["id"], price, 0.5)  # 50% of rest = 25% of orig
+                p["partial2_done"] = True
+                lock = p["entry"] + d * 1.0 * r_dist
+                if (d == 1 and lock > p["sl"]) or (d == -1 and lock < p["sl"]):
+                    p["sl"] = lock
+                self.log(f"{symbol} {p['side']} LADDER 2: banked {banked2:+.2f} "
+                         f"(25% @ +2R), SL locked at +1R")
+                self.act("trade", f"{symbol} ladder-2 profit {banked2:+.2f} banked "
+                         f"@ +2R - stop locked at +1R")
+
+            # after ladder-1, lock more as price advances
+            if p.get("partial_done") and r_dist > 0 and move >= 1.6 * r_dist:
+                lock = p["entry"] + d * 0.6 * r_dist
+                if (d == 1 and lock > p["sl"]) or (d == -1 and lock < p["sl"]):
+                    p["sl"] = lock
+            # ATR trail after 1.8R with a loose 1.8*ATR gap
+            if r_dist > 0 and move >= 1.8 * r_dist:
+                new_sl = price - d * 1.8 * a
+                if (d == 1 and new_sl > p["sl"]) or (d == -1 and new_sl < p["sl"]):
+                    p["sl"] = new_sl
+
+            # ---- SMART EARLY EXIT: council flipped hard against us ----
+            # Losing the full 1R when the market has clearly turned is
+            # donation. If the latest council verdict is STRONGLY opposite
+            # (conf >= 55) and we're still in the loss zone, cut at ~-0.3R.
+            an = self.last_analysis.get(symbol)
+            if an and time.time() - an["ts"] < 240 and move < 0:
+                av = an["verdict"]
+                opposite = (av["direction"] == "DOWN") if p["side"] == "BUY" \
+                    else (av["direction"] == "UP")
+                if opposite and av["confidence"] >= 55 and move <= -0.25 * r_dist:
+                    to_close.append((p["id"], price, "Early exit (council flipped)"))
+                    continue
+            # TP / SL hits
+            stop_reason = ("Partial TP + stop at entry" if p.get("partial_done")
+                           else ("Breakeven stop hit" if p["be_moved"] else "SL hit"))
+            if d == 1:
+                if price >= p["tp"]:
+                    to_close.append((p["id"], p["tp"], "TP hit"))
+                elif price <= p["sl"]:
+                    to_close.append((p["id"], p["sl"], stop_reason))
+            else:
+                if price <= p["tp"]:
+                    to_close.append((p["id"], p["tp"], "TP hit"))
+                elif price >= p["sl"]:
+                    to_close.append((p["id"], p["sl"], stop_reason))
+        for pid, px, reason in to_close:
+            self._close_and_learn(pid, px, reason)
+
+    def _close_and_learn(self, pid, price, reason):
+        p = self.broker.close(pid, price, reason)
+        if not p:
+            return
+        # ---- loss management (accuracy protection) ----
+        today = time.strftime("%Y-%m-%d")
+        if today != self.day_stamp:
+            self.day_stamp, self.day_pnl = today, 0.0
+        self.day_pnl += p["pnl"]
+        if p["pnl"] < 0:
+            self.loss_streak += 1
+            # cooldown: do NOT re-enter this symbol for 45 min after a loss -
+            # the market that just stopped you out is usually still hostile
+            with self.lock:
+                self.symbol_cooldown[p["symbol"]] = time.time() + 45 * 60
+            self.act("skip", f"{p['symbol']} on 45min cooldown after loss "
+                     f"(streak {self.loss_streak})")
+        else:
+            self.loss_streak = 0
+        self.log(f"CLOSED {p['symbol']} {p['side']} @ {price:.5g} | {reason} | "
+                 f"PnL {p['pnl']:+.2f} | balance {self.broker.balance:.2f}")
+        self.act("trade", f"CLOSED {p['symbol']} {p['side']}: {reason}, "
+                 f"PnL {p['pnl']:+.2f} -> journaled")
+        self._journal_trade(p, price, reason)
+        # feed the outcome back into Jarvis (online self-training)
+        feats = p["meta"].get("features")
+        if feats:
+            went_up = (price > p["entry"])
+            pred_up = p["side"] == "BUY"
+            jarvis.BRAIN.feedback(feats, went_up, pred_up)
+            self.log(f"Jarvis learned from trade outcome "
+                     f"(live feedback #{jarvis.BRAIN.live_feedback}, "
+                     f"accuracy {jarvis.BRAIN.accuracy}%)")
+        self.save()
+
+    def _journal_trade(self, p, exit_price, reason):
+        """Write the complete story of a closed trade into the journal."""
+        meta = p.get("meta", {})
+        d = 1 if p["side"] == "BUY" else -1
+        risk = abs(p["entry"] - p["initial_sl"])
+        r_multiple = round(((exit_price - p["entry"]) * d) / risk, 2) if risk else None
+        held = p["closed"] - p["opened"]
+        outcome = "WIN" if p["pnl"] > 0 else ("LOSS" if p["pnl"] < 0 else "FLAT")
+        why_closed = {
+            "TP hit": "Price reached the take-profit target",
+            "SL hit": "Price hit the stop-loss - setup failed",
+            "Breakeven stop hit": "Trade went 1R in profit, stop moved to entry, "
+                                  "then price came back - closed at ~breakeven",
+            "manual close": "You closed it manually from the dashboard",
+            "Early exit (council flipped)": "The AI council flipped strongly "
+                "against this trade while it was losing - cut at ~-0.3R instead "
+                "of donating the full -1R",
+            "Partial TP + stop at entry": "Profit ladder banked partials, then "
+                "price returned to the locked stop - net result is still a profit",
+        }.get(reason, reason)
+        entry = {
+            "id": p["id"],
+            "signal_id": meta.get("signal_id"),
+            "symbol": p["symbol"], "side": p["side"],
+            "outcome": outcome, "pnl": round(p["pnl"], 2),
+            "r_multiple": r_multiple,
+            "entry_price": round(p["entry"], 6),
+            "exit_price": round(exit_price, 6),
+            "tp": round(p["tp"], 6), "sl": round(p["sl"], 6),
+            "initial_sl": round(p["initial_sl"], 6),
+            "sl_moved_to_breakeven": p.get("be_moved", False),
+            "qty": round(p["qty"], 6),
+            "close_reason": reason,
+            "close_explanation": why_closed,
+            "opened_at": p["opened"], "closed_at": p["closed"],
+            "held_seconds": int(held),
+            "held_human": f"{int(held//3600)}h {int(held%3600//60)}m" if held >= 3600
+                          else f"{int(held//60)}m {int(held%60)}s",
+            "placed_by": meta.get("placed_by", "auto"),
+            "regime_at_entry": meta.get("regime"),
+            "size_mult_used": meta.get("size_mult_used"),
+            "confidence_at_entry": meta.get("confidence"),
+            "council_score_at_entry": meta.get("score"),
+            "member_votes_at_entry": meta.get("members"),
+            "why_entered": meta.get("reasons", []),
+        }
+        with self.lock:
+            self.journal.append(entry)
+            self.journal = self.journal[-500:]
+        # persist to SQLite trade memory (scalable analytics + training data)
+        try:
+            from . import memory
+            entry2 = dict(entry)
+            entry2["asset_type"] = meta.get("asset_type", "")
+            entry2["interval"] = self.interval
+            memory.record_trade(entry2, source="live")
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------- #
+    def _live_learn_loop(self):
+        """
+        Continuous live-market training: every council analysis registers a
+        prediction (features + direction + price). ~30 minutes later Jarvis
+        checks what the live market actually did and trains on the outcome -
+        so Jarvis keeps learning from real market movements even when no
+        trade was placed.
+        """
+        while self.running:
+            now = time.time()
+            due = []
+            with self.lock:
+                still_waiting = []
+                for pr in self.pending_predictions:
+                    if now - pr["ts"] >= pr["horizon_sec"]:
+                        due.append(pr)
+                    else:
+                        still_waiting.append(pr)
+                self.pending_predictions = still_waiting[-200:]
+            for pr in due:
+                q = self.market.get(pr["symbol"])
+                if not q:
+                    continue
+                went_up = q["price"] > pr["price"]
+                pred_up = pr["direction"] == "UP"
+                jarvis.BRAIN.feedback(pr["features"], went_up, pred_up)
+                self.live_lessons += 1
+                move = (q["price"] / pr["price"] - 1) * 100
+                hit = "correct" if went_up == pred_up else "wrong"
+                self.log(f"Jarvis live-lesson #{self.live_lessons}: {pr['symbol']} "
+                         f"predicted {pr['direction']}, market moved {move:+.2f}% "
+                         f"({hit}) - accuracy now {jarvis.BRAIN.accuracy}%")
+                self.act("jarvis", f"live-lesson #{self.live_lessons}: {pr['symbol']} "
+                         f"prediction {pr['direction']} was {hit} "
+                         f"(market {move:+.2f}%) - brain retrained, "
+                         f"accuracy {jarvis.BRAIN.accuracy}%")
+            time.sleep(20)
+
+    def _register_prediction(self, verdict):
+        """Queue a council prediction for later outcome-checking."""
+        if not verdict.get("features"):
+            return
+        v = verdict["verdict"]
+        if v["confidence"] < 10:      # skip no-conviction calls
+            return
+        with self.lock:
+            # one pending prediction per symbol at a time
+            if any(p["symbol"] == verdict["symbol"] for p in self.pending_predictions):
+                return
+            self.pending_predictions.append({
+                "symbol": verdict["symbol"], "direction": v["direction"],
+                "price": verdict["price"], "features": verdict["features"],
+                "ts": time.time(), "horizon_sec": 1800,
+            })
+
+    # -------------------------------------------------------------- #
+    def _council_loop(self):
+        """Slow loop: run full AI-council analysis asset-by-asset, auto trade."""
+        time.sleep(8)
+        while self.running:
+            asset = config.WATCHLIST[self.scan_idx % len(config.WATCHLIST)]
+            self.scan_idx += 1
+            try:
+                if not self.is_selected(asset["symbol"]):
+                    time.sleep(0.05)   # avoid busy-spin over unselected assets
+                    continue           # unselected: never analyzed, zero tokens
+                # market timing check: skip analysis when the market is CLOSED
+                mh = market_hours.market_status(asset)
+                if not mh["open"]:
+                    with self.lock:
+                        self.counters["skipped_closed"] += 1
+                        # retire any waiting signal on a closed market
+                        sig = self.signals.get(asset["symbol"])
+                        if sig and sig["status"] == "waiting":
+                            sig["status"] = "expired"
+                    # throttled narration (avoid spamming with ~90 assets)
+                    if self.counters["skipped_closed"] % 25 == 1:
+                        self.act("skip", f"{asset['symbol']} and other CLOSED markets "
+                                 "skipped - scanning OPEN markets only")
+                    continue
+                use_llms = (self.scan_idx % 2 == 1)   # LLM votes every 2nd pass per asset
+                self.act("analyze", f"{asset['symbol']} [{self.interval}]: running AI "
+                         f"council (indicators + 8 strategies + patterns + news + Jarvis"
+                         + (" + Gemini + Groq" if use_llms else "") + ")")
+                verdict = council.analyze(asset, use_llms=use_llms, interval=self.interval)
+                with self.lock:
+                    self.counters["council_runs"] += 1
+                    if use_llms:
+                        self.counters["llm_calls"] += 2
+                    pats = verdict["members"].get("patterns", {}).get("detail", {})
+                    self.counters["patterns_seen"] += len(pats.get("found", []))
+                with self.lock:
+                    prev = self.last_analysis.get(asset["symbol"])
+                    if prev and not use_llms:
+                        # keep previous LLM votes visible
+                        for k in ("gemini", "groq"):
+                            if k in prev.get("members", {}) and k not in verdict["members"]:
+                                verdict["members"][k] = prev["members"][k]
+                    self.last_analysis[asset["symbol"]] = verdict
+                v = verdict["verdict"]
+                self.log(f"Council {asset['symbol']} [{self.interval}]: {v['direction']} "
+                         f"score={v['score']} conf={v['confidence']}")
+                self._register_prediction(verdict)
+                self._maybe_signal(asset, verdict)
+                self._update_final_setup()
+                time.sleep(config.PERF["council_sleep"])
+            except Exception as e:
+                self.log(f"council error {asset['symbol']}: {e}")
+                time.sleep(1)
+
+    def _maybe_signal(self, asset, verdict):
+        """Council found a setup -> publish it as a clickable SIGNAL.
+        If auto_trade is ON it is also placed immediately."""
+        v = verdict["verdict"]
+        sym = asset["symbol"]
+        if v["confidence"] < self.min_conf:
+            with self.lock:
+                # confidence dropped below threshold -> retire stale signal
+                if sym in self.signals and self.signals[sym]["status"] == "waiting":
+                    if v["confidence"] < self.min_conf * 0.7:
+                        self.signals.pop(sym, None)
+            return
+        plan = verdict["plan"]
+        side = "BUY" if v["direction"] == "UP" else "SELL"
+        top_reasons = self._signal_reasons(verdict)
+        with self.lock:
+            existing = self.signals.get(sym)
+            fresh = (existing is None or existing["status"] != "waiting"
+                     or existing["side"] != side)
+            self.signals[sym] = {
+                "id": uuid.uuid4().hex[:8] if fresh else existing["id"],
+                "symbol": sym, "name": asset["name"], "type": asset["type"],
+                "side": side, "entry": plan["entry"], "tp": plan["tp"],
+                "sl": plan["sl"], "rr": plan.get("rr"), "tp_source": plan.get("tp_source"),
+                "confidence": v["confidence"], "score": v["score"],
+                "regime": v.get("regime"),
+                "reasons": top_reasons,
+                "members": {k: m["score"] for k, m in verdict["members"].items()},
+                "features": verdict.get("features"),
+                "ts": time.time() if fresh else existing["ts"],
+                "updated": time.time(),
+                "expires": time.time() + config.SIGNAL_TTL_SEC,
+                "status": "waiting",           # waiting -> placed / expired
+            }
+            if fresh:
+                self.signals_scanned += 1
+        if fresh:
+            self.log(f"SIGNAL #{self.signals_scanned} scanned: {side} {sym} "
+                     f"@ {plan['entry']:.6g} TP={plan['tp']:.6g} SL={plan['sl']:.6g} "
+                     f"(conf {v['confidence']}%) - waiting for your click"
+                     + (" [auto_trade ON -> placing]" if self.auto_trade else ""))
+            self.act("signal", f"TRADE FOUND: {side} {sym} conf {v['confidence']}% "
+                     f"entry {plan['entry']:.6g} TP {plan['tp']:.6g} SL {plan['sl']:.6g}"
+                     + ("" if self.auto_trade else " - waiting for YOUR click"))
+        # persistence tracking: same-direction signal on consecutive scans?
+        prev_side, streak = self.confirm_count.get(sym, (None, 0))
+        streak = streak + 1 if prev_side == side else 1
+        self.confirm_count[sym] = (side, streak)
+
+        if self.auto_trade:
+            # AUTO trades demand the FULL accuracy check:
+            #   1. HTF alignment (with the higher timeframe trend)
+            #   2. 2 consecutive confirmation scans (no one-scan flickers)
+            #   3. FULL-COUNCIL ACCURACY >= auto_min_conf (default 75%):
+            #      the verdict must include Gemini + Groq LLM votes - if this
+            #      analysis pass didn't ask them, we re-ask with all engines
+            #      and only place when total confidence >= 75.
+            # Manual clicks can still take any deck signal.
+            htf = v.get("htf") or {}
+            had_llms = any(k in verdict.get("members", {}) for k in ("gemini", "groq"))
+            if htf.get("bias") and not htf.get("aligned"):
+                if fresh:
+                    self.act("skip", f"{sym}: AUTO skipped - counter-trend vs "
+                             f"{htf.get('tf')} (you can still place it manually)")
+            elif streak < 2:
+                self.act("skip", f"{sym}: waiting for confirmation scan "
+                         f"({streak}/2) before AUTO entry")
+            elif v["confidence"] < self.auto_min_conf - 15 :
+                # not even close - don't waste LLM tokens re-asking
+                if fresh:
+                    self.act("skip", f"{sym}: {v['confidence']:.0f}% - far below "
+                             f"the {self.auto_min_conf:.0f}% accuracy gate")
+            else:
+                # ensure the verdict includes ALL engines + LLM votes
+                full_v = verdict
+                if not had_llms:
+                    self.act("analyze", f"{sym}: accuracy check - asking the FULL "
+                             "council (Jarvis + Gemini + Groq + all engines) "
+                             f"for >= {self.auto_min_conf:.0f}% agreement")
+                    try:
+                        full_v = council.analyze(asset, use_llms=True,
+                                                 interval=self.interval)
+                        with self.lock:
+                            self.last_analysis[sym] = full_v
+                            self.counters["llm_calls"] += 2
+                    except Exception:
+                        full_v = verdict
+                fv = full_v["verdict"]
+                llm_votes = {k: (full_v["members"].get(k) or {}).get("score")
+                             for k in ("gemini", "groq")}
+                same_dir = fv["direction"] == v["direction"]
+                gate_ok = False
+                if not same_dir:
+                    self.act("skip", f"{sym}: full council flipped direction "
+                             "on the accuracy check - no auto trade")
+                elif fv["confidence"] < self.auto_min_conf:
+                    self.act("skip", f"{sym}: total accuracy {fv['confidence']:.0f}% "
+                             f"< {self.auto_min_conf:.0f}% gate "
+                             f"(gemini={llm_votes['gemini']}, groq={llm_votes['groq']}) "
+                             "- signal stays in deck for manual")
+                else:
+                    self.act("signal", f"{sym}: ACCURACY GATE PASSED "
+                             f"{fv['confidence']:.0f}% >= {self.auto_min_conf:.0f}% "
+                             f"(all engines + Jarvis + Gemini + Groq agree "
+                             f"{fv['direction']})")
+                    # refresh signal plan with the full verdict
+                    with self.lock:
+                        s2 = self.signals.get(sym)
+                        if s2 and s2["status"] == "waiting":
+                            s2["confidence"] = fv["confidence"]
+                            s2["members"] = {k: m["score"] for k, m
+                                             in full_v["members"].items()}
+                    plan = full_v["plan"]
+                    gate_ok = True
+                if gate_ok:
+                    # PULLBACK ENTRY: instead of chasing at market, queue a
+                    # limit order at a 0.35*ATR retracement. Better entry =
+                    # SL further from noise + TP closer = both rates improve.
+                    atr_p = abs(plan["entry"] - plan["sl"]) / 2.2
+                    pull = 0.35 * atr_p
+                    limit_px = plan["entry"] - pull if side == "BUY" \
+                        else plan["entry"] + pull
+                    with self.lock:
+                        self.pending_orders[sym] = {
+                            "symbol": sym, "side": side, "limit": limit_px,
+                            "created": time.time(),
+                            "expires": time.time() + 600,
+                            "signal_id": self.signals[sym]["id"],
+                        }
+                    self.act("signal", f"{sym}: pullback limit {side} @ "
+                             f"{limit_px:.6g} queued (entry improves by "
+                             f"{pull:.6g}); fills if price retraces within "
+                             "10min, else market entry")
+
+    def _check_pending_order(self, symbol, price):
+        """Fill pullback limit orders; on expiry take market entry if the
+        signal is still valid."""
+        with self.lock:
+            po = self.pending_orders.get(symbol)
+        if not po:
+            return
+        filled = (price <= po["limit"]) if po["side"] == "BUY" \
+            else (price >= po["limit"])
+        expired = time.time() > po["expires"]
+        if not filled and not expired:
+            return
+        with self.lock:
+            self.pending_orders.pop(symbol, None)
+            sig = self.signals.get(symbol)
+            if not sig or sig["status"] != "waiting" or sig["id"] != po["signal_id"]:
+                return   # signal gone/placed/changed - drop the pending order
+        if filled:
+            self.act("trade", f"{symbol}: pullback limit FILLED @ {price:.6g} "
+                     "- better entry than chasing")
+            self.place_trade(symbol, source="auto")
+        elif expired:
+            # no pullback came - momentum is strong; enter at market
+            self.act("trade", f"{symbol}: no pullback in 10min, taking market entry")
+            self.place_trade(symbol, source="auto")
+
+    def _update_final_setup(self):
+        """
+        After collecting scores from EVERYTHING (indicators, strategies,
+        patterns, news, Jarvis, Gemini, Groq) across all OPEN markets,
+        generate ONE final trade setup - the single best BUY or SELL
+        right now on the selected timeframe, with its TP and SL.
+        """
+        with self.lock:
+            waiting = [s for s in self.signals.values() if s["status"] == "waiting"]
+            if not waiting:
+                # fall back to the strongest fresh analysis even below threshold
+                fresh = [a for a in self.last_analysis.values()
+                         if time.time() - a["ts"] < 300
+                         and a.get("interval") == self.interval]
+                if not fresh:
+                    self.final_setup = None
+                    return
+                best_a = max(fresh, key=lambda a: a["verdict"]["confidence"])
+                v = best_a["verdict"]
+                p = best_a["plan"]
+                self.final_setup = {
+                    "grade": "WATCH",       # not strong enough to arm
+                    "symbol": best_a["symbol"], "name": best_a["name"],
+                    "side": "BUY" if v["direction"] == "UP" else "SELL",
+                    "confidence": v["confidence"], "score": v["score"],
+                    "entry": p["entry"], "tp": p["tp"], "sl": p["sl"],
+                    "rr": p["rr"], "tp_source": p.get("tp_source"),
+                    "interval": self.interval,
+                    "members": {k: m["score"] for k, m in best_a["members"].items()},
+                    "reasons": self._signal_reasons(best_a),
+                    "ts": time.time(),
+                }
+                return
+            best = max(waiting, key=lambda s: s["confidence"])
+            prev = self.final_setup
+            self.final_setup = {
+                "grade": "READY",           # armed - one click places it
+                "symbol": best["symbol"], "name": best.get("name", best["symbol"]),
+                "side": best["side"], "confidence": best["confidence"],
+                "score": best["score"], "entry": best["entry"], "tp": best["tp"],
+                "sl": best["sl"], "rr": best.get("rr"),
+                "tp_source": best.get("tp_source"), "interval": self.interval,
+                "members": best.get("members"), "reasons": best.get("reasons"),
+                "signal_id": best["id"], "ts": time.time(),
+            }
+            announce = (not prev or prev.get("signal_id") != best["id"])
+        if announce:
+            self.act("signal", f"FINAL SETUP [{self.interval}]: {best['side']} "
+                     f"{best['symbol']} conf {best['confidence']:.0f}% - "
+                     f"entry {best['entry']:.6g} TP {best['tp']:.6g} "
+                     f"SL {best['sl']:.6g}")
+
+    @staticmethod
+    def _signal_reasons(verdict):
+        """Human-readable 'why this trade' bullets from council members."""
+        reasons = []
+        m = verdict.get("members", {})
+        v = verdict["verdict"]
+        d = v["direction"]
+        htf = v.get("htf") or {}
+        if htf.get("bias"):
+            if htf.get("aligned"):
+                reasons.append(f"HTF {htf['tf']} trend CONFIRMS {d} "
+                               f"(strength {htf.get('strength', 0):.1f})")
+            else:
+                reasons.append(f"⚠ counter-trend vs {htf['tf']} - reduced confidence")
+        for name in ("jarvis", "gemini", "groq", "patterns", "strategies",
+                     "indicators", "news"):
+            mem = m.get(name)
+            if not mem or mem.get("score") is None:
+                continue
+            sc = mem["score"]
+            agrees = (sc > 0) == (d == "UP")
+            det = mem.get("detail") or {}
+            if name in ("gemini", "groq") and det.get("reason"):
+                reasons.append(f"{name.title()}: {det['reason'][:110]}")
+            elif name == "patterns" and det.get("found"):
+                top = det["found"][0]
+                reasons.append(f"Pattern: {top['name']} ({top['dir']}, {top['score']:+.0f})")
+            elif name == "jarvis":
+                reasons.append(f"Jarvis ML: {'agrees' if agrees else 'disagrees'} "
+                               f"({sc:+.0f}, prob_up {det.get('prob_up', '?')})")
+            elif name == "news" and det.get("titles"):
+                reasons.append(f"News: {det['titles'][0][:100]}")
+            elif name in ("strategies", "indicators"):
+                reasons.append(f"{name.title()}: {sc:+.0f}")
+        return reasons[:6]
+
+    # -------------------------------------------------------------- #
+    def place_trade(self, symbol, source="manual"):
+        """Place the scanned signal for `symbol` - called when YOU click it."""
+        with self.lock:
+            sig = self.signals.get(symbol)
+            if not sig or sig["status"] != "waiting":
+                return {"ok": False, "error": "no waiting signal for this symbol"}
+            if time.time() > sig["expires"]:
+                sig["status"] = "expired"
+                return {"ok": False, "error": "signal expired - wait for a fresh scan"}
+            open_same = [p for p in self.broker.positions.values()
+                         if p["symbol"] == symbol]
+            if open_same:
+                return {"ok": False, "error": "position already open on this symbol"}
+            if len(self.broker.positions) >= 6:
+                return {"ok": False, "error": "max 6 open positions reached"}
+            # cooldown after a loss on this symbol (manual click overrides)
+            cd = self.symbol_cooldown.get(symbol, 0)
+            if source == "auto" and time.time() < cd:
+                return {"ok": False, "error": f"cooldown after loss "
+                        f"({int((cd - time.time()) / 60)}min left)"}
+            # correlation cap: crypto moves together - one dip kills every
+            # long at once. Max 2 same-direction positions per asset type.
+            if source == "auto":
+                sig_type = sig.get("type")
+                same_dir = [p for p in self.broker.positions.values()
+                            if p["side"] == sig["side"]
+                            and p["meta"].get("asset_type") == sig_type]
+                if len(same_dir) >= 2:
+                    return {"ok": False, "error":
+                            f"correlation cap: already {len(same_dir)} "
+                            f"{sig['side']} {sig_type} positions"}
+            # daily circuit breaker: stop auto-trading after -3% of capital day
+            cap_ref = self.trade_capital if self.trade_capital > 0 else self.broker.balance
+            if source == "auto" and self.day_pnl < -0.03 * cap_ref:
+                return {"ok": False, "error": "daily loss limit hit - auto paused today"}
+
+        # execute at CURRENT live price (not the scan price)
+        q = self.market.get(symbol)
+        entry = q["price"] if q else sig["entry"]
+        side, tp, sl = sig["side"], sig["tp"], sig["sl"]
+        # shift TP/SL by the slippage between scan price and live price
+        drift = entry - sig["entry"]
+        tp, sl = tp + drift, sl + drift
+        # trading capital: if you set an amount (e.g. 1000), all sizing
+        # uses ONLY that amount - never more than you decided to trade with
+        capital = self.trade_capital if self.trade_capital > 0 else self.broker.equity
+        capital = min(capital, self.broker.equity)   # can't trade more than you have
+        risk_amount = capital * self.risk_pct / 100
+        # CONFIDENCE-BASED SIZING: borderline setups risk 0.5x, monsters 1.5x
+        from . import regime as regime_mod
+        conf_mult = regime_mod.confidence_size_mult(
+            sig.get("confidence", self.min_conf), self.min_conf)
+        risk_amount *= conf_mult
+        # REGIME SIZE MULTIPLIER: high-volatility regimes trade half size
+        reg_info = sig.get("regime") or {}
+        risk_amount *= reg_info.get("size_mult", 1.0)
+        # after 2+ consecutive losses, halve size until a winner resets it
+        if self.loss_streak >= 2:
+            risk_amount *= 0.5
+        if self.loss_streak >= 4:
+            risk_amount *= 0.5           # quarter size in a bad streak
+        stop_dist = abs(entry - sl)
+        if stop_dist <= 0:
+            return {"ok": False, "error": "invalid stop distance"}
+        qty = max(risk_amount / stop_dist, 1e-9)
+        # cap notional exposure to the trading capital (with modest leverage)
+        max_qty = (capital * 0.2 * 10) / entry
+        qty = min(qty, max_qty)
+
+        pid = self.broker.open(symbol, side, qty, entry, tp, sl, meta={
+            "confidence": sig["confidence"], "score": sig["score"],
+            "features": sig.get("features"), "members": sig.get("members"),
+            "reasons": sig.get("reasons"), "signal_id": sig["id"],
+            "placed_by": source, "signal_ts": sig["ts"],
+            "asset_type": sig.get("type"),
+            "regime": (sig.get("regime") or {}).get("name"),
+            "partial_at_r": (sig.get("regime") or {}).get("partial_at_r", 1.0),
+            "size_mult_used": round(conf_mult * reg_info.get("size_mult", 1.0), 2),
+        })
+        with self.lock:
+            sig["status"] = "placed"
+            sig["position_id"] = pid
+            self.commands.append({
+                "id": pid, "action": "OPEN", "symbol": symbol, "side": side,
+                "qty": round(qty, 6), "entry": entry, "tp": tp, "sl": sl,
+                "confidence": sig["confidence"], "ts": time.time(),
+                "delivered": False,
+            })
+            self.commands = self.commands[-100:]
+        self.log(f"TRADE PLACED ({source}): {side} {symbol} qty={qty:.6g} "
+                 f"@ {entry:.6g} TP={tp:.6g} SL={sl:.6g}")
+        self.act("trade", f"PLACED ({source}): {side} {symbol} @ {entry:.6g} "
+                 f"TP {tp:.6g} / SL {sl:.6g} qty {qty:.6g}")
+        return {"ok": True, "position_id": pid, "entry": entry, "tp": tp, "sl": sl,
+                "qty": qty}
+
+    # -------------------------------------------------------------- #
+    def manual_close(self, pid):
+        with self.lock:
+            p = self.broker.positions.get(pid)
+        if not p:
+            return None
+        q = self.market.get(p["symbol"])
+        price = q["price"] if q else p["entry"]
+        self._close_and_learn(pid, price, "manual close")
+        return True
+
+    def pending_commands(self):
+        with self.lock:
+            out = [c for c in self.commands if not c["delivered"]]
+            for c in out:
+                c["delivered"] = True
+            return out
+
+    def get_signals(self):
+        """All scanned setups: waiting (clickable), placed, expired."""
+        now = time.time()
+        with self.lock:
+            for s in self.signals.values():
+                if s["status"] == "waiting" and now > s["expires"]:
+                    s["status"] = "expired"
+            sigs = sorted((copy.deepcopy(s) for s in self.signals.values()),
+                          key=lambda s: (-abs(s["confidence"]), s["symbol"]))
+            return {"signals": sigs, "total_scanned": self.signals_scanned,
+                    "auto_trade": self.auto_trade}
+
+    def get_journal(self, limit=100):
+        with self.lock:
+            entries = copy.deepcopy(self.journal[-limit:][::-1])
+            wins = [j for j in self.journal if j["outcome"] == "WIN"]
+            losses = [j for j in self.journal if j["outcome"] == "LOSS"]
+            stats = {
+                "total": len(self.journal),
+                "wins": len(wins), "losses": len(losses),
+                "win_rate": round(100 * len(wins) / len(self.journal), 1)
+                            if self.journal else None,
+                "total_pnl": round(sum(j["pnl"] for j in self.journal), 2),
+                "by_reason": {},
+            }
+            for j in self.journal:
+                stats["by_reason"][j["close_reason"]] = \
+                    stats["by_reason"].get(j["close_reason"], 0) + 1
+        return {"journal": entries, "stats": stats}
+
+    def get_activity(self):
+        with self.lock:
+            return {"activity": copy.deepcopy(self.activity[-120:][::-1]),
+                    "counters": dict(self.counters),
+                    "markets": {s: {"open": m.get("market_open"),
+                                    "venue": m.get("venue"),
+                                    "session": m.get("session")}
+                                for s, m in self.market.items()}}
+
+    def status(self):
+        with self.lock:
+            waiting = [s for s in self.signals.values() if s["status"] == "waiting"]
+            return {
+                "running": self.running,
+                "interval": self.interval,
+                "final_setup": copy.deepcopy(self.final_setup),
+                "signals_waiting": len(waiting),
+                "signals_scanned": self.signals_scanned,
+                "counters": dict(self.counters),
+                "auto_trade": self.auto_trade,
+                "min_confidence": self.min_conf,
+                "risk_pct": self.risk_pct,
+                "trade_capital": self.trade_capital,
+                "auto_min_conf": self.auto_min_conf,
+                "selected_assets": sorted(self.selected),
+                "tracking_all": not self.selected,
+                "balance": round(self.broker.balance, 2),
+                "equity": round(self.broker.equity, 2),
+                "open_positions": copy.deepcopy(list(self.broker.positions.values())),
+                "closed_trades": copy.deepcopy(self.broker.history[-40:][::-1]),
+                "jarvis": {
+                    "samples_trained": jarvis.BRAIN.samples_trained,
+                    "live_feedback": jarvis.BRAIN.live_feedback,
+                    "live_lessons": self.live_lessons,
+                    "pending_predictions": len(self.pending_predictions),
+                    "accuracy": jarvis.BRAIN.accuracy,
+                    "bootstrapping": self.jarvis_bootstrapping,
+                },
+                "llm_status": council.llm_status(),
+                "hf_status": _hf_status(),
+                "news_sources_ok": news.ENGINE.sources_ok,
+                "news_sources_fail": news.ENGINE.sources_fail,
+            }
+
+
+ENGINE = TradingEngine()
