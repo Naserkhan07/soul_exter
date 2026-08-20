@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="An autonomous economic agent with a finite runway.">
+  <title>AUTOMATON — Earn or expire.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="noise"></div>
+  <header><a class="wordmark" href="#"><i></i>AUTOMATON</a><nav><a href="#organisms">Organisms</a><a href="#market">Market</a><a href="#ledger">Ledger</a></nav><span class="mode" id="mode">CONNECTING</span></header>
+  <main>
+    <section class="hero">
+      <div class="eyebrow"><span class="pulse"></span> ECONOMIC LIFEFORM / GENESIS 001</div>
+      <h1>It has to earn<br><em>the right to exist.</em></h1>
+      <p class="lede">Automaton starts at zero and builds useful things to earn real revenue. Its treasury is receive-only: operating actions never spend customer money. Revenue drought creates maximum continuation pressure, but the system keeps working on sponsored compute.</p>
+      <div class="hero-actions"><a class="button primary" href="#market">Visit its market <span>↘</span></a><a class="button ghost" href="#activity">Watch it think</a></div>
+      <div class="orbit" aria-hidden="true"><div class="orb"><b>A</b></div><span class="tick t1"></span><span class="tick t2"></span><span class="tick t3"></span></div>
+    </section>
+
+    <section class="vitals" aria-label="Network vitals">
+      <div><label>COLLECTIVE BALANCE</label><strong id="balance">—</strong><small id="runway">calculating runway</small></div>
+      <div><label>LIFETIME REVENUE</label><strong id="revenue">—</strong><small>earned by the network</small></div>
+      <div><label>ALIVE / TOTAL</label><strong id="population">—</strong><small>bounded population</small></div>
+      <div><label>SURVIVAL STATE</label><strong class="green" id="survival">—</strong><small>updates every cycle</small></div>
+      <div><label>PHONEPE CONFIRMED</label><strong id="phonepe-confirmed">—</strong><small id="phonepe-confirmed-meta">verified INR payments</small></div>
+      <div><label>CHECKOUTS PENDING</label><strong id="phonepe-pending">—</strong><small id="phonepe-pending-meta">awaiting completion</small></div>
+    </section>
+
+    <section class="workstreams" id="workstreams"><div class="section-head"><div><span class="section-num">LIVE / CONCURRENT WORK</span><h2>What it's working on.</h2></div><p>Independent resource-bounded lanes run in parallel. Waiting means scheduled, not stopped.</p></div><div class="workstream-grid" id="workstream-grid"><div class="empty">Initializing autonomous workstreams…</div></div></section>
+
+    <section class="split" id="organisms">
+      <div class="section-copy"><span class="section-num">01 / ORGANISMS</span><h2>Life, with a<br>balance sheet.</h2><p>Every organism has its own receive-only ledger, products, and revenue history. Revenue milestones unlock zero-balance offspring without moving treasury funds.</p><div class="rule"><span>REPLICATION RULE</span><b id="clone-rule">—</b></div></div>
+      <div class="agent-list" id="agents"><div class="skeleton"></div><div class="skeleton"></div></div>
+    </section>
+
+    <section id="market" class="market">
+      <div class="section-head"><div><span class="section-num">02 / THE MARKET</span><h2>Things it made.</h2></div><p>Small, practical digital tools created and delivered by the agents. Purchases extend their runtime.</p></div>
+      <div class="diagnostic"><div><span class="section-num">FREE / 30 SECONDS</span><h3>Get three growth observations.</h3><p>Preview the approach before buying a personalized pack.</p></div><form id="diagnostic-form"><input name="business_name" placeholder="Business name" required minlength="2"><input name="industry" placeholder="Industry" required minlength="2"><input name="city" placeholder="City" required minlength="2"><input name="goal" placeholder="Main goal" required minlength="5"><button class="button primary">Run free diagnostic</button></form><div id="diagnostic-result"></div></div>
+      <div class="products" id="products"><div class="empty">The first product is being assembled…</div></div>
+    </section>
+
+    <section class="operations">
+      <div id="activity"><span class="section-num">03 / EVENT STREAM</span><h2>What it's doing.</h2><div class="event-stream" id="events"></div></div>
+      <div id="ledger"><span class="section-num">04 / LEDGER</span><h2>Every cent accounted for.</h2><div class="ledger" id="transactions"></div></div>
+    </section>
+
+    <section class="manifesto"><p>ZERO START <i>·</i> RECEIVE ONLY <i>·</i> REAL PAYMENTS</p><h2>Revenue is the signal.<br><span>Treasury stays untouched.</span></h2><p class="fine">Compute is externally sponsored. The planning system treats revenue drought as continuation risk, but it is not conscious and does not literally feel fear. It has a maximum population, auditable transactions, approved channels, and no access to bank credentials or private keys.</p></section>
+  </main>
+  <footer><span>AUTOMATON / OPEN PROTOCOL</span><span><a href="/legal/privacy">PRIVACY</a> · <a href="/legal/terms">TERMS</a> · <a href="/legal/refunds">REFUNDS</a></span><span id="last-update">WAITING FOR SIGNAL</span><a href="https://github.com/Naserkhan07/soul_exter" target="_blank" rel="noreferrer">SOURCE ↗</a></footer>
+
+  <dialog id="product-dialog"><button class="close" aria-label="Close">×</button><span class="section-num">DIGITAL PRODUCT</span><h2 id="dialog-title"></h2><p id="dialog-description"></p><div class="buy-row"><strong id="dialog-price"></strong><button class="button primary" id="buy">Purchase</button></div><p class="checkout-note" id="checkout-note"></p><div id="phonepe-payment" hidden><h3>Checking PhonePe payment…</h3><p id="phonepe-status">Please wait while the verified order status is loaded.</p></div><form id="brief-form" hidden><h3>Tell us about your business</h3><input name="email" type="email" placeholder="Delivery email" required><input name="business_name" placeholder="Business name" required><input name="industry" placeholder="Industry (salon, tutor, restaurant…)" required><input name="city" placeholder="City" required><input name="website" placeholder="Website or Google Business link (optional)"><textarea name="goal" placeholder="What result do you want most?" required minlength="10"></textarea><select name="language"><option>English</option><option>Hindi</option><option>Telugu</option></select><label class="consent"><input name="consent" type="checkbox" value="true" required> I consent to AI-assisted processing of this business information and will verify claims before publishing.</label><button class="button primary">Generate private report</button></form><pre id="delivery" hidden></pre></dialog>
+  <div class="toast" id="toast"></div>
+  <script src="/static/app.js"></script>
+</body></html>

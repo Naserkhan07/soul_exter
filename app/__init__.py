@@ -1,0 +1,1 @@
+"""Automaton application package."""
