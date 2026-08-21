@@ -1,0 +1,18 @@
+# Core (always required)
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.0
+openpyxl>=3.1
+ddgs>=9.0                   # keyless DuckDuckGo web search (no API key needed)
+
+# Optional — enable as needed:
+# datasets>=2.19            # Hugging Face company dataset streaming
+# praw>=7.7                 # Reddit official API (optional — keyless JSON is default)
+# playwright>=1.44          # JS-heavy site rendering (then: playwright install chromium)
+# pandas>=2.0               # bulk data wrangling / notebook analysis
+
+# Kaggle GPU brain (install on Kaggle, not needed locally):
+# torch
+# transformers>=4.41
+# accelerate
+# bitsandbytes              # 4-bit quantization for Qwen 3B
