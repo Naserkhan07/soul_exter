@@ -62,7 +62,7 @@ SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
 BRAVE_SEARCH_KEY = os.environ.get("BRAVE_SEARCH_KEY", "")
 
 HF_COMPANY_DATASET = os.environ.get(
-    "HF_COMPANY_DATASET", "SalaleadsOrg/linkedin-company-profile"
+    "HF_COMPANY_DATASET", "SaleleadsOrg/linkedin-company-profile"
 )
 
 # ---------------------------------------------------------------------------

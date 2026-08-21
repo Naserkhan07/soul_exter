@@ -41,7 +41,7 @@ and produces an **Excel lead database** — then **STOPS**.
   a missing API key disables a tool, never the agent. **Nothing paid is used.**
   | Tool | Access method | Needs |
   |---|---|---|
-  | HF company dataset | `datasets` streaming (`SalaleadsOrg/linkedin-company-profile`) | `pip install datasets` (+`HF_TOKEN` if gated) |
+  | HF company dataset | `datasets` streaming (`SaleleadsOrg/linkedin-company-profile`) | `pip install datasets` (+`HF_TOKEN` if gated) |
   | Reddit | public read-only JSON endpoints (PRAW used automatically if keys exist) | **nothing** |
   | Web search discovery | **DuckDuckGo, keyless** (Brave/SerpAPI optional extras) over the geography×category grid | **nothing** |
   | LinkedIn | **no scraping** — dataset records + URLs businesses publish on their own sites | — |
