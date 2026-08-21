@@ -42,6 +42,32 @@ import config  # noqa: E402
 from main import setup_logging  # noqa: E402
 
 
+def assert_qwen_loaded(allow_fallback: bool):
+    """Make sure the REAL Qwen brain is active (not the heuristic fallback)."""
+    try:
+        import torch
+        print(f"CUDA available: {torch.cuda.is_available()}"
+              + (f" ({torch.cuda.get_device_name(0)})"
+                 if torch.cuda.is_available() else ""))
+    except ImportError:
+        print("torch not installed!")
+
+    from brain.qwen import get_brain, TransformersBrain
+
+    brain = get_brain()
+    if isinstance(brain, TransformersBrain):
+        print(f"✅ Qwen brain active: {config.QWEN_MODEL_ID} "
+              f"(4-bit={config.QWEN_LOAD_IN_4BIT})")
+        return
+    msg = ("❌ Qwen did NOT load — running on the heuristic fallback.\n"
+           "   On Kaggle: Settings → Accelerator = GPU T4, Internet = ON, then\n"
+           "   !pip install transformers accelerate bitsandbytes torch")
+    if allow_fallback:
+        print(msg + "\n   Continuing anyway (--allow-fallback).")
+    else:
+        raise SystemExit(msg)
+
+
 def smoke_test_brain():
     """Phase 1 check: Input -> Qwen -> structured JSON."""
     from brain.decision_engine import DecisionEngine
@@ -79,10 +105,13 @@ def main():
                     help="candidates to process this session")
     ap.add_argument("--skip-smoke-test", action="store_true")
     ap.add_argument("--no-hf", action="store_true")
+    ap.add_argument("--allow-fallback", action="store_true",
+                    help="continue with heuristic brain if Qwen fails to load")
     args = ap.parse_args()
 
     setup_logging()
 
+    assert_qwen_loaded(args.allow_fallback)
     if not args.skip_smoke_test:
         smoke_test_brain()
 

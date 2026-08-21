@@ -84,15 +84,30 @@ Stop any time with `Ctrl+C` — the checkpoint saves and the next run resumes.
 
 ## Running the real Qwen brain on Kaggle
 
-1. New Kaggle notebook → GPU T4.
-2. Upload/clone this repo, then:
-   ```
-   !pip -q install transformers accelerate bitsandbytes datasets \
-                   requests beautifulsoup4 lxml openpyxl
-   !python kaggle/run_qwen_batch.py --max 200
-   ```
-3. Persist `data/` + `output/` as a Kaggle Dataset between sessions —
-   checkpoints make every session resume where the last stopped.
+**Easiest path:** upload `kaggle/IndiaClientFinder_Kaggle.ipynb` to Kaggle
+(Create → Notebook → File → Import Notebook), set **Accelerator = GPU T4** and
+**Internet = ON**, then *Run All*. The notebook clones this repo, installs
+deps, loads Qwen 2.5 3B (4-bit ≈ 2.5 GB VRAM), runs a checkpointed batch and
+exports `output/india_leads.xlsx`.
+
+Manual equivalent inside any Kaggle GPU notebook:
+
+```
+!git clone -b arena/01a02332-soul-exter https://github.com/Naserkhan07/soul_exter.git project
+%cd project
+!pip -q install transformers accelerate bitsandbytes datasets \
+                requests beautifulsoup4 lxml openpyxl
+!python kaggle/run_qwen_batch.py --max 200
+```
+
+`run_qwen_batch.py` refuses to run on the heuristic fallback (use
+`--allow-fallback` to override), verifies CUDA, smoke-tests
+*input → Qwen → structured JSON*, then processes the batch.
+
+**Persisting progress between sessions:** the last notebook cell packages
+`data/leads.db` + the checkpoint into `/kaggle/working/icf-state`. Save that
+folder as a Kaggle Dataset named `icf-state` and attach it as input next
+session — the agent resumes exactly where it stopped.
 
 Locally with Ollama instead:
 
