@@ -144,18 +144,22 @@ class AgentLoop:
         """Pull the next batch of candidates from whichever sources work."""
         candidates = []
 
-        # 1) geography-grid discovery via free-tier web search
-        target = self.planner.current_target()
-        if target and self.use_web_search and web_search.is_configured():
-            loc = target["location"]
-            candidates += self._web_search_candidates(
-                target["category"], loc)
-            self.memory.record(
-                "web_search_query",
-                f"{target['category']} @ {loc['query_location']}")
-            self.planner.advance()
-        elif target:
-            # no search key: still advance so HF stays the primary source
+        # 1) geography-grid discovery via keyless/free web search.
+        #    Try a few grid cells — one empty result must not stall the agent.
+        if self.use_web_search:
+            for _ in range(5):
+                target = self.planner.current_target()
+                if not target or candidates:
+                    break
+                loc = target["location"]
+                candidates += self._web_search_candidates(
+                    target["category"], loc)
+                self.memory.record(
+                    "web_search_query",
+                    f"{target['category']} @ {loc['query_location']}")
+                self.planner.advance()
+        elif self.planner.current_target():
+            # search disabled: still advance so HF stays the primary source
             self.planner.advance()
 
         # 2) HF company dataset (streamed, resumable via checkpoint offset)

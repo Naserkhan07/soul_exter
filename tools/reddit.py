@@ -1,17 +1,19 @@
 """
-Reddit discovery — explicit-intent signals via the official Reddit API (PRAW).
+Reddit discovery — explicit-intent signals, NO API KEYS NEEDED.
 
-We search public posts where Indian business owners explicitly describe a
-need ("my website gets no traffic", "need someone for social media", ...).
-These are HIGH-intent research signals.
+Uses Reddit's public read-only JSON endpoints (append .json to any listing
+URL) with a descriptive User-Agent and polite rate limiting. If you later
+add REDDIT_CLIENT_ID/SECRET, the official API via PRAW is used instead
+(higher rate limits) — but it's entirely optional now.
 
-Strictly read-only research. No posting, no DMs, no automation of any
-interaction. Requires REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET (free app
-credentials) — without them the tool disables itself.
+Strictly read-only research. No posting, no DMs, no interaction automation.
 """
 
 import logging
 import re
+import time
+
+import requests
 
 import config
 
@@ -41,61 +43,132 @@ NEED_PATTERNS = {
     "ai_automation": re.compile(r"\b(automat|chatbot|ai tool)\b", re.I),
 }
 
+_PUBLIC_DELAY = 3.0  # seconds between keyless JSON requests
+_last_call = 0.0
+
 
 def is_configured() -> bool:
+    """Public JSON endpoints need no credentials — always available."""
+    return True
+
+
+def has_api_credentials() -> bool:
     return bool(config.REDDIT_CLIENT_ID and config.REDDIT_CLIENT_SECRET)
-
-
-def _client():
-    import praw
-    return praw.Reddit(
-        client_id=config.REDDIT_CLIENT_ID,
-        client_secret=config.REDDIT_CLIENT_SECRET,
-        user_agent=config.REDDIT_USER_AGENT,
-    )
 
 
 def detect_needs(text: str) -> list:
     return [need for need, pat in NEED_PATTERNS.items() if pat.search(text or "")]
 
 
+# ---------------------------------------------------------------------------
+# Keyless path: public JSON
+# ---------------------------------------------------------------------------
+def _polite_wait():
+    global _last_call
+    wait = _PUBLIC_DELAY - (time.monotonic() - _last_call)
+    if wait > 0:
+        time.sleep(wait)
+    _last_call = time.monotonic()
+
+
+def _public_search(query: str, limit: int) -> list:
+    """One search query against the public JSON endpoint."""
+    _polite_wait()
+    try:
+        resp = requests.get(
+            f"https://www.reddit.com/r/{'+'.join(SUBREDDITS)}/search.json",
+            params={"q": query, "restrict_sr": "on", "sort": "new",
+                    "limit": min(limit, 25), "t": "year"},
+            headers={"User-Agent": config.REDDIT_USER_AGENT},
+            timeout=config.HTTP_TIMEOUT,
+        )
+        if resp.status_code == 429:
+            log.warning("Reddit rate limit hit — backing off 30s")
+            time.sleep(30)
+            return []
+        resp.raise_for_status()
+        children = resp.json().get("data", {}).get("children", [])
+    except (requests.RequestException, ValueError) as exc:
+        log.warning("Reddit public search '%s' failed: %s", query, exc)
+        return []
+
+    posts = []
+    for child in children:
+        d = child.get("data", {})
+        posts.append({
+            "id": d.get("id", ""),
+            "title": d.get("title", ""),
+            "selftext": d.get("selftext", "") or "",
+            "permalink": d.get("permalink", ""),
+            "subreddit": d.get("subreddit", ""),
+        })
+    return posts
+
+
+# ---------------------------------------------------------------------------
+# Optional keyed path: PRAW (used automatically when creds exist)
+# ---------------------------------------------------------------------------
+def _praw_search(query: str, limit: int) -> list:
+    import praw
+    reddit = praw.Reddit(
+        client_id=config.REDDIT_CLIENT_ID,
+        client_secret=config.REDDIT_CLIENT_SECRET,
+        user_agent=config.REDDIT_USER_AGENT,
+    )
+    sub = reddit.subreddit("+".join(SUBREDDITS))
+    posts = []
+    for post in sub.search(query, sort="new", limit=limit):
+        posts.append({
+            "id": post.id,
+            "title": post.title,
+            "selftext": getattr(post, "selftext", "") or "",
+            "permalink": post.permalink,
+            "subreddit": str(post.subreddit),
+        })
+    return posts
+
+
+# ---------------------------------------------------------------------------
+# Public API of this module
+# ---------------------------------------------------------------------------
 def search_reddit(limit_per_query: int = 10) -> list:
     """
     Return high-intent signal dicts:
       {source, title, text_excerpt, url, subreddit, detected_needs, explicit_demand}
     """
-    if not is_configured():
-        log.info("Reddit credentials not set — reddit discovery disabled")
-        return []
-    try:
-        import praw  # noqa: F401
-    except ImportError:
-        log.warning("praw not installed (pip install praw) — reddit disabled")
-        return []
+    use_praw = False
+    if has_api_credentials():
+        try:
+            import praw  # noqa: F401
+            use_praw = True
+        except ImportError:
+            log.info("praw not installed — using keyless public JSON")
 
-    reddit = _client()
     signals, seen_ids = [], set()
-    sub = reddit.subreddit("+".join(SUBREDDITS))
     for query in INTENT_QUERIES:
         try:
-            for post in sub.search(query, sort="new", limit=limit_per_query):
-                if post.id in seen_ids:
-                    continue
-                seen_ids.add(post.id)
-                body = f"{post.title}\n{getattr(post, 'selftext', '')}"
-                needs = detect_needs(body)
-                if not needs:
-                    continue
-                signals.append({
-                    "source": "reddit",
-                    "title": post.title,
-                    "text_excerpt": (getattr(post, "selftext", "") or "")[:500],
-                    "url": f"https://www.reddit.com{post.permalink}",
-                    "subreddit": str(post.subreddit),
-                    "detected_needs": needs,
-                    "explicit_demand": post.title[:200],
-                })
+            posts = (_praw_search(query, limit_per_query) if use_praw
+                     else _public_search(query, limit_per_query))
         except Exception as exc:
             log.warning("Reddit query '%s' failed: %s", query, exc)
-    log.info("Reddit: %d high-intent signals", len(signals))
+            continue
+        for post in posts:
+            if not post["id"] or post["id"] in seen_ids:
+                continue
+            seen_ids.add(post["id"])
+            body = f"{post['title']}\n{post['selftext']}"
+            needs = detect_needs(body)
+            if not needs:
+                continue
+            signals.append({
+                "source": "reddit",
+                "title": post["title"],
+                "text_excerpt": post["selftext"][:500],
+                "url": f"https://www.reddit.com{post['permalink']}",
+                "subreddit": post["subreddit"],
+                "detected_needs": needs,
+                "explicit_demand": post["title"][:200],
+            })
+    log.info("Reddit: %d high-intent signals (%s mode)",
+             len(signals), "praw" if use_praw else "keyless")
     return signals

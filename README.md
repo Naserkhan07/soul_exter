@@ -42,8 +42,8 @@ and produces an **Excel lead database** — then **STOPS**.
   | Tool | Access method | Needs |
   |---|---|---|
   | HF company dataset | `datasets` streaming (`SalaleadsOrg/linkedin-company-profile`) | `pip install datasets` (+`HF_TOKEN` if gated) |
-  | Reddit | official API via PRAW, read-only | `REDDIT_CLIENT_ID/SECRET` (free) |
-  | Web search discovery | Brave (free tier) / SerpAPI over the geography×category grid | `BRAVE_SEARCH_KEY` or `SERPAPI_KEY` |
+  | Reddit | public read-only JSON endpoints (PRAW used automatically if keys exist) | **nothing** |
+  | Web search discovery | **DuckDuckGo, keyless** (Brave/SerpAPI optional extras) over the geography×category grid | **nothing** |
   | LinkedIn | **no scraping** — dataset records + URLs businesses publish on their own sites | — |
   | Browser | `requests` (+optional Playwright), robots.txt respected, polite delays, login/CAPTCHA **handoff to human** | — |
 - **Database** (`database/`) — SQLite is the source of truth; dedup via a
@@ -72,9 +72,9 @@ python main.py seed my_seeds.json     # see seeds.example.json for the format
 Run the autonomous loop (uses whichever discovery sources are configured):
 
 ```bash
-export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...   # optional (free)
-export BRAVE_SEARCH_KEY=...                            # optional (free tier)
-pip install datasets                                   # optional (HF company dataset)
+# No API keys needed — DuckDuckGo search + Reddit public JSON are keyless.
+pip install datasets                  # optional (HF company dataset)
+# export HF_TOKEN=...                 # only if the HF dataset is gated
 
 python main.py run --max 200 --states "Maharashtra,Telangana"
 ```
