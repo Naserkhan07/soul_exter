@@ -207,6 +207,15 @@ class AgentLoop:
             title = r.get("title", "")
             if _LISTICLE_TITLE.search(title):
                 continue  # article/guide, not a business site
+            # reject "category in Location" directory-style titles, e.g.
+            # "Dental Clinics in Visakhapatnam", "Dental Clinic in Dwaraka Nagar"
+            if re.search(r"\b(in|near|at)\s+[A-Z][\w]+", title) and not \
+                    re.search(r"(pvt|ltd|llp|clinic\b.*\bdr|™|®)", title, re.I):
+                low = title.lower()
+                generic = re.match(
+                    r"^(the\s+)?[a-z&\s]+\s(in|near|at)\s", low)
+                if generic:
+                    continue
             seen_hosts.add(host)
             # take the part of the title before "|", "-", "–" as the name
             name = re.split(r"\s+[|\-–:]\s+", title)[0].strip() or host
