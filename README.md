@@ -233,6 +233,18 @@ The local program:
 
 Meta controls final visibility and can reject expired tokens, missing permissions, unsupported accounts, or policy-violating media.
 
+Graph API Explorer initially issues a short-lived User token. To avoid daily expiry failures, generate
+a fresh **User Token** there, then exchange it locally for a long-lived User token and the connected
+Page token. Find the App ID and App Secret under Meta App Dashboard → App settings → Basic, then run:
+
+```powershell
+python -m shorts_bot.instagram_token
+```
+
+The command prompts privately for the App ID, App Secret, and temporary User token, finds the Page
+connected to `splitzz.isodope`, and writes only its long-lived Page token to `.env`. It never stores
+the App Secret or temporary User token.
+
 ## 7. Optional API.market Real-ESRGAN enhancement
 
 API.market requires `video_path` to be a direct public HTTPS URL; it cannot read a Windows file path.
