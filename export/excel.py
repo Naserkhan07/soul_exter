@@ -35,7 +35,6 @@ COLUMNS = [
     ("Facebook", "facebook", 26),
     ("YouTube", "youtube", 26),
     ("Twitter/X", "twitter", 22),
-    ("Google Maps", "google_maps", 30),
     ("Other Contact URL", "other_contact_url", 24),
     ("Source URLs", "source_urls", 40),
     ("Digital Marketing Need", "digital_marketing_need", 12),

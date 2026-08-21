@@ -37,7 +37,6 @@ class Lead:
     facebook: str = ""
     youtube: str = ""
     twitter: str = ""
-    google_maps: str = ""
     other_contact_url: str = ""
     source_urls: list = field(default_factory=list)
 

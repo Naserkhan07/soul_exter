@@ -19,10 +19,10 @@ and produces an **Excel lead database** — then **STOPS**.
                        Python Agent Core (agent/)
               ┌───────────────┼────────────────┐
            Discovery      Investigation      Storage
-          tools/maps      tools/browser     database/ (SQLite)
-          tools/huggingface tools/website_analyzer
-          tools/reddit    tools/contacts    export/ (Excel)
-          tools/web_search tools/linkedin
+        tools/web_search  tools/browser     database/ (SQLite)
+        tools/huggingface tools/website_analyzer
+        tools/reddit      tools/contacts    export/ (Excel)
+                          tools/linkedin
                               │
                      geography/ (India → state → city → locality)
 ```
@@ -38,13 +38,12 @@ and produces an **Excel lead database** — then **STOPS**.
   (investigate one business), loop, memory, JSON **checkpoints** (survives
   Kaggle session death).
 - **Tools** (`tools/`) — every third-party source is optional and replaceable;
-  a missing API key disables a tool, never the agent:
+  a missing API key disables a tool, never the agent. **Nothing paid is used.**
   | Tool | Access method | Needs |
   |---|---|---|
-  | Google Maps | official **Places API (New)** | `GOOGLE_MAPS_API_KEY` |
-  | HF company dataset | `datasets` streaming (`SalaleadsOrg/linkedin-company-profile`) | `pip install datasets` |
-  | Reddit | official API via PRAW, read-only | `REDDIT_CLIENT_ID/SECRET` |
-  | Web search | Brave / SerpAPI | `BRAVE_SEARCH_KEY` or `SERPAPI_KEY` |
+  | HF company dataset | `datasets` streaming (`SalaleadsOrg/linkedin-company-profile`) | `pip install datasets` (+`HF_TOKEN` if gated) |
+  | Reddit | official API via PRAW, read-only | `REDDIT_CLIENT_ID/SECRET` (free) |
+  | Web search discovery | Brave (free tier) / SerpAPI over the geography×category grid | `BRAVE_SEARCH_KEY` or `SERPAPI_KEY` |
   | LinkedIn | **no scraping** — dataset records + URLs businesses publish on their own sites | — |
   | Browser | `requests` (+optional Playwright), robots.txt respected, polite delays, login/CAPTCHA **handoff to human** | — |
 - **Database** (`database/`) — SQLite is the source of truth; dedup via a
@@ -73,9 +72,9 @@ python main.py seed my_seeds.json     # see seeds.example.json for the format
 Run the autonomous loop (uses whichever discovery sources are configured):
 
 ```bash
-export GOOGLE_MAPS_API_KEY=...        # optional
-export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...   # optional
-pip install datasets                  # optional (HF company dataset)
+export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...   # optional (free)
+export BRAVE_SEARCH_KEY=...                            # optional (free tier)
+pip install datasets                                   # optional (HF company dataset)
 
 python main.py run --max 200 --states "Maharashtra,Telangana"
 ```
@@ -138,7 +137,7 @@ Leads below `MIN_LEAD_SCORE_TO_SAVE` (default 40) are skipped.
 - ✅ contacts must be public; missing = empty, never guessed
 - ✅ robots.txt respected, polite per-host delays
 - ✅ no login/CAPTCHA bypassing — human handoff instead
-- ✅ no LinkedIn/Maps scraping — permitted APIs & published data only
+- ✅ no LinkedIn scraping, no Google Maps at all — permitted APIs & published data only
 - ✅ third-party sources are replaceable tools, not dependencies
 
 ## Project layout
@@ -147,7 +146,7 @@ Leads below `MIN_LEAD_SCORE_TO_SAVE` (default 40) are skipped.
 main.py  config.py  requirements.txt
 brain/      qwen.py prompts.py schemas.py decision_engine.py
 agent/      planner.py executor.py loop.py memory.py checkpoint.py
-tools/      maps.py linkedin.py reddit.py huggingface.py web_search.py
+tools/      linkedin.py reddit.py huggingface.py web_search.py
             browser.py website_analyzer.py contacts.py
 geography/  india_states.json loader.py
 database/   models.py database.py deduplication.py

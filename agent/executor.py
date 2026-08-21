@@ -133,7 +133,6 @@ class Executor:
         socials = contacts.get("socials", {})
         source_urls = [u for u in [
             candidate.get("source_url", ""),
-            candidate.get("google_maps", ""),
             *(contacts.get("pages_checked") or []),
         ] if u]
 
@@ -166,7 +165,6 @@ class Executor:
             facebook=socials.get("facebook", ""),
             youtube=socials.get("youtube", ""),
             twitter=socials.get("twitter", ""),
-            google_maps=candidate.get("google_maps", ""),
             source_urls=list(dict.fromkeys(source_urls)),
             detected_problems=qualification.detected_problems,
             recommended_services=qualification.recommended_services,

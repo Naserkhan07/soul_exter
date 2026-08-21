@@ -3,7 +3,7 @@ The agent loop — the heart of the project.
 
     START
       -> planner picks (location, category)
-      -> discovery tools return candidates (Maps / HF dataset / Reddit)
+      -> discovery tools return candidates (web search / HF dataset / Reddit)
       -> deduplicate against everything already seen
       -> executor investigates each candidate
       -> Qwen qualifies + scores
@@ -11,10 +11,18 @@ The agent loop — the heart of the project.
       -> checkpoint
       -> next cell
     ... then STOP. No contacting, ever.
+
+Discovery sources (all optional & replaceable — no paid dependency):
+    * web search (Brave/SerpAPI free tier) over the geography x category grid
+    * Hugging Face company dataset (streamed, India-filtered)
+    * Reddit explicit-intent signals (official API, read-only)
+    * manual seed lists (python main.py seed file.json)
 """
 
 import logging
+import re
 import signal
+from urllib.parse import urlparse
 
 import config
 from agent.checkpoint import load_checkpoint, save_checkpoint
@@ -23,20 +31,30 @@ from agent.memory import Memory
 from agent.planner import Planner
 from database.database import LeadDatabase
 from database.deduplication import identity_key, merge_leads
-from tools import maps, reddit, huggingface as hf
+from tools import reddit, web_search, huggingface as hf
 
 log = logging.getLogger("agent.loop")
+
+# aggregators/directories/socials — search results from these are not a
+# business's own website, so they can't be investigated as one
+_NON_BUSINESS_HOSTS = (
+    "justdial", "indiamart", "sulekha", "tradeindia", "yelp", "zomato",
+    "swiggy", "tripadvisor", "facebook", "instagram", "linkedin", "youtube",
+    "twitter", "x.com", "wikipedia", "quora", "reddit", "amazon", "flipkart",
+    "olx", "magicbricks", "99acres", "glassdoor", "indeed", "naukri",
+    "google.", "yellowpages", "yahoo",
+)
 
 
 class AgentLoop:
     def __init__(self, priority_states=None, categories=None,
-                 use_maps=True, use_hf=True, use_reddit=True):
+                 use_web_search=True, use_hf=True, use_reddit=True):
         self.state = load_checkpoint()
         self.planner = Planner(self.state, priority_states, categories)
         self.executor = Executor()
         self.db = LeadDatabase()
         self.memory = Memory()
-        self.use_maps = use_maps
+        self.use_web_search = use_web_search
         self.use_hf = use_hf
         self.use_reddit = use_reddit
         self._stop = False
@@ -126,20 +144,21 @@ class AgentLoop:
         """Pull the next batch of candidates from whichever sources work."""
         candidates = []
 
+        # 1) geography-grid discovery via free-tier web search
         target = self.planner.current_target()
-        if target and self.use_maps and maps.is_configured():
+        if target and self.use_web_search and web_search.is_configured():
             loc = target["location"]
-            found = maps.search_maps(target["category"], loc["query_location"])
-            for c in found:
-                c["location_meta"] = loc
-            candidates += found
-            self.memory.record("maps_query",
-                               f"{target['category']} @ {loc['query_location']}")
+            candidates += self._web_search_candidates(
+                target["category"], loc)
+            self.memory.record(
+                "web_search_query",
+                f"{target['category']} @ {loc['query_location']}")
             self.planner.advance()
-        elif target and self.use_maps and not maps.is_configured():
-            # Maps not available: still advance so HF becomes primary source
+        elif target:
+            # no search key: still advance so HF stays the primary source
             self.planner.advance()
 
+        # 2) HF company dataset (streamed, resumable via checkpoint offset)
         if self.use_hf and len(candidates) < config.BATCH_SIZE:
             offset = self.state.get("hf_dataset_offset", 0)
             hf_batch = list(hf.iter_india_companies(
@@ -151,6 +170,34 @@ class AgentLoop:
                 self.memory.record("hf_batch", f"offset={offset}")
 
         return candidates
+
+    # ------------------------------------------------------------------ #
+    def _web_search_candidates(self, category: str, loc: dict) -> list:
+        """Turn search results for 'category in location' into candidates."""
+        query = f"{category} in {loc['query_location']}"
+        results = web_search.search_web(
+            query, max_results=config.MAX_CANDIDATES_PER_QUERY)
+        out = []
+        for r in results:
+            url = r.get("url", "")
+            host = urlparse(url).netloc.lower()
+            if not url or any(bad in host for bad in _NON_BUSINESS_HOSTS):
+                continue
+            # take the part of the title before "|", "-", "–" as the name
+            title = r.get("title", "")
+            name = re.split(r"\s+[|\-–:]\s+", title)[0].strip() or host
+            out.append({
+                "source": "web_search",
+                "business_name": name[:100],
+                "business_category": category,
+                "website": f"{urlparse(url).scheme}://{host}",
+                "address": loc["query_location"],
+                "location_meta": loc,
+                "source_url": url,
+            })
+        log.info("Web search: %d business candidates for '%s'",
+                 len(out), query)
+        return out
 
     def _reddit_candidates(self) -> list:
         signals = reddit.search_reddit()

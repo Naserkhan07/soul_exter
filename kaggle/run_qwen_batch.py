@@ -118,8 +118,7 @@ def main():
     from agent.loop import AgentLoop
     from export.excel import export_to_excel
 
-    loop = AgentLoop(use_maps=bool(config.GOOGLE_MAPS_API_KEY),
-                     use_hf=not args.no_hf,
+    loop = AgentLoop(use_hf=not args.no_hf,
                      use_reddit=bool(config.REDDIT_CLIENT_ID))
     summary = loop.run(max_candidates=args.max)
     print(json.dumps(summary, indent=2, default=str))

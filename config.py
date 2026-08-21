@@ -52,8 +52,6 @@ BRAIN_API_MODEL = os.environ.get("BRAIN_API_MODEL", "qwen2.5:3b-instruct")
 # ---------------------------------------------------------------------------
 # Third-party API keys (all optional — tools disable themselves gracefully)
 # ---------------------------------------------------------------------------
-GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
-
 REDDIT_CLIENT_ID = os.environ.get("REDDIT_CLIENT_ID", "")
 REDDIT_CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET", "")
 REDDIT_USER_AGENT = os.environ.get(

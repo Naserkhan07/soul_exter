@@ -57,7 +57,7 @@ def cmd_run(args):
     loop = AgentLoop(
         priority_states=states or None,
         categories=categories or None,
-        use_maps=not args.no_maps,
+        use_web_search=not args.no_search,
         use_hf=not args.no_hf,
         use_reddit=not args.no_reddit,
     )
@@ -73,7 +73,7 @@ def cmd_seed(args):
         candidates = json.load(fh)
     if isinstance(candidates, dict):
         candidates = [candidates]
-    loop = AgentLoop(use_maps=False, use_hf=False, use_reddit=False)
+    loop = AgentLoop(use_web_search=False, use_hf=False, use_reddit=False)
     summary = loop.run(max_candidates=len(candidates),
                        extra_candidates=candidates)
     print(json.dumps(summary, indent=2, default=str))
@@ -84,7 +84,7 @@ def cmd_demo(args):
 
     print("Demo: investigating seed candidates with backend "
           f"'{config.BRAIN_BACKEND}' ...\n")
-    loop = AgentLoop(use_maps=False, use_hf=False, use_reddit=False)
+    loop = AgentLoop(use_web_search=False, use_hf=False, use_reddit=False)
     summary = loop.run(max_candidates=len(DEMO_CANDIDATES),
                        extra_candidates=list(DEMO_CANDIDATES))
     print(json.dumps(summary, indent=2, default=str))
@@ -122,7 +122,7 @@ def build_parser():
                      help="max candidates this session")
     run.add_argument("--states", help="comma-separated priority states")
     run.add_argument("--categories", help="comma-separated categories")
-    run.add_argument("--no-maps", action="store_true")
+    run.add_argument("--no-search", action="store_true")
     run.add_argument("--no-hf", action="store_true")
     run.add_argument("--no-reddit", action="store_true")
     run.set_defaults(func=cmd_run)

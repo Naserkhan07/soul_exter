@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS leads (
     facebook TEXT,
     youtube TEXT,
     twitter TEXT,
-    google_maps TEXT,
     other_contact_url TEXT,
     source_urls TEXT,
     digital_marketing_need TEXT,
