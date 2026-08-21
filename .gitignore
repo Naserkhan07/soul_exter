@@ -1,0 +1,16 @@
+# virtualenv & caches
+.venv/
+__pycache__/
+*.pyc
+
+# runtime data (SQLite DB, checkpoints, exports, logs are generated)
+data/leads.db
+data/raw/*
+data/processed/*
+data/checkpoints/*
+output/*.xlsx
+logs/*.log
+
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/checkpoints/.gitkeep

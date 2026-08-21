@@ -1,0 +1,34 @@
+[
+  {
+    "source": "manual",
+    "business_name": "ABC Furniture",
+    "business_category": "furniture store",
+    "website": "https://abc-furniture.example",
+    "address": "Kothrud, Pune, Maharashtra",
+    "location_meta": {
+      "state": "Maharashtra",
+      "city": "Pune",
+      "locality": "Kothrud",
+      "query_location": "Kothrud, Pune, Maharashtra, India"
+    },
+    "rating": 4.3,
+    "review_count": 312,
+    "source_url": "https://maps.google.com/?cid=example"
+  },
+  {
+    "source": "manual",
+    "business_name": "XYZ Dental Clinic",
+    "business_category": "dental clinic",
+    "website": "",
+    "phone": "+91 98765 43210",
+    "address": "Banjara Hills, Hyderabad, Telangana",
+    "location_meta": {
+      "state": "Telangana",
+      "city": "Hyderabad",
+      "locality": "Banjara Hills",
+      "query_location": "Banjara Hills, Hyderabad, Telangana, India"
+    },
+    "rating": 4.6,
+    "review_count": 327
+  }
+]
