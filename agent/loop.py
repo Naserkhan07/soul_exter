@@ -35,15 +35,30 @@ from tools import reddit, web_search, huggingface as hf
 
 log = logging.getLogger("agent.loop")
 
-# aggregators/directories/socials — search results from these are not a
-# business's own website, so they can't be investigated as one
+# aggregators/directories/socials/travel-listicle sites — search results from
+# these are not a business's own website, so they can't be investigated as one
 _NON_BUSINESS_HOSTS = (
     "justdial", "indiamart", "sulekha", "tradeindia", "yelp", "zomato",
     "swiggy", "tripadvisor", "facebook", "instagram", "linkedin", "youtube",
     "twitter", "x.com", "wikipedia", "quora", "reddit", "amazon", "flipkart",
     "olx", "magicbricks", "99acres", "glassdoor", "indeed", "naukri",
     "google.", "yellowpages", "yahoo",
+    # travel/food listicle & directory sites seen in real runs
+    "wanderlog", "holidify", "tripzygo", "makemytrip", "evendo", "ellopages",
+    "wanderon", "magicpin", "dineout", "eazydiner", "yatra", "goibibo",
+    "cleartrip", "thrillophilia", "traveltriangle", "curlytales", "lbb.in",
+    "whatshot", "slurrp", "restaurantguru", "threebestrated", "grotal",
+    "asklaila", "mouthshut", "medium.com", "blogspot", "wordpress.com",
+    "pinterest", "timesofindia", "hindustantimes", "ndtv", "news18",
+    "top10", "bestof", "vymaps", "placedigger", "veyor",
 )
+
+# reject listicle/guide TITLES like "15 Best Restaurants in ...",
+# "Top 12 Places to Eat", "... (2026 ranked)" — those are articles,
+# not businesses
+_LISTICLE_TITLE = re.compile(
+    r"^\s*\d+\s|\b(top\s*\d*|best|list of|places? to|guide|ranked|"
+    r"near me|reviews? of|cheapest|famous|must[- ]visit|things to)\b", re.I)
 
 
 class AgentLoop:
@@ -181,14 +196,19 @@ class AgentLoop:
         query = f"{category} in {loc['query_location']}"
         results = web_search.search_web(
             query, max_results=config.MAX_CANDIDATES_PER_QUERY)
-        out = []
+        out, seen_hosts = [], set()
         for r in results:
             url = r.get("url", "")
             host = urlparse(url).netloc.lower()
-            if not url or any(bad in host for bad in _NON_BUSINESS_HOSTS):
+            if not url or host in seen_hosts:
                 continue
-            # take the part of the title before "|", "-", "–" as the name
+            if any(bad in host for bad in _NON_BUSINESS_HOSTS):
+                continue
             title = r.get("title", "")
+            if _LISTICLE_TITLE.search(title):
+                continue  # article/guide, not a business site
+            seen_hosts.add(host)
+            # take the part of the title before "|", "-", "–" as the name
             name = re.split(r"\s+[|\-–:]\s+", title)[0].strip() or host
             out.append({
                 "source": "web_search",
