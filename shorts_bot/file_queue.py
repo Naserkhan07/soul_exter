@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -94,8 +95,21 @@ async def run_file_queue(
         on_status=report,
         on_downloaded=downloaded,
     )
+
+    async def run_preflight() -> bool:
+        try:
+            report_lines = await services.preflight()
+        except WorkflowError as exc:
+            print(f"Credential check failed: {exc}", file=sys.stderr, flush=True)
+            return False
+        print("Credential report: " + " | ".join(report_lines), flush=True)
+        return True
+
+    workflow_ready = await run_preflight()
     selected_job_id = rebuild_job_id or expand_job_id or resume_job_id
     if selected_job_id:
+        if not workflow_ready:
+            return 1
         job = repository.get(selected_job_id)
         if not job:
             print(
@@ -140,7 +154,68 @@ async def run_file_queue(
             flush=True,
         )
 
+    async def retry_pending_jobs() -> None:
+        youtube_ready = bool(
+            settings.upload_youtube and "YouTube" not in services.unavailable_platforms
+        )
+        instagram_ready = bool(
+            settings.upload_instagram and "Instagram" not in services.unavailable_platforms
+        )
+        pending_jobs = repository.list_pending_upload_jobs(
+            youtube=youtube_ready,
+            instagram=instagram_ready,
+            limit=settings.pending_retry_jobs_per_cycle,
+        )
+        for pending_job in pending_jobs:
+            print(
+                f"[{pending_job.id}] automatically retrying pending platform uploads",
+                flush=True,
+            )
+            await pipeline.process(pending_job.id, reuse_downloaded=True)
+
+    if workflow_ready:
+        await retry_pending_jobs()
+    next_credential_check = time.monotonic() + settings.credential_check_minutes * 60
+
     while True:
+        if not workflow_ready or time.monotonic() >= next_credential_check:
+            try:
+                refreshed = Settings.from_env(override=True)
+                refreshed.validate_file_queue()
+                refreshed.prepare_directories()
+                refreshed_services = WorkflowServices.from_settings(refreshed)
+                refreshed_services.media.check_tools()
+                refreshed_report = await refreshed_services.preflight()
+                settings = refreshed
+                services = refreshed_services
+                link_queue = LinkFileQueue(settings.links_file, settings.downloaded_links_log)
+                pipeline = WorkflowPipeline(
+                    settings,
+                    repository,
+                    services,
+                    on_status=report,
+                    on_downloaded=downloaded,
+                )
+                workflow_ready = True
+                failed_urls_this_session.clear()
+                print("Credential report: " + " | ".join(refreshed_report), flush=True)
+                await retry_pending_jobs()
+                next_credential_check = time.monotonic() + settings.credential_check_minutes * 60
+            except (ConfigurationError, WorkflowError) as exc:
+                workflow_ready = False
+                print(
+                    f"Credential refresh failed; retrying automatically: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                next_credential_check = time.monotonic() + 300
+
+        if not workflow_ready:
+            if not watch:
+                return 1
+            await asyncio.sleep(min(settings.links_poll_seconds, 30))
+            continue
+
         urls = link_queue.pending_urls()
         for url in urls:
             if url in failed_urls_this_session:

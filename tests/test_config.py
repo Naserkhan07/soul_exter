@@ -42,6 +42,8 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "WORK_DIR",
         "DATABASE_PATH",
         "KEEP_WORK_FILES",
+        "CREDENTIAL_CHECK_MINUTES",
+        "PENDING_RETRY_JOBS_PER_CYCLE",
         "RIGHTS_ACKNOWLEDGED",
         "YOUTUBE_PRIVACY_STATUS",
         "CHANNEL_CONFIG_FILE",
@@ -79,6 +81,8 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.upload_youtube is False
     assert settings.upload_instagram is False
     assert settings.youtube_privacy_status == "public"
+    assert settings.credential_check_minutes == 60
+    assert settings.pending_retry_jobs_per_cycle == 3
 
 
 def test_migrates_retired_groq_models_to_qwen(monkeypatch: pytest.MonkeyPatch) -> None:

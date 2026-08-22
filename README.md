@@ -326,12 +326,17 @@ reuse its downloaded source and create a new multi-clip batch, run:
 python -m shorts_bot.file_queue --expand JOB_ID
 ```
 
-## Open folder when upload limits are reached
+## Automatic credential checks, retries, and pending folders
 
-When YouTube or Instagram reports a daily publishing/upload limit, that platform is disabled for the
-remainder of the current job. The other platform continues when still available. Metadata,
-enhancement, rendering, and thumbnails continue locally for every remaining clip. At the end, the
-workflow creates one ordinary folder under `work/pending_uploads/` containing:
+At startup and every `CREDENTIAL_CHECK_MINUTES`, the watcher reloads `.env`, verifies Groq models,
+refreshes YouTube OAuth when needed, checks the authorized YouTube channel and Instagram Page token,
+and validates Cloudinary when enhancement is enabled. Retired Groq models automatically migrate to
+an active non-OpenAI Qwen model.
+
+When YouTube or Instagram reaches a publishing limit or returns an authentication/upload error, that
+platform is disabled for the current run while the other platform, metadata, enhancement, rendering,
+and thumbnails continue. At the end, the workflow creates one ordinary folder under
+`work/pending_uploads/` containing:
 
 - `videos/` with every generated MP4
 - `thumbnails/` with every cover image
@@ -345,11 +350,13 @@ Configure:
 ARCHIVE_ON_UPLOAD_LIMIT=true
 ARCHIVE_DIR=work/pending_uploads
 OPEN_UPLOAD_LIMIT_FOLDER=true
+CREDENTIAL_CHECK_MINUTES=60
+PENDING_RETRY_JOBS_PER_CYCLE=3
 ```
 
-On Windows, Explorer opens the completed folder automatically. No ZIP extraction is needed. Resume
-the same job after the platform's daily reset; clips already uploaded are skipped and pending clips
-are retried.
+On Windows, Explorer opens the completed folder automatically. No ZIP extraction is needed. The
+watcher automatically reloads changed credentials and retries a bounded number of pending jobs each
+cycle; clips already uploaded to a destination are skipped.
 
 ### Personal messaging accounts are not used for storage
 
@@ -403,6 +410,8 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `LINKS_FILE` | `links.txt` | Local URL queue |
 | `DOWNLOADED_LINKS_LOG` | `work/downloaded-links.log` | Download audit log |
 | `LINKS_POLL_SECONDS` | `30` | Queue interval, 5–3600 seconds |
+| `CREDENTIAL_CHECK_MINUTES` | `60` | Reload `.env`, check services, and retry pending jobs |
+| `PENDING_RETRY_JOBS_PER_CYCLE` | `3` | Maximum old pending jobs retried per check |
 | `CLIP_DURATION_SECONDS` | `30` | Preferred duration, 20–30 |
 | `SHORTS_SELECTION_MODE` | `full_coverage` | `full_coverage` or `ai_highlights` |
 | `MAX_SHORTS_PER_VIDEO` | `0` | `0` = duration-based automatic count; 1–100 = optional cap |
@@ -418,7 +427,7 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `CLOUDINARY_CLOUD_NAME` | empty | Temporary input hosting account |
 | `CLOUDINARY_API_KEY` | empty | Temporary input hosting key |
 | `CLOUDINARY_API_SECRET` | empty | Temporary input hosting secret |
-| `ARCHIVE_ON_UPLOAD_LIMIT` | `true` | Build a normal folder when a publishing limit is reached |
+| `ARCHIVE_ON_UPLOAD_LIMIT` | `true` | Build a normal folder whenever platform uploads remain pending |
 | `ARCHIVE_DIR` | `work/pending_uploads` | Local pending-video folder destination |
 | `OPEN_UPLOAD_LIMIT_FOLDER` | `true` | Open the completed folder in Windows Explorer |
 | `WORK_DIR` | `work` | Local media directory |

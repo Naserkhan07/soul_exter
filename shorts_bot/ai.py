@@ -53,6 +53,35 @@ class AIPlanner:
         self.instagram_hashtags = instagram_hashtags or []
         self.metadata_delay_seconds = metadata_delay_seconds
 
+    async def check_models(self) -> tuple[str, str]:
+        """Validate Groq access and automatically select active non-OpenAI models."""
+        try:
+            response = await self.client.models.list()
+            available = {
+                str(_field(model, "id", ""))
+                for model in (_field(response, "data", []) or [])
+                if str(_field(model, "id", ""))
+            }
+        except Exception as exc:
+            raise AIError(f"Groq credential/model check failed: {exc}") from exc
+
+        qwen_models = sorted(model for model in available if model.startswith("qwen/"))
+        if self.model not in available:
+            preferred = "qwen/qwen3.6-27b"
+            if preferred in available:
+                self.model = preferred
+            elif qwen_models:
+                self.model = qwen_models[-1]
+            else:
+                raise AIError(
+                    "No active non-OpenAI Qwen planning model is available on this Groq account."
+                )
+        if self.fallback_model not in available:
+            self.fallback_model = self.model
+        if self.transcription_model not in available:
+            raise AIError(f"Groq transcription model {self.transcription_model} is not available.")
+        return self.model, self.transcription_model
+
     async def transcribe(self, audio_path: Path) -> str:
         return await self._transcribe(audio_path)
 

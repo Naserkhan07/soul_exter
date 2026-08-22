@@ -127,11 +127,18 @@ class Settings:
     links_file: Path
     downloaded_links_log: Path
     links_poll_seconds: int
+    credential_check_minutes: int
+    pending_retry_jobs_per_cycle: int
 
     @classmethod
-    def from_env(cls, env_file: str | Path | None = ".env") -> Settings:
+    def from_env(
+        cls,
+        env_file: str | Path | None = ".env",
+        *,
+        override: bool = False,
+    ) -> Settings:
         if env_file:
-            load_dotenv(env_file, override=False)
+            load_dotenv(env_file, override=override)
 
         work_dir = Path(os.getenv("WORK_DIR", "work")).expanduser()
         database_path = Path(os.getenv("DATABASE_PATH", str(work_dir / "jobs.db"))).expanduser()
@@ -222,6 +229,8 @@ class Settings:
                 os.getenv("DOWNLOADED_LINKS_LOG", str(work_dir / "downloaded-links.log"))
             ).expanduser(),
             links_poll_seconds=_int_env("LINKS_POLL_SECONDS", 30),
+            credential_check_minutes=_int_env("CREDENTIAL_CHECK_MINUTES", 60),
+            pending_retry_jobs_per_cycle=_int_env("PENDING_RETRY_JOBS_PER_CYCLE", 3),
         )
         settings.validate_common()
         return settings
@@ -275,6 +284,10 @@ class Settings:
             raise ConfigurationError("INSTAGRAM_GRAPH_API_VERSION must look like v26.0.")
         if not 5 <= self.links_poll_seconds <= 3600:
             raise ConfigurationError("LINKS_POLL_SECONDS must be between 5 and 3600.")
+        if not 5 <= self.credential_check_minutes <= 1_440:
+            raise ConfigurationError("CREDENTIAL_CHECK_MINUTES must be between 5 and 1440.")
+        if not 1 <= self.pending_retry_jobs_per_cycle <= 20:
+            raise ConfigurationError("PENDING_RETRY_JOBS_PER_CYCLE must be between 1 and 20.")
         if (
             self.ytdlp_cookies_from_browser
             and self.ytdlp_cookies_from_browser not in _SUPPORTED_COOKIE_BROWSERS
@@ -292,6 +305,18 @@ class Settings:
             raise ConfigurationError("GROQ_API_KEY is required for AI clip planning.")
         if self.ytdlp_cookie_file and not self.ytdlp_cookie_file.exists():
             raise ConfigurationError(f"YTDLP_COOKIE_FILE was not found: {self.ytdlp_cookie_file}")
+        if self.ytdlp_cookie_file:
+            try:
+                with self.ytdlp_cookie_file.open(encoding="utf-8") as cookie_file:
+                    first_line = cookie_file.readline().strip()
+            except OSError as exc:
+                raise ConfigurationError(
+                    f"Could not read YTDLP_COOKIE_FILE: {self.ytdlp_cookie_file}"
+                ) from exc
+            if not first_line.startswith(("# Netscape HTTP Cookie File", "# HTTP Cookie File")):
+                raise ConfigurationError(
+                    "YTDLP_COOKIE_FILE must be a Netscape-format cookie export."
+                )
         if self.video_enhancer == "api_market":
             missing = [
                 name

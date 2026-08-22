@@ -35,6 +35,25 @@ class InstagramUploader:
         self.transport = transport
         self.graph_base = f"https://graph.facebook.com/{api_version}"
 
+    async def check_connection(self) -> str:
+        timeout = httpx.Timeout(60, read=120)
+        async with httpx.AsyncClient(timeout=timeout, transport=self.transport) as client:
+            result = await self._get_json(
+                client,
+                f"{self.graph_base}/{self.user_id}",
+                params={
+                    "fields": "id,username",
+                    "access_token": self.access_token,
+                },
+            )
+        returned_id = str(result.get("id") or "")
+        if returned_id != self.user_id:
+            returned = returned_id or "unknown"
+            raise UploadError(
+                f"Instagram token returned account {returned}, expected {self.user_id}."
+            )
+        return str(result.get("username") or returned_id)
+
     async def upload(self, video_path: Path, plan: ShortPlan) -> InstagramUploadResult:
         if not video_path.exists():
             raise UploadError(f"Rendered video does not exist: {video_path}")

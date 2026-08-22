@@ -6,7 +6,7 @@ import logging
 import shutil
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ai import AIPlanner, full_coverage_plans
@@ -15,7 +15,7 @@ from .config import Settings
 from .db import JobRepository
 from .downloader import VideoDownloader
 from .enhancer import APIMarketVideoEnhancer, CloudinaryTemporaryVideoHost
-from .errors import UploadLimitError, WorkflowError
+from .errors import UploadError, UploadLimitError, WorkflowError
 from .instagram import InstagramUploader
 from .media import MediaProcessor
 from .models import Job, JobClip, JobStatus, ShortPlan, SourceVideo
@@ -34,6 +34,36 @@ class WorkflowServices:
     enhancer: APIMarketVideoEnhancer | None
     youtube_uploader: YouTubeUploader | None
     instagram_uploader: InstagramUploader | None
+    unavailable_platforms: dict[str, str] = field(default_factory=dict)
+
+    async def preflight(self) -> list[str]:
+        """Check credentials before downloads and isolate unavailable upload platforms."""
+        report: list[str] = []
+        self.unavailable_platforms.clear()
+
+        model, transcription_model = await self.planner.check_models()
+        report.append(f"Groq ready ({model}; {transcription_model})")
+
+        if self.enhancer:
+            await self.enhancer.check_connection()
+            report.append("Cloudinary ready for API.market enhancement")
+
+        if self.youtube_uploader:
+            try:
+                channel = await self.youtube_uploader.check_connection()
+                report.append(f"YouTube ready ({channel})")
+            except UploadError as exc:
+                self.unavailable_platforms["YouTube"] = str(exc)
+                report.append(f"YouTube unavailable ({exc})")
+
+        if self.instagram_uploader:
+            try:
+                username = await self.instagram_uploader.check_connection()
+                report.append(f"Instagram ready (@{username})")
+            except UploadError as exc:
+                self.unavailable_platforms["Instagram"] = str(exc)
+                report.append(f"Instagram unavailable ({exc})")
+        return report
 
     @classmethod
     def from_settings(cls, settings: Settings) -> WorkflowServices:
@@ -194,6 +224,7 @@ class WorkflowPipeline:
                 full_transcript = await self.services.planner.transcribe(audio_path)
 
             uploaded_platforms = self._configured_platforms()
+            blocked_platforms: dict[str, str] = dict(self.services.unavailable_platforms)
             limited_platforms: set[str] = set()
             total_clips = len(clips)
             metadata_requests = 0
@@ -232,6 +263,7 @@ class WorkflowPipeline:
                         clip,
                         total_clips,
                         job_dir,
+                        blocked_platforms,
                         limited_platforms,
                     )
                 except Exception as exc:
@@ -245,11 +277,12 @@ class WorkflowPipeline:
             clips = self.repository.list_clips(job.id)
             first = clips[0]
             archive_path: Path | None = None
-            if limited_platforms and self.settings.archive_on_upload_limit:
+            pending_platforms = set(blocked_platforms)
+            if pending_platforms and self.settings.archive_on_upload_limit:
                 await self._status(
                     job.id,
                     JobStatus.RENDERING,
-                    "Creating and opening a local folder because upload limits were reached",
+                    "Creating and opening a local folder for pending platform uploads",
                 )
                 latest_job = self.repository.get(job.id) or job
                 archive_path = await asyncio.to_thread(
@@ -257,14 +290,14 @@ class WorkflowPipeline:
                     latest_job,
                     clips,
                     self.settings.archive_dir,
-                    limited_platforms,
+                    pending_platforms,
                 )
                 if self.settings.open_upload_limit_folder:
                     await asyncio.to_thread(open_local_folder, archive_path)
 
-            if limited_platforms:
-                limit_text = " and ".join(sorted(limited_platforms))
-                progress = f"Created {len(clips)} Shorts; {limit_text} limit reached"
+            if pending_platforms:
+                pending_text = " and ".join(sorted(pending_platforms))
+                progress = f"Created {len(clips)} Shorts; {pending_text} uploads pending"
                 if archive_path:
                     progress += f"; pending-upload folder saved at {archive_path}"
             elif uploaded_platforms:
@@ -290,9 +323,9 @@ class WorkflowPipeline:
             )
             await self._notify(completed, completed.progress_message)
 
-            # Keep source and clip files whenever a platform is pending so --resume can retry
-            # after the daily reset, even if a ZIP was also created.
-            if uploaded_platforms and not self.settings.keep_work_files and not limited_platforms:
+            # Keep source and clip files whenever a platform is pending so automatic retry can
+            # publish them after credentials or daily allowances recover.
+            if uploaded_platforms and not self.settings.keep_work_files and not pending_platforms:
                 shutil.rmtree(job_dir, ignore_errors=True)
                 for clip in clips:
                     self.repository.update_clip(
@@ -320,9 +353,9 @@ class WorkflowPipeline:
 
     def _configured_platforms(self) -> list[str]:
         platforms: list[str] = []
-        if self.services.youtube_uploader:
+        if self.settings.upload_youtube:
             platforms.append("YouTube")
-        if self.services.instagram_uploader:
+        if self.settings.upload_instagram:
             platforms.append("Instagram")
         return platforms
 
@@ -343,6 +376,7 @@ class WorkflowPipeline:
         clip: JobClip,
         total_clips: int,
         job_dir: Path,
+        blocked_platforms: dict[str, str],
         limited_platforms: set[str],
     ) -> JobClip:
         plan = self._plan_from_clip(clip)
@@ -439,7 +473,7 @@ class WorkflowPipeline:
         if (
             self.services.youtube_uploader
             and not clip.youtube_video_id
-            and "YouTube" not in limited_platforms
+            and "YouTube" not in blocked_platforms
         ):
             await self._status(
                 job.id,
@@ -467,18 +501,28 @@ class WorkflowPipeline:
                     f"YouTube Short {clip.clip_index}/{total_clips} is public: "
                     f"https://www.youtube.com/shorts/{youtube_video_id}",
                 )
-            except UploadLimitError:
+            except UploadLimitError as exc:
                 limited_platforms.add("YouTube")
+                blocked_platforms["YouTube"] = str(exc)
+                self.services.unavailable_platforms["YouTube"] = str(exc)
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
                     "YouTube upload limit reached; continuing local generation",
                 )
+            except UploadError as exc:
+                blocked_platforms["YouTube"] = str(exc)
+                self.services.unavailable_platforms["YouTube"] = str(exc)
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    f"YouTube unavailable for this run; continuing local generation: {exc}",
+                )
 
         if (
             self.services.instagram_uploader
             and not clip.instagram_media_id
-            and "Instagram" not in limited_platforms
+            and "Instagram" not in blocked_platforms
         ):
             await self._status(
                 job.id,
@@ -506,12 +550,22 @@ class WorkflowPipeline:
                     f"Instagram Reel {clip.clip_index}/{total_clips} is published: "
                     f"{instagram.permalink}",
                 )
-            except UploadLimitError:
+            except UploadLimitError as exc:
                 limited_platforms.add("Instagram")
+                blocked_platforms["Instagram"] = str(exc)
+                self.services.unavailable_platforms["Instagram"] = str(exc)
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
                     "Instagram upload limit reached; continuing local generation",
+                )
+            except UploadError as exc:
+                blocked_platforms["Instagram"] = str(exc)
+                self.services.unavailable_platforms["Instagram"] = str(exc)
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    f"Instagram unavailable for this run; continuing local generation: {exc}",
                 )
         return clip
 

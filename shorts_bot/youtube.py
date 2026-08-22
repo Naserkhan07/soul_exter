@@ -61,6 +61,28 @@ class YouTubeUploader:
     ) -> str:
         return await asyncio.to_thread(self._upload_sync, video_path, plan, thumbnail_path)
 
+    async def check_connection(self) -> str:
+        return await asyncio.to_thread(self._check_connection_sync)
+
+    def _check_connection_sync(self) -> str:
+        try:
+            youtube = build(
+                "youtube",
+                "v3",
+                credentials=self._credentials(),
+                cache_discovery=False,
+            )
+            response = youtube.channels().list(part="id,snippet", mine=True).execute()
+            items = response.get("items", [])
+            self._verify_channel_items(items)
+            if not items:
+                raise UploadError("YouTube authorization returned no channel.")
+            return str(items[0].get("snippet", {}).get("title") or items[0].get("id"))
+        except UploadError:
+            raise
+        except Exception as exc:
+            raise UploadError(f"YouTube credential check failed: {exc}") from exc
+
     def _credentials(self) -> Credentials:
         try:
             credentials = Credentials.from_authorized_user_file(
@@ -158,7 +180,12 @@ class YouTubeUploader:
         if not self.expected_channel_id:
             return
         response = youtube.channels().list(part="id", mine=True).execute()  # type: ignore[attr-defined]
-        authorized_ids = {str(item.get("id")) for item in response.get("items", [])}
+        self._verify_channel_items(response.get("items", []))
+
+    def _verify_channel_items(self, items: list[dict[str, Any]]) -> None:
+        if not self.expected_channel_id:
+            return
+        authorized_ids = {str(item.get("id")) for item in items}
         if self.expected_channel_id not in authorized_ids:
             found = ", ".join(sorted(authorized_ids)) or "no channel"
             raise UploadError(

@@ -23,12 +23,12 @@ def build_job_folder(
     job: Job,
     clips: list[JobClip],
     destination_dir: Path,
-    limited_platforms: set[str],
+    pending_platforms: set[str],
 ) -> Path:
     """Copy generated videos, thumbnails, and metadata into one ordinary folder."""
     destination_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    folder_path = destination_dir / f"{job.id}-upload-limit-{timestamp}"
+    folder_path = destination_dir / f"{job.id}-pending-{timestamp}"
     temporary = destination_dir / f".{folder_path.name}.building"
 
     metadata = {
@@ -36,7 +36,7 @@ def build_job_folder(
         "source_url": job.source_url,
         "source_title": job.source_title,
         "created_at": job.created_at,
-        "upload_limits_reached": sorted(limited_platforms),
+        "pending_platforms": sorted(pending_platforms),
         "clip_count": len(clips),
         "clips": [_clip_metadata(clip) for clip in clips],
     }
@@ -92,7 +92,7 @@ def build_job_folder(
             encoding="utf-8-sig",
         )
         (temporary / "README.txt").write_text(
-            "This folder was created because a platform upload limit was reached.\n"
+            "This folder was created because one or more platform uploads are pending.\n"
             "Open videos/ for MP4 files and thumbnails/ for covers.\n"
             "metadata.json and upload-manifest.csv contain titles, descriptions, captions, "
             "platform URLs, and pending status.\n",

@@ -60,3 +60,24 @@ def test_saves_and_updates_multiple_clips(tmp_path: Path) -> None:
     assert reset.output_path is None
     assert reset.thumbnail_path is None
     assert reset.youtube_video_id is None
+
+
+def test_lists_jobs_with_pending_platform_uploads(tmp_path: Path) -> None:
+    repository = JobRepository(tmp_path / "jobs.db")
+    job = repository.create(0, 0, "https://youtu.be/example")
+    repository.save_plans(
+        job.id,
+        [ShortPlan(0, 25, "First", "Description", "Caption")],
+    )
+    repository.update_clip(
+        job.id,
+        1,
+        output_path="short-001.mp4",
+        youtube_video_id="youtube-id",
+    )
+    repository.update(job.id, status=JobStatus.COMPLETE)
+
+    assert repository.list_pending_upload_jobs(youtube=True, instagram=False) == []
+    assert repository.list_pending_upload_jobs(youtube=False, instagram=True) == [
+        repository.get(job.id)
+    ]

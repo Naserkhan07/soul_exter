@@ -27,6 +27,33 @@ def source(duration: float = 120) -> SourceVideo:
     )
 
 
+async def test_automatically_selects_active_non_openai_groq_model() -> None:
+    planner = AIPlanner(
+        api_key="test-key",
+        model="retired-model",
+        fallback_model="also-retired",
+        transcription_model="whisper-large-v3-turbo",
+    )
+
+    class FakeModels:
+        async def list(self):  # noqa: ANN202
+            return SimpleNamespace(
+                data=[
+                    SimpleNamespace(id="qwen/qwen3.6-27b"),
+                    SimpleNamespace(id="openai/gpt-oss-20b"),
+                    SimpleNamespace(id="whisper-large-v3-turbo"),
+                ]
+            )
+
+    planner.client = SimpleNamespace(models=FakeModels())  # type: ignore[assignment]
+
+    model, transcription = await planner.check_models()
+
+    assert model == "qwen/qwen3.6-27b"
+    assert transcription == "whisper-large-v3-turbo"
+    assert planner.fallback_model == "qwen/qwen3.6-27b"
+
+
 def test_normalizes_ai_plan_and_adds_attribution() -> None:
     plan = normalize_plan(
         {

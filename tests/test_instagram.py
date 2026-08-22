@@ -8,6 +8,20 @@ from shorts_bot.instagram import InstagramUploader
 from shorts_bot.models import ShortPlan
 
 
+async def test_instagram_connection_check_validates_expected_account() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v26.0/1789"
+        return httpx.Response(200, json={"id": "1789", "username": "splitzz.isodope"})
+
+    uploader = InstagramUploader(
+        user_id="1789",
+        access_token="secret-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert await uploader.check_connection() == "splitzz.isodope"
+
+
 async def test_instagram_resumable_reel_publish_flow(tmp_path: Path) -> None:
     calls: list[tuple[str, str]] = []
 

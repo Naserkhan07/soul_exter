@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import cloudinary
+import cloudinary.api
 import cloudinary.uploader
 import httpx
 
@@ -19,6 +20,8 @@ class EnhancementError(WorkflowError):
 
 
 class TemporaryVideoHost(Protocol):
+    async def check_connection(self) -> None: ...
+
     async def upload(self, video_path: Path, public_id: str) -> tuple[str, str]: ...
 
     async def delete(self, public_id: str) -> None: ...
@@ -32,6 +35,12 @@ class CloudinaryTemporaryVideoHost:
             api_secret=api_secret,
             secure=True,
         )
+
+    async def check_connection(self) -> None:
+        try:
+            await asyncio.to_thread(cloudinary.api.ping)
+        except Exception as exc:
+            raise EnhancementError(f"Cloudinary credential check failed: {exc}") from exc
 
     async def upload(self, video_path: Path, public_id: str) -> tuple[str, str]:
         try:
@@ -86,6 +95,9 @@ class APIMarketVideoEnhancer:
         self.timeout_seconds = timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self.transport = transport
+
+    async def check_connection(self) -> None:
+        await self.temporary_host.check_connection()
 
     async def enhance(self, video_path: Path, output_path: Path, public_id: str) -> Path:
         if not video_path.exists():

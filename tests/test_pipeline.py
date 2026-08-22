@@ -5,7 +5,7 @@ from pathlib import Path
 
 from shorts_bot.config import Settings
 from shorts_bot.db import JobRepository
-from shorts_bot.errors import UploadLimitError
+from shorts_bot.errors import UploadError, UploadLimitError
 from shorts_bot.models import (
     InstagramUploadResult,
     JobStatus,
@@ -346,6 +346,39 @@ async def test_upload_limits_create_open_folder_and_do_not_fail_job(tmp_path: Pa
     assert (folder_path / "metadata.json").exists()
     assert (folder_path / "upload-manifest.csv").exists()
     assert list((folder_path / "videos").glob("*.mp4"))
+
+
+async def test_expired_platform_token_does_not_stop_local_generation(tmp_path: Path) -> None:
+    settings = replace(
+        settings_for(tmp_path),
+        archive_on_upload_limit=True,
+        archive_dir=tmp_path / "pending_uploads",
+        open_upload_limit_folder=False,
+    )
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    class ExpiredInstagram:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> InstagramUploadResult:
+            raise UploadError("Instagram token expired")
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=ExpiredInstagram(),  # type: ignore[arg-type]
+    )
+
+    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+
+    assert result.status == JobStatus.COMPLETE
+    assert "Instagram uploads pending" in result.progress_message
+    assert result.archive_path and Path(result.archive_path).is_dir()
+    clip = repository.list_clips(job.id)[0]
+    assert clip.youtube_video_id == "youtube-id"
+    assert clip.instagram_media_id is None
 
 
 async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> None:

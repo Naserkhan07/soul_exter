@@ -326,6 +326,38 @@ class JobRepository:
             ).fetchall()
         return [self._from_row(row) for row in rows]
 
+    def list_pending_upload_jobs(
+        self,
+        *,
+        youtube: bool,
+        instagram: bool,
+        limit: int = 3,
+    ) -> list[Job]:
+        if not youtube and not instagram:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT jobs.*
+                FROM jobs
+                JOIN job_clips ON job_clips.job_id = jobs.id
+                WHERE job_clips.output_path IS NOT NULL
+                  AND ((? = 1 AND job_clips.youtube_video_id IS NULL)
+                    OR (? = 1 AND job_clips.instagram_media_id IS NULL))
+                  AND jobs.status IN (?, ?)
+                ORDER BY jobs.updated_at ASC
+                LIMIT ?
+                """,
+                (
+                    int(youtube),
+                    int(instagram),
+                    JobStatus.COMPLETE.value,
+                    JobStatus.FAILED.value,
+                    limit,
+                ),
+            ).fetchall()
+        return [self._from_row(row) for row in rows]
+
     def fail_interrupted(self) -> int:
         running = (
             JobStatus.DOWNLOADING,
