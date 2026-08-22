@@ -19,7 +19,7 @@ Add authorized YouTube links to `links.txt`. The local program downloads each vi
 9. Renders every section as an H.264/AAC MP4 at the configured native-resolution policy.
 10. When enabled, temporarily hosts selected clips and runs API.market Real-ESRGAN before upload.
 11. Generates a JPEG thumbnail from the final (enhanced or original) clip.
-12. Uploads every result as a public YouTube Short and an Instagram Reel, using a custom YouTube thumbnail when the channel is eligible and a midpoint cover frame on Instagram.
+12. Uploads every result as a public YouTube Short, Instagram Reel, and Facebook Page Reel when each destination is enabled, using a custom YouTube thumbnail when eligible and a midpoint cover frame on Instagram.
 
 A downloaded URL is removed before AI/render/upload starts. If a later stage fails, the URL remains in `work/downloaded-links.log`; copy it back into `links.txt` when you want to retry.
 
@@ -245,13 +245,29 @@ The command prompts privately for the App ID, App Secret, and temporary User tok
 connected to `splitzz.isodope`, and writes only its long-lived Page token to `.env`. It never stores
 the App Secret or temporary User token.
 
+### Enable Facebook Page Reels
+
+In Graph API Explorer, generate the temporary User token with `pages_show_list`,
+`pages_read_engagement`, `pages_manage_posts`, `instagram_basic`, and
+`instagram_content_publish`. Then run:
+
+```powershell
+python -m shorts_bot.instagram_token --facebook
+```
+
+The helper validates those permissions and automatically saves `FACEBOOK_PAGE_ID`,
+`FACEBOOK_ACCESS_TOKEN`, `FACEBOOK_GRAPH_API_VERSION`, and `UPLOAD_FACEBOOK=true` in `.env`.
+Facebook publishing initializes a Reel session, uploads the local MP4 to `rupload.facebook.com`,
+publishes it publicly, waits for processing, and stores the Reel ID and URL. Meta limits API-published
+Page Reels to 30 in a rolling 24-hour period; excess clips remain pending for automatic retry.
+
 ## 7. Optional API.market Real-ESRGAN enhancement
 
 API.market requires `video_path` to be a direct public HTTPS URL; it cannot read a Windows file path.
 The workflow therefore uploads each selected local clip temporarily to Cloudinary, submits that URL
 to API.market, polls the asynchronous prediction, downloads the enhanced MP4, deletes the temporary
-Cloudinary input, generates the thumbnail from the enhanced result, and only then uploads to YouTube
-and Instagram.
+Cloudinary input, generates the thumbnail from the enhanced result, and only then uploads to YouTube,
+Instagram, and Facebook.
 
 Any key visible in a screenshot or chat is compromised. Revoke it and put only the replacement in
 the gitignored `.env` file. Create a Cloudinary account and configure:
@@ -405,8 +421,12 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `YOUTUBE_PRIVACY_STATUS` | `public` | Requested YouTube visibility |
 | `YOUTUBE_TOKEN_FILE` | `youtube_token.json` | Local OAuth token |
 | `UPLOAD_INSTAGRAM` | `false` | Enable Instagram publishing |
-| `INSTAGRAM_ACCESS_TOKEN` | empty | Secret local Meta token |
+| `INSTAGRAM_ACCESS_TOKEN` | empty | Secret local Meta Page token |
 | `INSTAGRAM_GRAPH_API_VERSION` | `v26.0` | Meta Graph API version |
+| `UPLOAD_FACEBOOK` | `false` | Enable public Facebook Page Reels |
+| `FACEBOOK_PAGE_ID` | empty | Numeric Facebook Page ID; can be stored in `channels.toml` |
+| `FACEBOOK_ACCESS_TOKEN` | Instagram token | Long-lived Page token with `pages_manage_posts` |
+| `FACEBOOK_GRAPH_API_VERSION` | `v26.0` | Facebook Reels API version |
 | `LINKS_FILE` | `links.txt` | Local URL queue |
 | `DOWNLOADED_LINKS_LOG` | `work/downloaded-links.log` | Download audit log |
 | `LINKS_POLL_SECONDS` | `30` | Queue interval, 5–3600 seconds |

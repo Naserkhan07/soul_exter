@@ -16,6 +16,7 @@ from .db import JobRepository
 from .downloader import VideoDownloader
 from .enhancer import APIMarketVideoEnhancer, CloudinaryTemporaryVideoHost
 from .errors import UploadError, UploadLimitError, WorkflowError
+from .facebook import FacebookReelUploader
 from .instagram import InstagramUploader
 from .media import MediaProcessor
 from .models import Job, JobClip, JobStatus, ShortPlan, SourceVideo
@@ -34,6 +35,7 @@ class WorkflowServices:
     enhancer: APIMarketVideoEnhancer | None
     youtube_uploader: YouTubeUploader | None
     instagram_uploader: InstagramUploader | None
+    facebook_uploader: FacebookReelUploader | None = None
     unavailable_platforms: dict[str, str] = field(default_factory=dict)
 
     async def preflight(self) -> list[str]:
@@ -63,6 +65,14 @@ class WorkflowServices:
             except UploadError as exc:
                 self.unavailable_platforms["Instagram"] = str(exc)
                 report.append(f"Instagram unavailable ({exc})")
+
+        if self.facebook_uploader:
+            try:
+                page_name = await self.facebook_uploader.check_connection()
+                report.append(f"Facebook ready ({page_name})")
+            except UploadError as exc:
+                self.unavailable_platforms["Facebook"] = str(exc)
+                report.append(f"Facebook unavailable ({exc})")
         return report
 
     @classmethod
@@ -124,6 +134,15 @@ class WorkflowServices:
                     api_version=settings.instagram_graph_api_version,
                 )
                 if settings.upload_instagram
+                else None
+            ),
+            facebook_uploader=(
+                FacebookReelUploader(
+                    page_id=settings.facebook_page_id,
+                    access_token=settings.facebook_access_token,
+                    api_version=settings.facebook_graph_api_version,
+                )
+                if settings.upload_facebook
                 else None
             ),
         )
@@ -318,6 +337,8 @@ class WorkflowPipeline:
                 youtube_video_id=first.youtube_video_id,
                 instagram_media_id=first.instagram_media_id,
                 instagram_url=first.instagram_url,
+                facebook_video_id=first.facebook_video_id,
+                facebook_url=first.facebook_url,
                 archive_path=str(archive_path) if archive_path else None,
                 error=None,
             )
@@ -357,6 +378,8 @@ class WorkflowPipeline:
             platforms.append("YouTube")
         if self.settings.upload_instagram:
             platforms.append("Instagram")
+        if self.settings.upload_facebook:
+            platforms.append("Facebook")
         return platforms
 
     @staticmethod
@@ -567,6 +590,56 @@ class WorkflowPipeline:
                     JobStatus.UPLOADING,
                     f"Instagram unavailable for this run; continuing local generation: {exc}",
                 )
+
+        if (
+            self.services.facebook_uploader
+            and not clip.facebook_video_id
+            and "Facebook" not in blocked_platforms
+        ):
+            await self._status(
+                job.id,
+                JobStatus.UPLOADING,
+                f"Publishing Reel {clip.clip_index}/{total_clips} to Facebook",
+            )
+            try:
+                facebook_video_id, facebook_url = await self.services.facebook_uploader.upload(
+                    output_path, plan
+                )
+                clip = self.repository.update_clip(
+                    job.id,
+                    clip.clip_index,
+                    facebook_video_id=facebook_video_id,
+                    facebook_url=facebook_url,
+                    error=None,
+                )
+                if clip.clip_index == 1:
+                    self.repository.update(
+                        job.id,
+                        facebook_video_id=facebook_video_id,
+                        facebook_url=facebook_url,
+                    )
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    f"Facebook Reel {clip.clip_index}/{total_clips} is published: {facebook_url}",
+                )
+            except UploadLimitError as exc:
+                limited_platforms.add("Facebook")
+                blocked_platforms["Facebook"] = str(exc)
+                self.services.unavailable_platforms["Facebook"] = str(exc)
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    "Facebook 30-per-day publishing limit reached; continuing local generation",
+                )
+            except UploadError as exc:
+                blocked_platforms["Facebook"] = str(exc)
+                self.services.unavailable_platforms["Facebook"] = str(exc)
+                await self._status(
+                    job.id,
+                    JobStatus.UPLOADING,
+                    f"Facebook unavailable for this run; continuing local generation: {exc}",
+                )
         return clip
 
     @staticmethod
@@ -586,6 +659,8 @@ class WorkflowPipeline:
         youtube_video_id = job.youtube_video_id
         instagram_media_id = job.instagram_media_id
         instagram_url = job.instagram_url
+        facebook_video_id = job.facebook_video_id
+        facebook_url = job.facebook_url
 
         if self.services.youtube_uploader and not youtube_video_id:
             await self._status(job.id, JobStatus.UPLOADING, "Uploading existing Short to YouTube")
@@ -599,6 +674,15 @@ class WorkflowPipeline:
             instagram = await self.services.instagram_uploader.upload(output_path, plan)
             instagram_media_id = instagram.media_id
             instagram_url = instagram.permalink
+        if self.services.facebook_uploader and not facebook_video_id:
+            await self._status(
+                job.id,
+                JobStatus.UPLOADING,
+                "Publishing existing Short to Facebook",
+            )
+            facebook_video_id, facebook_url = await self.services.facebook_uploader.upload(
+                output_path, plan
+            )
 
         platforms = self._configured_platforms()
         completed = self.repository.update(
@@ -612,6 +696,8 @@ class WorkflowPipeline:
             youtube_video_id=youtube_video_id,
             instagram_media_id=instagram_media_id,
             instagram_url=instagram_url,
+            facebook_video_id=facebook_video_id,
+            facebook_url=facebook_url,
             error=None,
         )
         await self._notify(completed, completed.progress_message)

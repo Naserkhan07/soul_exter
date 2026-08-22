@@ -77,7 +77,10 @@ def test_lists_jobs_with_pending_platform_uploads(tmp_path: Path) -> None:
     )
     repository.update(job.id, status=JobStatus.COMPLETE)
 
-    assert repository.list_pending_upload_jobs(youtube=True, instagram=False) == []
-    assert repository.list_pending_upload_jobs(youtube=False, instagram=True) == [
+    assert repository.list_pending_upload_jobs(youtube=True, instagram=False, facebook=False) == []
+    assert repository.list_pending_upload_jobs(youtube=False, instagram=True, facebook=False) == [
+        repository.get(job.id)
+    ]
+    assert repository.list_pending_upload_jobs(youtube=False, instagram=False, facebook=True) == [
         repository.get(job.id)
     ]

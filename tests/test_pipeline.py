@@ -409,3 +409,32 @@ async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> 
     assert result.status == JobStatus.COMPLETE
     assert JobStatus.DOWNLOADING not in statuses
     assert statuses[0] == JobStatus.ANALYZING
+
+
+async def test_pipeline_publishes_each_clip_to_facebook(tmp_path: Path) -> None:
+    settings = replace(settings_for(tmp_path), upload_facebook=True)
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    class FakeFacebook:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> tuple[str, str]:
+            assert video_path.exists()
+            return "facebook-id", "https://www.facebook.com/reel/facebook-id"
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
+        facebook_uploader=FakeFacebook(),  # type: ignore[arg-type]
+    )
+
+    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+    clip = repository.list_clips(job.id)[0]
+
+    assert result.facebook_video_id == "facebook-id"
+    assert result.facebook_url == "https://www.facebook.com/reel/facebook-id"
+    assert clip.facebook_video_id == "facebook-id"
+    assert clip.facebook_url == "https://www.facebook.com/reel/facebook-id"
