@@ -371,8 +371,10 @@ PENDING_RETRY_JOBS_PER_CYCLE=3
 ```
 
 On Windows, Explorer opens the completed folder automatically. No ZIP extraction is needed. The
-watcher automatically reloads changed credentials and retries a bounded number of pending jobs each
-cycle; clips already uploaded to a destination are skipped.
+watcher always processes new URLs from `links.txt` before old pending uploads. When the URL queue is
+idle, it reloads changed credentials and retries a bounded number of pending jobs each cycle; clips
+already uploaded to a destination are skipped. A pending-count report explains exactly how many
+YouTube, Instagram, and Facebook uploads remain.
 
 ### Personal messaging accounts are not used for storage
 

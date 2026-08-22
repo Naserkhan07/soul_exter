@@ -344,6 +344,26 @@ class JobRepository:
             ).fetchall()
         return [self._from_row(row) for row in rows]
 
+    def pending_upload_counts(self) -> dict[str, int]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN output_path IS NOT NULL AND youtube_video_id IS NULL
+                        THEN 1 ELSE 0 END) AS youtube,
+                    SUM(CASE WHEN output_path IS NOT NULL AND instagram_media_id IS NULL
+                        THEN 1 ELSE 0 END) AS instagram,
+                    SUM(CASE WHEN output_path IS NOT NULL AND facebook_video_id IS NULL
+                        THEN 1 ELSE 0 END) AS facebook
+                FROM job_clips
+                """
+            ).fetchone()
+        return {
+            "YouTube": int(row["youtube"] or 0),
+            "Instagram": int(row["instagram"] or 0),
+            "Facebook": int(row["facebook"] or 0),
+        }
+
     def list_pending_upload_jobs(
         self,
         *,

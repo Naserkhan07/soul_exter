@@ -155,6 +155,12 @@ async def run_file_queue(
         )
 
     async def retry_pending_jobs() -> None:
+        counts = repository.pending_upload_counts()
+        print(
+            "Pending upload report: "
+            + " | ".join(f"{platform}: {count}" for platform, count in counts.items()),
+            flush=True,
+        )
         youtube_ready = bool(
             settings.upload_youtube and "YouTube" not in services.unavailable_platforms
         )
@@ -177,9 +183,8 @@ async def run_file_queue(
             )
             await pipeline.process(pending_job.id, reuse_downloaded=True)
 
-    if workflow_ready:
-        await retry_pending_jobs()
     next_credential_check = time.monotonic() + settings.credential_check_minutes * 60
+    next_pending_retry = time.monotonic()
 
     while True:
         if not workflow_ready or time.monotonic() >= next_credential_check:
@@ -203,8 +208,8 @@ async def run_file_queue(
                 workflow_ready = True
                 failed_urls_this_session.clear()
                 print("Credential report: " + " | ".join(refreshed_report), flush=True)
-                await retry_pending_jobs()
                 next_credential_check = time.monotonic() + settings.credential_check_minutes * 60
+                next_pending_retry = min(next_pending_retry, time.monotonic())
             except (ConfigurationError, WorkflowError) as exc:
                 workflow_ready = False
                 print(
@@ -221,9 +226,11 @@ async def run_file_queue(
             continue
 
         urls = link_queue.pending_urls()
+        processed_new_url = False
         for url in urls:
             if url in failed_urls_this_session:
                 continue
+            processed_new_url = True
             job = repository.create(chat_id=0, user_id=0, source_url=url)
             result = await pipeline.process(job.id)
             if result.error:
@@ -232,9 +239,13 @@ async def run_file_queue(
                 if watch:
                     print(
                         f"[{job.id}] URL will not retry again in this session. "
-                        "Fix the error and restart the watcher.",
+                        "It remains queued and will retry after the next credential cycle.",
                         flush=True,
                     )
+
+        if not processed_new_url and time.monotonic() >= next_pending_retry:
+            await retry_pending_jobs()
+            next_pending_retry = time.monotonic() + settings.credential_check_minutes * 60
 
         if not watch:
             return 1 if any_failures else 0
