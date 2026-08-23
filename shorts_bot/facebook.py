@@ -42,7 +42,7 @@ class FacebookReelUploader:
                 client,
                 f"{self.graph_base}/{self.page_id}",
                 params={
-                    "fields": "id,name,tasks",
+                    "fields": "id,name",
                     "access_token": self.access_token,
                 },
             )
@@ -51,9 +51,6 @@ class FacebookReelUploader:
             raise UploadError(
                 f"Facebook token returned Page {returned_id or 'unknown'}, expected {self.page_id}."
             )
-        tasks = {str(task) for task in page.get("tasks", [])}
-        if tasks and "CREATE_CONTENT" not in tasks:
-            raise UploadError("Facebook token does not have CREATE_CONTENT access on the Page.")
         return str(page.get("name") or returned_id)
 
     async def upload(self, video_path: Path, plan: ShortPlan) -> tuple[str, str]:

@@ -115,10 +115,12 @@ class InstagramUploader:
                         },
                         content=video_file.read(),
                     )
-                if response.status_code < 500:
-                    self._raise_for_meta_error(response, "Instagram video upload")
+                if response.is_success:
                     return
-                if attempt == self.upload_retry_attempts:
+                retryable_status = response.status_code in {408, 425} or (
+                    500 <= response.status_code < 600
+                )
+                if not retryable_status or attempt == self.upload_retry_attempts:
                     self._raise_for_meta_error(response, "Instagram video upload")
             except UploadLimitError:
                 raise
@@ -222,9 +224,12 @@ class InstagramUploader:
             if detail == f"HTTP {response.status_code}" and isinstance(payload, dict):
                 detail = str(payload.get("message") or payload.get("error_msg") or detail)
         except (ValueError, TypeError, AttributeError):
-            body = response.text.strip()
-            if body:
-                detail = f"HTTP {response.status_code}: {body[:500]}"
+            if response.status_code == 408:
+                detail = "HTTP 408 Request Timeout from Meta's upload server"
+            else:
+                body = response.text.strip()
+                if body:
+                    detail = f"HTTP {response.status_code}: {body[:500]}"
         normalized = detail.casefold()
         if response.status_code == 429:
             raise UploadLimitError("Instagram", detail)

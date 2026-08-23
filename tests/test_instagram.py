@@ -109,6 +109,56 @@ async def test_retries_temporary_instagram_binary_upload_errors(
     assert delays == [1, 2]
 
 
+async def test_retries_instagram_upload_after_html_408(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts = 0
+    delays: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(
+                408,
+                text="<!DOCTYPE html><html><title>Facebook | Error</title></html>",
+            )
+        return httpx.Response(200, json={"success": True})
+
+    async def fake_sleep(delay: int) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("shorts_bot.instagram.asyncio.sleep", fake_sleep)
+    video_path = tmp_path / "short.mp4"
+    video_path.write_bytes(b"video")
+    uploader = InstagramUploader(
+        user_id="1789",
+        access_token="secret-token",
+        upload_retry_attempts=4,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await uploader._upload_binary(
+            client,
+            "https://rupload.facebook.com/ig-api-upload/v26.0/container-id",
+            video_path,
+        )
+
+    assert attempts == 2
+    assert delays == [1]
+
+
+def test_instagram_html_408_error_is_concise() -> None:
+    response = httpx.Response(
+        408,
+        request=httpx.Request("POST", "https://rupload.facebook.com/upload"),
+        text="<!DOCTYPE html><html><title>Facebook | Error</title></html>",
+    )
+
+    with pytest.raises(UploadError, match="HTTP 408 Request Timeout") as caught:
+        InstagramUploader._raise_for_meta_error(response, "Instagram video upload")
+    assert "DOCTYPE" not in str(caught.value)
+
+
 def test_detects_instagram_content_publishing_limit() -> None:
     response = httpx.Response(
         400,

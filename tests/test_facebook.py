@@ -14,10 +14,8 @@ async def test_facebook_reel_upload_and_publish_flow(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append((request.method, request.url.path))
         if request.method == "GET" and request.url.path == "/v26.0/page-123":
-            return httpx.Response(
-                200,
-                json={"id": "page-123", "name": "Splitzz", "tasks": ["CREATE_CONTENT"]},
-            )
+            assert request.url.params["fields"] == "id,name"
+            return httpx.Response(200, json={"id": "page-123", "name": "Splitzz"})
         if request.url.path == "/v26.0/page-123/video_reels":
             if b"upload_phase=start" in request.content:
                 return httpx.Response(

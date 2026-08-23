@@ -255,8 +255,9 @@ In Graph API Explorer, generate the temporary User token with `pages_show_list`,
 python -m shorts_bot.instagram_token --facebook
 ```
 
-The helper validates those permissions and automatically saves `FACEBOOK_PAGE_ID`,
-`FACEBOOK_ACCESS_TOKEN`, `FACEBOOK_GRAPH_API_VERSION`, and `UPLOAD_FACEBOOK=true` in `.env`.
+The helper validates those permissions and confirms that Meta returns a `CREATE_CONTENT`/Content
+Page task before automatically saving `FACEBOOK_PAGE_ID`, `FACEBOOK_ACCESS_TOKEN`,
+`FACEBOOK_GRAPH_API_VERSION`, and `UPLOAD_FACEBOOK=true` in `.env`.
 Facebook publishing initializes a Reel session, uploads the local MP4 to `rupload.facebook.com`,
 publishes it publicly, waits for processing, and stores the Reel ID and URL. Meta limits API-published
 Page Reels to 30 in a rolling 24-hour period; excess clips remain pending for automatic retry.

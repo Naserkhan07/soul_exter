@@ -14,6 +14,14 @@ class InstagramTokenError(ConfigurationError):
     """Meta could not issue a long-lived Instagram publishing token."""
 
 
+_FACEBOOK_CONTENT_TASKS = {
+    "CREATE_CONTENT",
+    "MANAGE",
+    "PROFILE_PLUS_CREATE_CONTENT",
+    "PROFILE_PLUS_FULL_CONTROL",
+}
+
+
 def exchange_long_lived_page_token(
     app_id: str,
     app_secret: str,
@@ -97,6 +105,14 @@ def exchange_long_lived_page_token(
         page_id = str(page.get("id") or "")
         if not page_id:
             raise InstagramTokenError("Meta returned no Facebook Page ID.")
+        if require_facebook:
+            tasks = {str(task).upper() for task in page.get("tasks", []) if isinstance(task, str)}
+            if not tasks.intersection(_FACEBOOK_CONTENT_TASKS):
+                raise InstagramTokenError(
+                    "Your Facebook account cannot create content on this Page. Meta did not "
+                    "return the CREATE_CONTENT Page task; grant Content or Full control access "
+                    "to the Page, then generate a fresh User token."
+                )
         return page_token, str(page.get("name") or "Unnamed Page"), page_id
 
     detail = ", ".join(f"@{name}" for name in available) or "no connected Instagram accounts"
