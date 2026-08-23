@@ -6,10 +6,10 @@ import logging
 import shutil
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .ai import AIPlanner, full_coverage_plans
+from .ai import AIPlanner, apply_instagram_hashtags, full_coverage_plans
 from .archive import build_job_folder, open_local_folder
 from .config import Settings
 from .db import JobRepository
@@ -244,7 +244,6 @@ class WorkflowPipeline:
 
             uploaded_platforms = self._configured_platforms()
             blocked_platforms: dict[str, str] = dict(self.services.unavailable_platforms)
-            limited_platforms: set[str] = set()
             total_clips = len(clips)
             metadata_requests = 0
             for clip in clips:
@@ -283,7 +282,6 @@ class WorkflowPipeline:
                         total_clips,
                         job_dir,
                         blocked_platforms,
-                        limited_platforms,
                     )
                 except Exception as exc:
                     self.repository.update_clip(
@@ -296,7 +294,7 @@ class WorkflowPipeline:
             clips = self.repository.list_clips(job.id)
             first = clips[0]
             archive_path: Path | None = None
-            pending_platforms = set(blocked_platforms)
+            pending_platforms = self._pending_platforms(clips)
             if pending_platforms and self.settings.archive_on_upload_limit:
                 await self._status(
                     job.id,
@@ -382,6 +380,29 @@ class WorkflowPipeline:
             platforms.append("Facebook")
         return platforms
 
+    def _pending_platforms(self, clips: list[JobClip]) -> set[str]:
+        pending: set[str] = set()
+        if self.settings.upload_youtube and any(not clip.youtube_video_id for clip in clips):
+            pending.add("YouTube")
+        if self.settings.upload_instagram and any(not clip.instagram_media_id for clip in clips):
+            pending.add("Instagram")
+        if self.settings.upload_facebook and any(not clip.facebook_video_id for clip in clips):
+            pending.add("Facebook")
+        return pending
+
+    def _instagram_plan(self, plan: ShortPlan, clip_index: int) -> ShortPlan:
+        hashtag_pool = self.settings.instagram_hashtags()
+        if not hashtag_pool:
+            return plan
+        offset = ((clip_index - 1) * 30) % len(hashtag_pool)
+        rotated_pool = hashtag_pool[offset:] + hashtag_pool[:offset]
+        caption = apply_instagram_hashtags(
+            plan.instagram_caption,
+            rotated_pool,
+            self.settings.instagram_caption_target_chars,
+        )
+        return replace(plan, instagram_caption=caption)
+
     @staticmethod
     def _plan_from_clip(clip: JobClip) -> ShortPlan:
         return ShortPlan(
@@ -400,7 +421,6 @@ class WorkflowPipeline:
         total_clips: int,
         job_dir: Path,
         blocked_platforms: dict[str, str],
-        limited_platforms: set[str],
     ) -> JobClip:
         plan = self._plan_from_clip(clip)
         output_path = (
@@ -525,7 +545,6 @@ class WorkflowPipeline:
                     f"https://www.youtube.com/shorts/{youtube_video_id}",
                 )
             except UploadLimitError as exc:
-                limited_platforms.add("YouTube")
                 blocked_platforms["YouTube"] = str(exc)
                 self.services.unavailable_platforms["YouTube"] = str(exc)
                 await self._status(
@@ -534,12 +553,11 @@ class WorkflowPipeline:
                     "YouTube upload limit reached; continuing local generation",
                 )
             except UploadError as exc:
-                blocked_platforms["YouTube"] = str(exc)
-                self.services.unavailable_platforms["YouTube"] = str(exc)
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
-                    f"YouTube unavailable for this run; continuing local generation: {exc}",
+                    f"YouTube Short {clip.clip_index}/{total_clips} failed; its upload remains "
+                    f"pending, and the bot will continue with the next clip: {exc}",
                 )
 
         if (
@@ -547,13 +565,27 @@ class WorkflowPipeline:
             and not clip.instagram_media_id
             and "Instagram" not in blocked_platforms
         ):
+            instagram_plan = self._instagram_plan(plan, clip.clip_index)
+            if instagram_plan.instagram_caption != clip.instagram_caption:
+                clip = self.repository.update_clip(
+                    job.id,
+                    clip.clip_index,
+                    instagram_caption=instagram_plan.instagram_caption,
+                )
+                if clip.clip_index == 1:
+                    self.repository.update(
+                        job.id,
+                        instagram_caption=instagram_plan.instagram_caption,
+                    )
             await self._status(
                 job.id,
                 JobStatus.UPLOADING,
                 f"Publishing Reel {clip.clip_index}/{total_clips} to Instagram",
             )
             try:
-                instagram = await self.services.instagram_uploader.upload(output_path, plan)
+                instagram = await self.services.instagram_uploader.upload(
+                    output_path, instagram_plan
+                )
                 clip = self.repository.update_clip(
                     job.id,
                     clip.clip_index,
@@ -574,7 +606,6 @@ class WorkflowPipeline:
                     f"{instagram.permalink}",
                 )
             except UploadLimitError as exc:
-                limited_platforms.add("Instagram")
                 blocked_platforms["Instagram"] = str(exc)
                 self.services.unavailable_platforms["Instagram"] = str(exc)
                 await self._status(
@@ -583,12 +614,11 @@ class WorkflowPipeline:
                     "Instagram upload limit reached; continuing local generation",
                 )
             except UploadError as exc:
-                blocked_platforms["Instagram"] = str(exc)
-                self.services.unavailable_platforms["Instagram"] = str(exc)
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
-                    f"Instagram unavailable for this run; continuing local generation: {exc}",
+                    f"Instagram Reel {clip.clip_index}/{total_clips} failed; its upload remains "
+                    f"pending, and the bot will continue with the next Reel: {exc}",
                 )
 
         if (
@@ -624,7 +654,6 @@ class WorkflowPipeline:
                     f"Facebook Reel {clip.clip_index}/{total_clips} is published: {facebook_url}",
                 )
             except UploadLimitError as exc:
-                limited_platforms.add("Facebook")
                 blocked_platforms["Facebook"] = str(exc)
                 self.services.unavailable_platforms["Facebook"] = str(exc)
                 await self._status(
@@ -633,12 +662,11 @@ class WorkflowPipeline:
                     "Facebook 30-per-day publishing limit reached; continuing local generation",
                 )
             except UploadError as exc:
-                blocked_platforms["Facebook"] = str(exc)
-                self.services.unavailable_platforms["Facebook"] = str(exc)
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
-                    f"Facebook unavailable for this run; continuing local generation: {exc}",
+                    f"Facebook Reel {clip.clip_index}/{total_clips} failed; its upload remains "
+                    f"pending, and the bot will continue with the next Reel: {exc}",
                 )
         return clip
 
@@ -659,6 +687,7 @@ class WorkflowPipeline:
         youtube_video_id = job.youtube_video_id
         instagram_media_id = job.instagram_media_id
         instagram_url = job.instagram_url
+        instagram_caption = plan.instagram_caption
         facebook_video_id = job.facebook_video_id
         facebook_url = job.facebook_url
 
@@ -671,7 +700,9 @@ class WorkflowPipeline:
                 JobStatus.UPLOADING,
                 "Publishing existing Short to Instagram",
             )
-            instagram = await self.services.instagram_uploader.upload(output_path, plan)
+            instagram_plan = self._instagram_plan(plan, 1)
+            instagram_caption = instagram_plan.instagram_caption
+            instagram = await self.services.instagram_uploader.upload(output_path, instagram_plan)
             instagram_media_id = instagram.media_id
             instagram_url = instagram.permalink
         if self.services.facebook_uploader and not facebook_video_id:
@@ -696,6 +727,7 @@ class WorkflowPipeline:
             youtube_video_id=youtube_video_id,
             instagram_media_id=instagram_media_id,
             instagram_url=instagram_url,
+            instagram_caption=instagram_caption,
             facebook_video_id=facebook_video_id,
             facebook_url=facebook_url,
             error=None,

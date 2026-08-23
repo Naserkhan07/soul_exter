@@ -1,20 +1,39 @@
-# Instagram permits at most 30 hashtags per caption. The workflow rotates through this
-# editable pool in groups of 30 so the tags are distributed across the Reel batch.
-#viral #viralvideo #viralreels #viralpost #trending #trendingreels #trendingnow
-#reels #reelsinstagram #instagramreels #instareels #reelitfeelit #explore #explorepage
-#explorepageviral #fyp #foryou #foryoupage #fy #discover #discoverpage #popular
-#instagood #instagram #video #videos #shortvideo #contentcreator #creator #digitalcreator
-#socialmedia #entertainment #funny #amazing #awesome #love #life #motivation
-#inspiration #success #mindset #goals #positivevibes #goodvibes #daily #today #new
-#mustwatch #watchthis #share #sharethis #like #follow #followme #followforfollow
-#instadaily #dailypost #photooftheday #viralcontent #trendingcontent #reelsviral
-#reelsvideo #reelsdaily #reelkarofeelkaro #reelsindia #indiareels #indianreels
-#india #indiancreator #madeinindia #desicreator #telugu #telugureels #telugucreator
-#telugucontent #andhra #andhrapradesh #hyderabad #visakhapatnam #vizag #southindia
-#creatorindia #contentcreatorindia #viralindia #trendingindia #trendingreelsindia
-#reelscreator #reelscreatorindia #instaviral #instatrending #viraltrend #newtrend
-#trend #trendingvideo #viralclips #bestreels #bestvideo #epic #wow #interesting
-#satisfying #creative #creativity #art #artist #design #technology #tech #coding
-#programming #developer #python #javascript #ai #artificialintelligence #software
-#computer #football #soccer #footballreels #footballvideo #sports #sport #goals
-#footballfans #drawing #drawingreels #artreels #digitalart #sketch #artistsoninstagram
+# Every Instagram Reel receives 30 unique hashtags from this requested pool.
+# Instagram permits at most 30 hashtags per caption, so the workflow removes duplicates
+# and rotates the pool between clips instead of discarding the six tags beyond that limit.
+#viral
+#trending
+#explorepage
+#fyp
+#creator
+#contentcreator
+#smallcreator
+#smallcreatorindia
+#growingcreator
+#reelsinstagram
+#instagood
+#viralreels
+#socialmedia
+#explore
+#dailycontent
+#creative
+#growth
+#instagramreels
+#reels
+#reelitfeelit
+#reelsvideo
+#trendingreels
+#foryou
+#digitalcreator
+#indiancreator
+#creatorindia
+#contentcreation
+#contentcreators
+#newcreator
+#creatoreconomy
+#socialmediatips
+#instagramtips
+#instagramgrowth
+#reelsgrowth
+#reelstips
+#growoninstagram

@@ -350,10 +350,11 @@ refreshes YouTube OAuth when needed, checks the authorized YouTube channel and I
 and validates Cloudinary when enhancement is enabled. Retired Groq models automatically migrate to
 an active non-OpenAI Qwen model.
 
-When YouTube or Instagram reaches a publishing limit or returns an authentication/upload error, that
-platform is disabled for the current run while the other platform, metadata, enhancement, rendering,
-and thumbnails continue. At the end, the workflow creates one ordinary folder under
-`work/pending_uploads/` containing:
+A startup authentication failure or an official publishing limit blocks only that destination while
+other platforms, metadata, enhancement, rendering, and thumbnails continue. An individual YouTube,
+Instagram, or Facebook clip upload failure no longer skips the rest of that platform's batch: the
+failed clip remains pending and the bot immediately attempts the next generated clip. At the end,
+the workflow creates one ordinary folder under `work/pending_uploads/` containing:
 
 - `videos/` with every generated MP4
 - `thumbnails/` with every cover image

@@ -102,6 +102,7 @@ def settings_for(tmp_path: Path) -> Settings:
         youtube_channel_id="UC123",
         instagram_user_id="1789",
         instagram_access_token="token",
+        instagram_hashtags_file=tmp_path / "instagram_hashtags.txt",
         work_dir=tmp_path / "work",
         database_path=tmp_path / "work" / "jobs.db",
         youtube_token_file=tmp_path / "token.json",
@@ -226,6 +227,96 @@ async def test_pipeline_renders_and_uploads_multiple_clips(tmp_path: Path) -> No
     assert clips[0].output_path and clips[0].output_path.endswith("-enhanced.mp4")
     assert clips[1].youtube_video_id == "youtube-40"
     assert clips[1].instagram_media_id == "instagram-40"
+
+
+async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> None:
+    hashtag_file = tmp_path / "instagram_hashtags.txt"
+    requested_tags = [f"#requested{index}" for index in range(36)]
+    hashtag_file.write_text("\n".join(requested_tags), encoding="utf-8")
+    settings = replace(
+        settings_for(tmp_path),
+        upload_facebook=True,
+        archive_on_upload_limit=False,
+        instagram_hashtags_file=hashtag_file,
+    )
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+    instagram_attempts: list[float] = []
+    facebook_attempts: list[float] = []
+    instagram_captions: list[str] = []
+    messages: list[str] = []
+
+    class MultiPlanner:
+        async def create_plans(
+            self, audio_path: Path, source: SourceVideo, max_clips: int
+        ) -> list[ShortPlan]:
+            return [
+                ShortPlan(0, 25, "First #Shorts", "First", "First #oldtag"),
+                ShortPlan(40, 25, "Second #Shorts", "Second", "Second #oldtag"),
+            ]
+
+    class MultiMedia(FakeMedia):
+        def render_short(
+            self,
+            source: Path,
+            output: Path,
+            start_seconds: float,
+            duration_seconds: float,
+        ) -> Path:
+            output.write_bytes(f"{start_seconds}".encode())
+            return output
+
+    class MultiYouTube:
+        async def upload(
+            self,
+            video_path: Path,
+            plan: ShortPlan,
+            thumbnail_path: Path | None = None,
+        ) -> str:
+            return f"youtube-{plan.start_seconds:g}"
+
+    class FlakyInstagram:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> InstagramUploadResult:
+            instagram_attempts.append(plan.start_seconds)
+            instagram_captions.append(plan.instagram_caption)
+            if plan.start_seconds == 0:
+                raise UploadError("temporary Instagram upload failure")
+            return InstagramUploadResult("instagram-40", "https://instagram.com/reel/40")
+
+    class FlakyFacebook:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> tuple[str, str]:
+            facebook_attempts.append(plan.start_seconds)
+            if plan.start_seconds == 0:
+                raise UploadError("temporary Facebook upload failure")
+            return "facebook-40", "https://facebook.com/reel/40"
+
+    async def notify(updated, message: str) -> None:  # noqa: ANN001
+        messages.append(message)
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=MultiMedia(),  # type: ignore[arg-type]
+        planner=MultiPlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=MultiYouTube(),  # type: ignore[arg-type]
+        instagram_uploader=FlakyInstagram(),  # type: ignore[arg-type]
+        facebook_uploader=FlakyFacebook(),  # type: ignore[arg-type]
+    )
+    result = await WorkflowPipeline(settings, repository, services, notify).process(job.id)
+    clips = repository.list_clips(job.id)
+
+    assert result.status == JobStatus.COMPLETE
+    assert instagram_attempts == [0, 40]
+    assert facebook_attempts == [0, 40]
+    assert all(caption.count("#") == 30 for caption in instagram_captions)
+    assert all("#oldtag" not in caption for caption in instagram_captions)
+    assert clips[0].instagram_media_id is None
+    assert clips[0].facebook_video_id is None
+    assert clips[1].instagram_media_id == "instagram-40"
+    assert clips[1].facebook_video_id == "facebook-40"
+    assert "Facebook and Instagram uploads pending" in result.progress_message
+    assert services.unavailable_platforms == {}
+    assert any("continue with the next Reel" in message for message in messages)
 
 
 async def test_full_coverage_uploads_each_clip_before_generating_the_next(tmp_path: Path) -> None:
