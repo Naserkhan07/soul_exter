@@ -88,7 +88,7 @@ class FacebookReelUploader:
                 operation="Facebook Reel publishing",
             )
             permalink = await self._wait_until_published(client, video_id)
-        return video_id, permalink or f"https://www.facebook.com/reel/{video_id}"
+        return video_id, self._absolute_reel_url(permalink, video_id)
 
     async def _upload_binary(
         self,
@@ -114,8 +114,17 @@ class FacebookReelUploader:
                     payload = self._json(response, "Facebook Reel binary upload")
                     if payload.get("success") is not False:
                         return
-                if response.status_code < 500 or attempt == self.retry_attempts:
-                    self._raise_for_meta_error(response, "Facebook Reel binary upload")
+                    if attempt == self.retry_attempts:
+                        raise UploadError(
+                            "Facebook Reel binary upload returned success=false after "
+                            "automatic retries."
+                        )
+                else:
+                    retryable_status = response.status_code in {408, 425} or (
+                        500 <= response.status_code < 600
+                    )
+                    if not retryable_status or attempt == self.retry_attempts:
+                        self._raise_for_meta_error(response, "Facebook Reel binary upload")
             except UploadLimitError:
                 raise
             except UploadError:
@@ -135,6 +144,15 @@ class FacebookReelUploader:
             )
             await asyncio.sleep(delay)
         raise UploadError("Facebook Reel binary upload ended without a result.")
+
+    @staticmethod
+    def _absolute_reel_url(permalink: str, video_id: str) -> str:
+        cleaned = permalink.strip()
+        if cleaned.startswith(("https://", "http://")):
+            return cleaned
+        if cleaned:
+            return f"https://www.facebook.com/{cleaned.lstrip('/')}"
+        return f"https://www.facebook.com/reel/{video_id}"
 
     async def _wait_until_published(self, client: httpx.AsyncClient, video_id: str) -> str:
         attempts = max(1, self.processing_timeout_seconds // self.poll_interval_seconds)
@@ -225,9 +243,12 @@ class FacebookReelUploader:
                 detail = str(error.get("error_user_msg") or error.get("message") or detail)
                 code = int(error.get("code") or 0)
         except (ValueError, TypeError, AttributeError):
-            body = response.text.strip()
-            if body:
-                detail = f"HTTP {response.status_code}: {body[:500]}"
+            if response.status_code == 408:
+                detail = "HTTP 408 Request Timeout from Meta's upload server"
+            else:
+                body = response.text.strip()
+                if body:
+                    detail = f"HTTP {response.status_code}: {body[:500]}"
 
         normalized = f"{detail} {response.text}".casefold()
         limit_markers = (

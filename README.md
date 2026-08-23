@@ -353,8 +353,10 @@ an active non-OpenAI Qwen model.
 A startup authentication failure or an official publishing limit blocks only that destination while
 other platforms, metadata, enhancement, rendering, and thumbnails continue. An individual YouTube,
 Instagram, or Facebook clip upload failure no longer skips the rest of that platform's batch: the
-failed clip remains pending and the bot immediately attempts the next generated clip. At the end,
-the workflow creates one ordinary folder under `work/pending_uploads/` containing:
+failed clip remains pending and the bot immediately attempts the next generated clip. Instagram and
+Facebook binary uploads automatically retry temporary HTTP 408/5xx responses with exponential
+backoff before leaving that clip pending. At the end, the workflow creates one ordinary folder under
+`work/pending_uploads/` containing:
 
 - `videos/` with every generated MP4
 - `thumbnails/` with every cover image
