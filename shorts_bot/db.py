@@ -94,6 +94,23 @@ class JobRepository:
                 if name not in existing_clip_columns:
                     connection.execute(f"ALTER TABLE job_clips ADD COLUMN {name} {column_type}")
 
+            # Meta can return Page Reel permalinks as paths such as /reel/123/. Normalize
+            # previously stored values so manifests and progress output always contain links.
+            connection.execute(
+                """
+                UPDATE jobs
+                SET facebook_url = 'https://www.facebook.com' || facebook_url
+                WHERE facebook_url LIKE '/%'
+                """
+            )
+            connection.execute(
+                """
+                UPDATE job_clips
+                SET facebook_url = 'https://www.facebook.com' || facebook_url
+                WHERE facebook_url LIKE '/%'
+                """
+            )
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row

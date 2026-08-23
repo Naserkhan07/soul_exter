@@ -62,6 +62,35 @@ def test_saves_and_updates_multiple_clips(tmp_path: Path) -> None:
     assert reset.youtube_video_id is None
 
 
+def test_normalizes_stored_relative_facebook_reel_urls(tmp_path: Path) -> None:
+    database_path = tmp_path / "jobs.db"
+    repository = JobRepository(database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+    repository.save_plans(
+        job.id,
+        [ShortPlan(0, 25, "First", "Description", "Caption")],
+    )
+    repository.update(
+        job.id,
+        facebook_video_id="facebook-id",
+        facebook_url="/reel/facebook-id/",
+    )
+    repository.update_clip(
+        job.id,
+        1,
+        facebook_video_id="facebook-id",
+        facebook_url="/reel/facebook-id/",
+    )
+
+    reloaded = JobRepository(database_path)
+    normalized_job = reloaded.get(job.id)
+    normalized_clip = reloaded.list_clips(job.id)[0]
+
+    assert normalized_job is not None
+    assert normalized_job.facebook_url == "https://www.facebook.com/reel/facebook-id/"
+    assert normalized_clip.facebook_url == "https://www.facebook.com/reel/facebook-id/"
+
+
 def test_lists_jobs_with_pending_platform_uploads(tmp_path: Path) -> None:
     repository = JobRepository(tmp_path / "jobs.db")
     job = repository.create(0, 0, "https://youtu.be/example")
