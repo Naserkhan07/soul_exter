@@ -292,6 +292,21 @@ def test_instagram_caption_enforces_thirty_hashtag_and_character_limits() -> Non
     assert "#tag30" not in caption
 
 
+def test_instagram_caption_places_mentions_first_without_duplicates() -> None:
+    caption = apply_instagram_hashtags(
+        "@wzz.unfiltered Existing caption @precious.tulip1 #oldtag",
+        ["#viral", "#reels"],
+        max_chars=120,
+        mentions=["@wzz.unfiltered", "@precious.tulip1", "@WZZ.UNFILTERED"],
+    )
+
+    assert caption.startswith("@wzz.unfiltered @precious.tulip1\n\n")
+    assert caption.casefold().count("@wzz.unfiltered") == 1
+    assert caption.casefold().count("@precious.tulip1") == 1
+    assert caption.endswith("#viral #reels")
+    assert len(caption) <= 120
+
+
 def test_full_coverage_count_depends_on_video_duration() -> None:
     plans = full_coverage_plans(source(duration=600), target_duration=30, max_clips=0)
 

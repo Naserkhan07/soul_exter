@@ -503,8 +503,25 @@ def apply_instagram_hashtags(
     caption: str,
     hashtag_pool: list[str],
     max_chars: int = 2_000,
+    mentions: list[str] | None = None,
 ) -> str:
     body = re.sub(r"(?i)(?:^|\s)#[\w]+", "", caption)
+
+    mention_tags: list[str] = []
+    seen_mentions: set[str] = set()
+    for mention in mentions or []:
+        normalized = mention if mention.startswith("@") else f"@{mention}"
+        key = normalized.casefold()
+        if key in seen_mentions:
+            continue
+        mention_tags.append(normalized)
+        seen_mentions.add(key)
+        body = re.sub(
+            rf"(?i)(?:^|\s){re.escape(normalized)}(?=\s|$)",
+            " ",
+            body,
+        )
+
     body = re.sub(r"[ \t]+", " ", body)
     body = re.sub(r"\n{3,}", "\n\n", body).strip()
 
@@ -522,10 +539,13 @@ def apply_instagram_hashtags(
         tags = ["#Reels"]
 
     limit = min(max_chars, 2_200)
+    prefix = " ".join(mention_tags)
     suffix = " ".join(tags)
-    body_budget = max(0, limit - len(suffix) - 2)
+    separators = 4 if prefix else 2
+    body_budget = max(0, limit - len(prefix) - len(suffix) - separators)
     body = body[:body_budget].rstrip()
-    return f"{body}\n\n{suffix}" if body else suffix[:limit]
+    parts = [part for part in (prefix, body, suffix) if part]
+    return "\n\n".join(parts)[:limit]
 
 
 def compact_transcript(

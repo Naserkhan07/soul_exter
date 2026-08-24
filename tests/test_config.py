@@ -31,6 +31,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "YOUTUBE_DESCRIPTION_TARGET_CHARS",
         "INSTAGRAM_CAPTION_TARGET_CHARS",
         "INSTAGRAM_HASHTAGS_FILE",
+        "INSTAGRAM_CAPTION_MENTIONS",
         "GROQ_METADATA_DELAY_SECONDS",
         "YTDLP_COOKIES_FROM_BROWSER",
         "YTDLP_BROWSER_PROFILE",
@@ -82,6 +83,7 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.open_upload_limit_folder is True
     assert settings.youtube_description_target_chars == 4_200
     assert settings.instagram_caption_target_chars == 2_000
+    assert settings.instagram_mentions() == ["@wzz.unfiltered", "@precious.tulip1"]
     assert settings.upload_youtube is False
     assert settings.upload_instagram is False
     assert settings.upload_facebook is False

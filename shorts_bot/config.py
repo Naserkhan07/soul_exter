@@ -95,6 +95,7 @@ class Settings:
     instagram_access_token: str
     instagram_graph_api_version: str
     instagram_hashtags_file: Path
+    instagram_caption_mentions: str
     upload_instagram: bool
     facebook_page_id: str
     facebook_access_token: str
@@ -187,6 +188,10 @@ class Settings:
             instagram_hashtags_file=Path(
                 os.getenv("INSTAGRAM_HASHTAGS_FILE", "instagram_hashtags.txt")
             ).expanduser(),
+            instagram_caption_mentions=os.getenv(
+                "INSTAGRAM_CAPTION_MENTIONS",
+                "@wzz.unfiltered @precious.tulip1",
+            ).strip(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
             facebook_page_id=(
                 os.getenv("FACEBOOK_PAGE_ID", "").strip()
@@ -406,6 +411,16 @@ class Settings:
                 tags.append(token)
                 seen.add(normalized)
         return tags
+
+    def instagram_mentions(self) -> list[str]:
+        mentions: list[str] = []
+        seen: set[str] = set()
+        for token in re.findall(r"@[\w.]+", self.instagram_caption_mentions, flags=re.UNICODE):
+            normalized = token.casefold()
+            if normalized not in seen:
+                mentions.append(token)
+                seen.add(normalized)
+        return mentions
 
     def prepare_directories(self) -> None:
         self.work_dir.mkdir(parents=True, exist_ok=True)

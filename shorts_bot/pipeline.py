@@ -392,14 +392,15 @@ class WorkflowPipeline:
 
     def _instagram_plan(self, plan: ShortPlan, clip_index: int) -> ShortPlan:
         hashtag_pool = self.settings.instagram_hashtags()
-        if not hashtag_pool:
-            return plan
-        offset = ((clip_index - 1) * 30) % len(hashtag_pool)
-        rotated_pool = hashtag_pool[offset:] + hashtag_pool[:offset]
+        rotated_pool: list[str] = []
+        if hashtag_pool:
+            offset = ((clip_index - 1) * 30) % len(hashtag_pool)
+            rotated_pool = hashtag_pool[offset:] + hashtag_pool[:offset]
         caption = apply_instagram_hashtags(
             plan.instagram_caption,
             rotated_pool,
             self.settings.instagram_caption_target_chars,
+            mentions=self.settings.instagram_mentions(),
         )
         return replace(plan, instagram_caption=caption)
 

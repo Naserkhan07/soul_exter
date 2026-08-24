@@ -133,6 +133,7 @@ GROQ_METADATA_DELAY_SECONDS=30
 YOUTUBE_DESCRIPTION_TARGET_CHARS=4200
 INSTAGRAM_CAPTION_TARGET_CHARS=2000
 INSTAGRAM_HASHTAGS_FILE=instagram_hashtags.txt
+INSTAGRAM_CAPTION_MENTIONS=@wzz.unfiltered @precious.tulip1
 CLIP_DURATION_SECONDS=30
 SHORTS_SELECTION_MODE=full_coverage
 MAX_SHORTS_PER_VIDEO=0
@@ -166,7 +167,9 @@ very short responses, but the clip is never blocked merely for being concise. In
 most 30
 hashtags per caption, so the entire supplied hashtag list cannot appear on every Reel. The full
 editable pool is stored in `instagram_hashtags.txt`; groups of 30 unique tags rotate across the Reel
-batch while every caption remains within the platform limit.
+batch while every caption remains within the platform limit. Every new or pending Instagram Reel
+caption starts with the handles in `INSTAGRAM_CAPTION_MENTIONS` (by default,
+`@wzz.unfiltered @precious.tulip1`) without duplicating them during retries.
 
 ## 4. Configure local account IDs
 
@@ -417,8 +420,9 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `GROQ_MAX_TRANSCRIPT_CHARS` | `8000` | Sampled planning transcript budget |
 | `GROQ_METADATA_DELAY_SECONDS` | `30` | Pacing between detailed per-clip metadata calls |
 | `YOUTUBE_DESCRIPTION_TARGET_CHARS` | `4200` | Target detailed description length, max 4500 |
-| `INSTAGRAM_CAPTION_TARGET_CHARS` | `2000` | Caption limit including hashtags, max 2000 |
+| `INSTAGRAM_CAPTION_TARGET_CHARS` | `2000` | Caption limit including mentions and hashtags, max 2000 |
 | `INSTAGRAM_HASHTAGS_FILE` | `instagram_hashtags.txt` | Editable pool rotated in groups of 30 |
+| `INSTAGRAM_CAPTION_MENTIONS` | `@wzz.unfiltered @precious.tulip1` | Handles placed at the start of every pending/new Reel caption |
 | `YTDLP_COOKIES_FROM_BROWSER` | empty | Direct browser extraction (Firefox recommended on Windows) |
 | `YTDLP_BROWSER_PROFILE` | empty | Optional browser profile name/path |
 | `YTDLP_COOKIE_FILE` | empty | Netscape cookie export for Chrome DPAPI workaround |

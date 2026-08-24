@@ -86,7 +86,9 @@ class FakeYouTubeUploader:
 
 class FakeInstagramUploader:
     async def upload(self, video_path: Path, plan: ShortPlan) -> InstagramUploadResult:
-        assert plan.instagram_caption == "Instagram caption #Reels"
+        assert plan.instagram_caption.startswith("@wzz.unfiltered @precious.tulip1\n\n")
+        assert "Instagram caption" in plan.instagram_caption
+        assert plan.instagram_caption.endswith("#Reels")
         return InstagramUploadResult("instagram-id", "https://instagram.com/reel/example")
 
 
@@ -309,6 +311,9 @@ async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> Non
     assert instagram_attempts == [0, 40]
     assert facebook_attempts == [0, 40]
     assert all(caption.count("#") == 30 for caption in instagram_captions)
+    assert all(
+        caption.startswith("@wzz.unfiltered @precious.tulip1\n\n") for caption in instagram_captions
+    )
     assert all("#oldtag" not in caption for caption in instagram_captions)
     assert clips[0].instagram_media_id is None
     assert clips[0].facebook_video_id is None
