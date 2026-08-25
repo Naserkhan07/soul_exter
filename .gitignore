@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# Runtime data and secrets
+.env
+*.db
+*.db-shm
+*.db-wal
+work/
+store-bundles/
+website/dist/
+website/node_modules/
+credentials/
+client_secret*.json
+youtube_token.json
+cookies.txt
+*cookies*.txt
+
+# Editors / OS
+.idea/
+.DS_Store

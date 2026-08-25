@@ -1,0 +1,39 @@
+# Every Instagram Reel receives 30 unique hashtags from this requested pool.
+# Instagram permits at most 30 hashtags per caption, so the workflow removes duplicates
+# and rotates the pool between clips instead of discarding the six tags beyond that limit.
+#viral
+#trending
+#explorepage
+#fyp
+#creator
+#contentcreator
+#smallcreator
+#smallcreatorindia
+#growingcreator
+#reelsinstagram
+#instagood
+#viralreels
+#socialmedia
+#explore
+#dailycontent
+#creative
+#growth
+#instagramreels
+#reels
+#reelitfeelit
+#reelsvideo
+#trendingreels
+#foryou
+#digitalcreator
+#indiancreator
+#creatorindia
+#contentcreation
+#contentcreators
+#newcreator
+#creatoreconomy
+#socialmediatips
+#instagramtips
+#instagramgrowth
+#reelsgrowth
+#reelstips
+#growoninstagram

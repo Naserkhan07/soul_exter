@@ -1,0 +1,196 @@
+from pathlib import Path
+
+import httpx
+import pytest
+
+from shorts_bot.errors import UploadError, UploadLimitError
+from shorts_bot.instagram import InstagramUploader
+from shorts_bot.models import ShortPlan
+
+
+async def test_instagram_connection_check_validates_expected_account() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v26.0/1789"
+        return httpx.Response(200, json={"id": "1789", "username": "splitzz.isodope"})
+
+    uploader = InstagramUploader(
+        user_id="1789",
+        access_token="secret-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert await uploader.check_connection() == "splitzz.isodope"
+
+
+async def test_instagram_resumable_reel_publish_flow(tmp_path: Path) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.url.path == "/v26.0/1789/media":
+            assert b"share_to_feed=true" in request.content
+            assert b"thumb_offset=12500" in request.content
+            return httpx.Response(
+                200,
+                json={
+                    "id": "container-id",
+                    "uri": ("https://rupload.facebook.com/ig-api-upload/v26.0/container-id"),
+                },
+            )
+        if request.url.host == "rupload.facebook.com":
+            assert request.headers["authorization"] == "OAuth secret-token"
+            assert request.content == b"video"
+            return httpx.Response(200, json={"success": True})
+        if request.url.path == "/v26.0/container-id":
+            return httpx.Response(200, json={"status_code": "FINISHED"})
+        if request.url.path == "/v26.0/1789/media_publish":
+            return httpx.Response(200, json={"id": "media-id"})
+        if request.url.path == "/v26.0/media-id":
+            return httpx.Response(
+                200,
+                json={"permalink": "https://www.instagram.com/reel/example/"},
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    video_path = tmp_path / "short.mp4"
+    video_path.write_bytes(b"video")
+    uploader = InstagramUploader(
+        user_id="1789",
+        access_token="secret-token",
+        transport=httpx.MockTransport(handler),
+    )
+    plan = ShortPlan(0, 25, "Title #Shorts", "Description", "Caption #Reels")
+
+    result = await uploader.upload(video_path, plan)
+
+    assert result.media_id == "media-id"
+    assert result.permalink == "https://www.instagram.com/reel/example/"
+    assert calls == [
+        ("POST", "/v26.0/1789/media"),
+        ("POST", "/ig-api-upload/v26.0/container-id"),
+        ("GET", "/v26.0/container-id"),
+        ("POST", "/v26.0/1789/media_publish"),
+        ("GET", "/v26.0/media-id"),
+    ]
+
+
+async def test_retries_temporary_instagram_binary_upload_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts = 0
+    delays: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(500, json={"message": "Temporary Meta server error"})
+        return httpx.Response(200, json={"success": True})
+
+    async def fake_sleep(delay: int) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("shorts_bot.instagram.asyncio.sleep", fake_sleep)
+    video_path = tmp_path / "short.mp4"
+    video_path.write_bytes(b"video")
+    uploader = InstagramUploader(
+        user_id="1789",
+        access_token="secret-token",
+        upload_retry_attempts=4,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await uploader._upload_binary(
+            client,
+            "https://rupload.facebook.com/ig-api-upload/v26.0/container-id",
+            video_path,
+        )
+
+    assert attempts == 3
+    assert delays == [1, 2]
+
+
+async def test_retries_instagram_upload_after_html_408(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attempts = 0
+    delays: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(
+                408,
+                text="<!DOCTYPE html><html><title>Facebook | Error</title></html>",
+            )
+        return httpx.Response(200, json={"success": True})
+
+    async def fake_sleep(delay: int) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("shorts_bot.instagram.asyncio.sleep", fake_sleep)
+    video_path = tmp_path / "short.mp4"
+    video_path.write_bytes(b"video")
+    uploader = InstagramUploader(
+        user_id="1789",
+        access_token="secret-token",
+        upload_retry_attempts=4,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await uploader._upload_binary(
+            client,
+            "https://rupload.facebook.com/ig-api-upload/v26.0/container-id",
+            video_path,
+        )
+
+    assert attempts == 2
+    assert delays == [1]
+
+
+def test_instagram_html_408_error_is_concise() -> None:
+    response = httpx.Response(
+        408,
+        request=httpx.Request("POST", "https://rupload.facebook.com/upload"),
+        text="<!DOCTYPE html><html><title>Facebook | Error</title></html>",
+    )
+
+    with pytest.raises(UploadError, match="HTTP 408 Request Timeout") as caught:
+        InstagramUploader._raise_for_meta_error(response, "Instagram video upload")
+    assert "DOCTYPE" not in str(caught.value)
+
+
+def test_detects_instagram_content_publishing_limit() -> None:
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://graph.facebook.com/media_publish"),
+        json={
+            "error": {
+                "code": 9,
+                "message": "Content publishing limit reached for this account",
+            }
+        },
+    )
+
+    with pytest.raises(UploadLimitError, match="Instagram upload limit reached"):
+        InstagramUploader._raise_for_meta_error(response, "Instagram Graph API")
+
+
+def test_detects_instagram_http_rate_limit() -> None:
+    response = httpx.Response(
+        429,
+        request=httpx.Request("POST", "https://rupload.facebook.com/upload"),
+    )
+
+    with pytest.raises(UploadLimitError, match="Instagram upload limit reached"):
+        InstagramUploader._raise_for_meta_error(response, "Instagram video upload")
+
+
+def test_surfaces_instagram_plain_message_error() -> None:
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://rupload.facebook.com/upload"),
+        json={"message": "Video format was rejected"},
+    )
+
+    with pytest.raises(UploadError, match="Video format was rejected"):
+        InstagramUploader._raise_for_meta_error(response, "Instagram video upload")

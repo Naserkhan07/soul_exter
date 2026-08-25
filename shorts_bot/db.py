@@ -1,0 +1,537 @@
+from __future__ import annotations
+
+import sqlite3
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+
+from .models import Job, JobClip, JobStatus, ShortPlan
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    source_url TEXT NOT NULL,
+    status TEXT NOT NULL,
+    progress_message TEXT NOT NULL DEFAULT '',
+    source_title TEXT,
+    short_title TEXT,
+    short_description TEXT,
+    instagram_caption TEXT,
+    output_path TEXT,
+    youtube_video_id TEXT,
+    instagram_media_id TEXT,
+    instagram_url TEXT,
+    archive_path TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_user_created ON jobs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+
+CREATE TABLE IF NOT EXISTS job_clips (
+    job_id TEXT NOT NULL,
+    clip_index INTEGER NOT NULL,
+    start_seconds REAL NOT NULL,
+    duration_seconds REAL NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    instagram_caption TEXT NOT NULL,
+    metadata_ready INTEGER NOT NULL DEFAULT 0,
+    enhancement_complete INTEGER NOT NULL DEFAULT 0,
+    output_path TEXT,
+    thumbnail_path TEXT,
+    youtube_video_id TEXT,
+    instagram_media_id TEXT,
+    instagram_url TEXT,
+    error TEXT,
+    PRIMARY KEY (job_id, clip_index),
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_job_clips_job ON job_clips(job_id, clip_index);
+
+CREATE TABLE IF NOT EXISTS store_bundles (
+    bundle_number INTEGER PRIMARY KEY,
+    zip_path TEXT NOT NULL,
+    clip_count INTEGER NOT NULL,
+    website_object_key TEXT,
+    website_uploaded_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS store_bundle_clips (
+    bundle_number INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    job_id TEXT NOT NULL,
+    clip_index INTEGER NOT NULL,
+    PRIMARY KEY (job_id, clip_index),
+    UNIQUE (bundle_number, position),
+    FOREIGN KEY (bundle_number) REFERENCES store_bundles(bundle_number) ON DELETE CASCADE,
+    FOREIGN KEY (job_id, clip_index) REFERENCES job_clips(job_id, clip_index) ON DELETE CASCADE
+);
+"""
+
+_MIGRATION_COLUMNS = {
+    "instagram_caption": "TEXT",
+    "instagram_media_id": "TEXT",
+    "instagram_url": "TEXT",
+    "archive_path": "TEXT",
+}
+_CLIP_MIGRATION_COLUMNS = {
+    "thumbnail_path": "TEXT",
+    "metadata_ready": "INTEGER NOT NULL DEFAULT 0",
+    "enhancement_complete": "INTEGER NOT NULL DEFAULT 0",
+}
+_STORE_BUNDLE_MIGRATION_COLUMNS = {
+    "website_object_key": "TEXT",
+    "website_uploaded_at": "TEXT",
+}
+
+
+class JobRepository:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            connection.executescript(_SCHEMA)
+            existing = {
+                row["name"] for row in connection.execute("PRAGMA table_info(jobs)").fetchall()
+            }
+            for name, column_type in _MIGRATION_COLUMNS.items():
+                if name not in existing:
+                    connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {column_type}")
+
+            existing_clip_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(job_clips)").fetchall()
+            }
+            for name, column_type in _CLIP_MIGRATION_COLUMNS.items():
+                if name not in existing_clip_columns:
+                    connection.execute(f"ALTER TABLE job_clips ADD COLUMN {name} {column_type}")
+
+            existing_store_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(store_bundles)").fetchall()
+            }
+            for name, column_type in _STORE_BUNDLE_MIGRATION_COLUMNS.items():
+                if name not in existing_store_columns:
+                    connection.execute(f"ALTER TABLE store_bundles ADD COLUMN {name} {column_type}")
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=30)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(UTC).isoformat(timespec="seconds")
+
+    @staticmethod
+    def _from_row(row: sqlite3.Row) -> Job:
+        return Job(
+            id=row["id"],
+            chat_id=row["chat_id"],
+            user_id=row["user_id"],
+            source_url=row["source_url"],
+            status=JobStatus(row["status"]),
+            progress_message=row["progress_message"],
+            source_title=row["source_title"],
+            short_title=row["short_title"],
+            short_description=row["short_description"],
+            instagram_caption=row["instagram_caption"],
+            output_path=row["output_path"],
+            youtube_video_id=row["youtube_video_id"],
+            instagram_media_id=row["instagram_media_id"],
+            instagram_url=row["instagram_url"],
+            archive_path=row["archive_path"],
+            error=row["error"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    @staticmethod
+    def _clip_from_row(row: sqlite3.Row) -> JobClip:
+        return JobClip(
+            job_id=row["job_id"],
+            clip_index=row["clip_index"],
+            start_seconds=row["start_seconds"],
+            duration_seconds=row["duration_seconds"],
+            title=row["title"],
+            description=row["description"],
+            instagram_caption=row["instagram_caption"],
+            metadata_ready=bool(row["metadata_ready"]),
+            enhancement_complete=bool(row["enhancement_complete"]),
+            output_path=row["output_path"],
+            thumbnail_path=row["thumbnail_path"],
+            youtube_video_id=row["youtube_video_id"],
+            instagram_media_id=row["instagram_media_id"],
+            instagram_url=row["instagram_url"],
+            error=row["error"],
+        )
+
+    def create(self, chat_id: int, user_id: int, source_url: str) -> Job:
+        job_id = uuid.uuid4().hex[:12]
+        now = self._now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO jobs (
+                    id, chat_id, user_id, source_url, status, progress_message,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    chat_id,
+                    user_id,
+                    source_url,
+                    JobStatus.QUEUED.value,
+                    "Waiting in queue",
+                    now,
+                    now,
+                ),
+            )
+        job = self.get(job_id)
+        assert job is not None
+        return job
+
+    def get(self, job_id: str) -> Job | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return self._from_row(row) if row else None
+
+    def update(self, job_id: str, **fields: str | JobStatus | None) -> Job:
+        allowed = {
+            "status",
+            "progress_message",
+            "source_title",
+            "short_title",
+            "short_description",
+            "instagram_caption",
+            "output_path",
+            "youtube_video_id",
+            "instagram_media_id",
+            "instagram_url",
+            "archive_path",
+            "error",
+        }
+        unknown = fields.keys() - allowed
+        if unknown:
+            raise ValueError(f"Unknown job fields: {', '.join(sorted(unknown))}")
+        if "status" in fields and isinstance(fields["status"], JobStatus):
+            fields["status"] = fields["status"].value
+        fields["updated_at"] = self._now()
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = [*fields.values(), job_id]
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE jobs SET {assignments} WHERE id = ?",  # noqa: S608
+                values,
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"Unknown job {job_id}")
+        job = self.get(job_id)
+        assert job is not None
+        return job
+
+    def save_plans(
+        self,
+        job_id: str,
+        plans: list[ShortPlan],
+        metadata_ready: bool = True,
+    ) -> list[JobClip]:
+        with self._connect() as connection:
+            for clip_index, plan in enumerate(plans, start=1):
+                connection.execute(
+                    """
+                    INSERT INTO job_clips (
+                        job_id, clip_index, start_seconds, duration_seconds,
+                        title, description, instagram_caption, metadata_ready
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(job_id, clip_index) DO UPDATE SET
+                        start_seconds = excluded.start_seconds,
+                        duration_seconds = excluded.duration_seconds,
+                        title = excluded.title,
+                        description = excluded.description,
+                        instagram_caption = excluded.instagram_caption,
+                        metadata_ready = excluded.metadata_ready,
+                        error = NULL
+                    """,
+                    (
+                        job_id,
+                        clip_index,
+                        plan.start_seconds,
+                        plan.duration_seconds,
+                        plan.title,
+                        plan.description,
+                        plan.instagram_caption,
+                        int(metadata_ready),
+                    ),
+                )
+        return self.list_clips(job_id)
+
+    def list_clips(self, job_id: str) -> list[JobClip]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM job_clips WHERE job_id = ? ORDER BY clip_index",
+                (job_id,),
+            ).fetchall()
+        return [self._clip_from_row(row) for row in rows]
+
+    def update_clip(self, job_id: str, clip_index: int, **fields: object) -> JobClip:
+        allowed = {
+            "start_seconds",
+            "duration_seconds",
+            "title",
+            "description",
+            "instagram_caption",
+            "metadata_ready",
+            "enhancement_complete",
+            "output_path",
+            "thumbnail_path",
+            "youtube_video_id",
+            "instagram_media_id",
+            "instagram_url",
+            "error",
+        }
+        unknown = fields.keys() - allowed
+        if unknown:
+            raise ValueError(f"Unknown clip fields: {', '.join(sorted(unknown))}")
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = [*fields.values(), job_id, clip_index]
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE job_clips SET {assignments} WHERE job_id = ? AND clip_index = ?",  # noqa: S608
+                values,
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"Unknown clip {job_id}/{clip_index}")
+            row = connection.execute(
+                "SELECT * FROM job_clips WHERE job_id = ? AND clip_index = ?",
+                (job_id, clip_index),
+            ).fetchone()
+        assert row is not None
+        return self._clip_from_row(row)
+
+    def reset_clip_media(self, job_id: str) -> list[JobClip]:
+        existing = self.list_clips(job_id)
+        if not existing:
+            return []
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE job_clips
+                SET metadata_ready = 0, enhancement_complete = 0,
+                    output_path = NULL, thumbnail_path = NULL,
+                    youtube_video_id = NULL, instagram_media_id = NULL,
+                    instagram_url = NULL, error = NULL
+                WHERE job_id = ?
+                """,
+                (job_id,),
+            )
+            connection.execute(
+                """
+                UPDATE jobs
+                SET output_path = NULL, youtube_video_id = NULL,
+                    instagram_media_id = NULL, instagram_url = NULL,
+                    archive_path = NULL, error = NULL
+                WHERE id = ?
+                """,
+                (job_id,),
+            )
+        return existing
+
+    def list_recent(self, user_id: int, limit: int = 10) -> list[Job]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        return [self._from_row(row) for row in rows]
+
+    def list_queued(self) -> list[Job]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM jobs WHERE status = ? ORDER BY created_at",
+                (JobStatus.QUEUED.value,),
+            ).fetchall()
+        return [self._from_row(row) for row in rows]
+
+    def pending_upload_counts(self) -> dict[str, int]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN output_path IS NOT NULL AND youtube_video_id IS NULL
+                        THEN 1 ELSE 0 END) AS youtube,
+                    SUM(CASE WHEN output_path IS NOT NULL AND instagram_media_id IS NULL
+                        THEN 1 ELSE 0 END) AS instagram
+                FROM job_clips
+                """
+            ).fetchone()
+        return {
+            "YouTube": int(row["youtube"] or 0),
+            "Instagram": int(row["instagram"] or 0),
+        }
+
+    def list_pending_upload_jobs(
+        self,
+        *,
+        youtube: bool,
+        instagram: bool,
+        limit: int = 3,
+    ) -> list[Job]:
+        if not youtube and not instagram:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT jobs.*
+                FROM jobs
+                JOIN job_clips ON job_clips.job_id = jobs.id
+                WHERE job_clips.output_path IS NOT NULL
+                  AND ((? = 1 AND job_clips.youtube_video_id IS NULL)
+                    OR (? = 1 AND job_clips.instagram_media_id IS NULL))
+                  AND jobs.status IN (?, ?)
+                ORDER BY jobs.updated_at ASC
+                LIMIT ?
+                """,
+                (
+                    int(youtube),
+                    int(instagram),
+                    JobStatus.COMPLETE.value,
+                    JobStatus.FAILED.value,
+                    limit,
+                ),
+            ).fetchall()
+        return [self._from_row(row) for row in rows]
+
+    def list_unbundled_clips(self, limit: int = 500) -> list[JobClip]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT job_clips.*
+                FROM job_clips
+                JOIN jobs ON jobs.id = job_clips.job_id
+                LEFT JOIN store_bundle_clips
+                  ON store_bundle_clips.job_id = job_clips.job_id
+                 AND store_bundle_clips.clip_index = job_clips.clip_index
+                WHERE store_bundle_clips.job_id IS NULL
+                  AND job_clips.output_path IS NOT NULL
+                  AND job_clips.metadata_ready = 1
+                ORDER BY jobs.created_at, job_clips.clip_index
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [self._clip_from_row(row) for row in rows]
+
+    def clip_sequence_index(self, job_id: str, clip_index: int) -> int:
+        with self._connect() as connection:
+            current = connection.execute(
+                "SELECT created_at FROM jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            if current is None:
+                raise KeyError(f"Unknown job {job_id}")
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS preceding
+                FROM job_clips
+                JOIN jobs ON jobs.id = job_clips.job_id
+                WHERE jobs.created_at < ?
+                   OR (jobs.created_at = ? AND jobs.id < ?)
+                   OR (jobs.id = ? AND job_clips.clip_index < ?)
+                """,
+                (current["created_at"], current["created_at"], job_id, job_id, clip_index),
+            ).fetchone()
+        return int(row["preceding"])
+
+    def next_store_bundle_number(self) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(bundle_number), 0) + 1 AS next_number FROM store_bundles"
+            ).fetchone()
+        return int(row["next_number"])
+
+    def save_store_bundle(
+        self,
+        bundle_number: int,
+        zip_path: Path,
+        clips: list[JobClip],
+    ) -> None:
+        now = self._now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO store_bundles (bundle_number, zip_path, clip_count, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (bundle_number, str(zip_path), len(clips), now),
+            )
+            for position, clip in enumerate(clips, start=1):
+                connection.execute(
+                    """
+                    INSERT INTO store_bundle_clips (
+                        bundle_number, position, job_id, clip_index
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (bundle_number, position, clip.job_id, clip.clip_index),
+                )
+
+    def list_store_bundles(self) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM store_bundles ORDER BY bundle_number"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_pending_store_uploads(self) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM store_bundles
+                WHERE website_object_key IS NULL
+                ORDER BY bundle_number
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_store_bundle_uploaded(self, bundle_number: int, object_key: str) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE store_bundles
+                SET website_object_key = ?, website_uploaded_at = ?
+                WHERE bundle_number = ?
+                """,
+                (object_key, self._now(), bundle_number),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"Unknown store bundle {bundle_number}")
+
+    def fail_interrupted(self) -> int:
+        running = (
+            JobStatus.DOWNLOADING,
+            JobStatus.ANALYZING,
+            JobStatus.RENDERING,
+            JobStatus.UPLOADING,
+        )
+        placeholders = ",".join("?" for _ in running)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"""
+                UPDATE jobs
+                SET status = ?, progress_message = ?, error = ?, updated_at = ?
+                WHERE status IN ({placeholders})
+                """,  # noqa: S608
+                (
+                    JobStatus.FAILED.value,
+                    "Stopped when the service restarted",
+                    "The worker stopped before this job finished. Submit it again.",
+                    self._now(),
+                    *(status.value for status in running),
+                ),
+            )
+            return cursor.rowcount
