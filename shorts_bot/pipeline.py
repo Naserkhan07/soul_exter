@@ -566,7 +566,7 @@ class WorkflowPipeline:
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
-                    "YouTube upload limit reached; continuing local generation",
+                    "YouTube limit reached",
                 )
             except UploadError as exc:
                 await self._status(

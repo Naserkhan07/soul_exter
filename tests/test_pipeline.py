@@ -404,6 +404,10 @@ async def test_upload_limits_create_open_folder_and_do_not_fail_job(tmp_path: Pa
     )
     repository = JobRepository(settings.database_path)
     job = repository.create(0, 0, "https://youtu.be/example")
+    messages: list[str] = []
+
+    async def notify(updated, message: str) -> None:  # noqa: ANN001
+        messages.append(message)
 
     class LimitedYouTube:
         async def upload(
@@ -426,9 +430,10 @@ async def test_upload_limits_create_open_folder_and_do_not_fail_job(tmp_path: Pa
         youtube_uploader=LimitedYouTube(),  # type: ignore[arg-type]
         instagram_uploader=LimitedInstagram(),  # type: ignore[arg-type]
     )
-    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+    result = await WorkflowPipeline(settings, repository, services, notify).process(job.id)
 
     assert result.status == JobStatus.COMPLETE
+    assert "YouTube limit reached" in messages
     assert result.archive_path is not None
     folder_path = Path(result.archive_path)
     assert folder_path.is_dir()
