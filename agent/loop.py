@@ -53,6 +53,13 @@ _NON_BUSINESS_HOSTS = (
     "top10", "bestof", "vymaps", "placedigger", "veyor",
 )
 
+# Motor vehicle / automotive manufacturing keywords for web-search filtering
+_MOTOR_VEHICLE_KEYWORDS = re.compile(
+    r"\b(automotive|automobile|motor|vehicle|manufactur|factory|plant|"
+    r"assembly|car|truck|bus|two[- ]wheeler|motorcycle|scooter|"
+    r"auto|tata|mahindra|maruti|hyundai|honda|toyota|ashok|eicher|"
+    r"bajaj|hero|tvs|force)\b", re.I)
+
 # reject listicle/guide TITLES like "15 Best Restaurants in ...",
 # "Top 12 Places to Eat", "... (2026 ranked)" — those are articles,
 # not businesses
@@ -207,6 +214,10 @@ class AgentLoop:
             title = r.get("title", "")
             if _LISTICLE_TITLE.search(title):
                 continue  # article/guide, not a business site
+            # Only keep motor vehicle / automotive manufacturing results
+            combined_text = f"{title} {url}".lower()
+            if not _MOTOR_VEHICLE_KEYWORDS.search(combined_text):
+                continue
             # reject "category in Location" directory-style titles, e.g.
             # "Dental Clinics in Visakhapatnam", "Dental Clinic in Dwaraka Nagar"
             if re.search(r"\b(in|near|at)\s+[A-Z][\w]+", title) and not \

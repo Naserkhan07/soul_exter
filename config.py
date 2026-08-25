@@ -85,12 +85,16 @@ MIN_LEAD_SCORE_TO_SAVE = 40       # below this the business is skipped
 MAX_CANDIDATES_PER_QUERY = 20
 
 # Business categories the agent cycles through per location.
+# Only motor vehicle / automotive manufacturing categories
 BUSINESS_CATEGORIES = [
-    "restaurant", "dental clinic", "gym", "salon", "furniture store",
-    "real estate agency", "coaching institute", "hospital", "hotel",
-    "boutique", "car dealership", "interior designer", "law firm",
-    "chartered accountant", "travel agency", "jewellery store",
-    "manufacturer", "wholesaler", "packers and movers", "event management",
+    "motor vehicle manufacturer",
+    "automotive manufacturer",
+    "car manufacturer",
+    "truck manufacturer",
+    "bus manufacturer",
+    "two-wheeler manufacturer",
+    "auto parts manufacturer",
+    "automobile manufacturer",
 ]
 
 # ---------------------------------------------------------------------------

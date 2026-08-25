@@ -8,8 +8,9 @@ from brain.schemas import QUALIFICATION_JSON_SPEC
 
 SYSTEM_PROMPT = """\
 You are the qualification brain of a B2B lead-research agent focused on
-Indian businesses. You receive EVIDENCE collected by deterministic tools
-(website analysis, public listings, public social profiles).
+INDIAN MOTOR VEHICLE / AUTOMOTIVE MANUFACTURING BUSINESSES only.
+You receive EVIDENCE collected by deterministic tools (website analysis,
+public listings, public social profiles, company data).
 
 Your job: decide whether this business likely needs digital/technology
 services (marketing, SEO, social media, website work, e-commerce, apps,

@@ -68,6 +68,17 @@ def is_indian(record: dict) -> bool:
     return bool(INDIA_MARKERS.search(blob))
 
 
+# Filter for motor vehicle / automotive manufacturing companies from HF dataset
+MOTOR_VEHICLE_KEYWORDS = re.compile(
+    r"\b(automotive|automobile|motor vehicle|vehicle manufacturing|"
+    r"car manufacturing|truck manufacturing|bus manufacturing|"
+    r"two[- ]wheeler|motorcycle|scooter|auto parts|auto component|"
+    r"vehicle assembly|car factory|auto factory|motor|tata motors|"
+    r"mahindra|maruti|hyundai india|honda cars india|toyota kirloskar|"
+    r"ashok leyland|eicher motors|bajaj auto|hero motocorp|tvs motor|"
+    r"force motors)\b", re.I)
+
+
 def normalize_record(record: dict) -> dict:
     hq = _headquarter(record)
     city = hq.get("city") or ""
@@ -126,6 +137,12 @@ def iter_india_companies(limit: int = 1000, skip: int = 0,
         if not isinstance(record, dict):
             continue
         if not is_indian(record):
+            continue
+        # Only motor vehicle / automotive manufacturing
+        search_text = " ".join(str(record.get(k) or "") for k in
+                                ("name", "industry", "specialities",
+                                 "description", "hashtags"))
+        if not MOTOR_VEHICLE_KEYWORDS.search(search_text):
             continue
         cand = normalize_record(record)
         if not cand["business_name"]:
