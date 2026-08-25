@@ -1,6 +1,6 @@
 # Local Groq Shorts + Instagram Reels Automation
 
-This project runs entirely on your laptop from VS Code. There is no Telegram bot, web server, cloud worker, or Docker requirement.
+This project runs entirely on your laptop from VS Code. `main.py` includes a lightweight local Splitzzz storefront, so there is no separate web-server or Docker installation requirement.
 
 Add authorized YouTube links to `links.txt`. The local program downloads each video, removes its link after a successful download, divides the usable timeline into consecutive 20–30 second clips based on the video's duration, generates detailed AI metadata and thumbnails, renders vertical Shorts, and publishes each one to YouTube and Instagram.
 
@@ -318,19 +318,24 @@ Save the file. Blank lines and comments beginning with `#` are preserved.
 
 Open **Run and Debug**, select **Run local Shorts automation**, and press **F5**.
 
-### VS Code terminal
+### VS Code terminal — bot and website together
 
-```bash
-python main.py
+```powershell
+.\.venv\Scripts\python.exe main.py
 ```
 
-The watcher prints:
+That single command starts the queue bot, serves the Splitzzz storefront locally, and opens it in the
+default browser. The terminal prints:
 
 ```text
+Splitzzz website started: http://localhost:8080
 Local watcher started. Add YouTube URLs to links.txt. Press Ctrl+C to stop.
 ```
 
-It checks `links.txt` every 30 seconds and processes jobs sequentially. You can continue adding links while it runs. Press `Ctrl+C` to stop cleanly.
+`Ctrl+C` stops both services cleanly. If port 8080 is occupied, the launcher tries the next available
+port through 8089 and prints the selected address. The local static preview does not emulate Vercel's
+Razorpay/R2 serverless APIs; secure checkout remains available only on the deployed Vercel site.
+The watcher checks `links.txt` every 30 seconds and processes jobs sequentially.
 
 ### Process the current file once
 
@@ -342,8 +347,8 @@ Or select **Process links.txt once** in VS Code's Run and Debug menu.
 
 If a downloaded job later fails during AI, rendering, or upload, retry it without downloading again:
 
-```bash
-python -m shorts_bot.file_queue --resume JOB_ID
+```powershell
+.\.venv\Scripts\python.exe main.py --resume JOB_ID
 ```
 
 A job created before multi-clip support keeps its already-published single Short when resumed. To
@@ -474,6 +479,11 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `WORK_DIR` | `work` | Local media directory |
 | `DATABASE_PATH` | `work/jobs.db` | Local SQLite history |
 | `KEEP_WORK_FILES` | `true` | Keep local MP4s after publishing |
+| `START_LOCAL_WEBSITE` | `true` | Start the storefront together with `main.py` |
+| `LOCAL_WEBSITE_HOST` | `127.0.0.1` | Keep the local preview accessible only from this computer |
+| `LOCAL_WEBSITE_PORT` | `8080` | Preferred local storefront port; launcher can fall forward to 8089 |
+| `LOCAL_WEBSITE_AUTO_OPEN` | `true` | Open the storefront automatically in the default browser |
+| `LOCAL_WEBSITE_DIRECTORY` | `website/public` | Static storefront files served by the one-command launcher |
 | `RIGHTS_ACKNOWLEDGED` | `false` | Required rights confirmation |
 
 ## Test locally
