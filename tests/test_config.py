@@ -38,10 +38,9 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "YTDLP_COOKIE_FILE",
         "UPLOAD_YOUTUBE",
         "UPLOAD_INSTAGRAM",
-        "UPLOAD_FACEBOOK",
-        "FACEBOOK_PAGE_ID",
-        "FACEBOOK_ACCESS_TOKEN",
-        "FACEBOOK_GRAPH_API_VERSION",
+        "STORE_BUNDLES_ENABLED",
+        "STORE_BUNDLE_SIZE",
+        "STORE_BUNDLE_DIR",
         "AUTO_UPLOAD",
         "CLIP_DURATION_SECONDS",
         "WORK_DIR",
@@ -86,7 +85,8 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.instagram_mentions() == ["@wzz.unfiltered", "@precious.tulip1"]
     assert settings.upload_youtube is False
     assert settings.upload_instagram is False
-    assert settings.upload_facebook is False
+    assert settings.store_bundles_enabled is True
+    assert settings.store_bundle_size == 50
     assert settings.youtube_privacy_status == "public"
     assert settings.credential_check_minutes == 60
     assert settings.pending_retry_jobs_per_cycle == 3
@@ -105,8 +105,7 @@ def test_migrates_retired_groq_models_to_qwen(monkeypatch: pytest.MonkeyPatch) -
 def test_reads_non_secret_ids_from_toml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config_file = tmp_path / "channels.toml"
     config_file.write_text(
-        '[youtube]\nchannel_id = "UC123"\n[instagram]\nuser_id = "1789"\n'
-        '[facebook]\npage_id = "123"\n',
+        '[youtube]\nchannel_id = "UC123"\n[instagram]\nuser_id = "1789"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(config_file))
@@ -115,7 +114,6 @@ def test_reads_non_secret_ids_from_toml(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     assert settings.youtube_channel_id == "UC123"
     assert settings.instagram_user_id == "1789"
-    assert settings.facebook_page_id == "123"
 
 
 def test_reads_browser_cookie_configuration(

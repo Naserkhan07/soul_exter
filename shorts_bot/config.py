@@ -97,10 +97,6 @@ class Settings:
     instagram_hashtags_file: Path
     instagram_caption_mentions: str
     upload_instagram: bool
-    facebook_page_id: str
-    facebook_access_token: str
-    facebook_graph_api_version: str
-    upload_facebook: bool
     youtube_description_target_chars: int
     instagram_caption_target_chars: int
     groq_metadata_delay_seconds: int
@@ -128,6 +124,9 @@ class Settings:
     work_dir: Path
     database_path: Path
     keep_work_files: bool
+    store_bundles_enabled: bool
+    store_bundle_size: int
+    store_bundle_dir: Path
     rights_acknowledged: bool
     links_file: Path
     downloaded_links_log: Path
@@ -193,16 +192,6 @@ class Settings:
                 "@wzz.unfiltered @precious.tulip1",
             ).strip(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
-            facebook_page_id=(
-                os.getenv("FACEBOOK_PAGE_ID", "").strip()
-                or _nested_string(channel_config, "facebook", "page_id")
-            ),
-            facebook_access_token=(
-                os.getenv("FACEBOOK_ACCESS_TOKEN", "").strip()
-                or os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
-            ),
-            facebook_graph_api_version=os.getenv("FACEBOOK_GRAPH_API_VERSION", "v26.0").strip(),
-            upload_facebook=_bool_env("UPLOAD_FACEBOOK", False),
             youtube_description_target_chars=_int_env("YOUTUBE_DESCRIPTION_TARGET_CHARS", 4_200),
             instagram_caption_target_chars=_int_env("INSTAGRAM_CAPTION_TARGET_CHARS", 2_000),
             groq_metadata_delay_seconds=_int_env("GROQ_METADATA_DELAY_SECONDS", 30),
@@ -242,6 +231,9 @@ class Settings:
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),
+            store_bundles_enabled=_bool_env("STORE_BUNDLES_ENABLED", True),
+            store_bundle_size=_int_env("STORE_BUNDLE_SIZE", 50),
+            store_bundle_dir=Path(os.getenv("STORE_BUNDLE_DIR", "store-bundles")).expanduser(),
             rights_acknowledged=_bool_env("RIGHTS_ACKNOWLEDGED", False),
             links_file=Path(os.getenv("LINKS_FILE", "links.txt")).expanduser(),
             downloaded_links_log=Path(
@@ -301,8 +293,8 @@ class Settings:
             raise ConfigurationError("YOUTUBE_PRIVACY_STATUS must be private, unlisted, or public.")
         if not re.fullmatch(r"v\d+\.\d+", self.instagram_graph_api_version):
             raise ConfigurationError("INSTAGRAM_GRAPH_API_VERSION must look like v26.0.")
-        if not re.fullmatch(r"v\d+\.\d+", self.facebook_graph_api_version):
-            raise ConfigurationError("FACEBOOK_GRAPH_API_VERSION must look like v26.0.")
+        if not 2 <= self.store_bundle_size <= 100:
+            raise ConfigurationError("STORE_BUNDLE_SIZE must be between 2 and 100.")
         if not 5 <= self.links_poll_seconds <= 3600:
             raise ConfigurationError("LINKS_POLL_SECONDS must be between 5 and 3600.")
         if not 5 <= self.credential_check_minutes <= 1_440:
@@ -378,25 +370,12 @@ class Settings:
                 raise ConfigurationError(
                     "INSTAGRAM_ACCESS_TOKEN is required for Instagram publishing."
                 )
-        if self.upload_facebook:
-            if not self.facebook_page_id:
-                raise ConfigurationError(
-                    f"Add your numeric Facebook page_id to {self.channel_config_file}."
-                )
-            if not self.facebook_page_id.isdigit():
-                raise ConfigurationError("Facebook page_id must be numeric, not a Page name.")
-            if not self.facebook_access_token:
-                raise ConfigurationError(
-                    "FACEBOOK_ACCESS_TOKEN is required, or leave it blank to reuse "
-                    "INSTAGRAM_ACCESS_TOKEN."
-                )
 
     def validate_file_queue(self) -> None:
         self.validate_pipeline()
-        if not self.upload_youtube and not self.upload_instagram and not self.upload_facebook:
+        if not self.upload_youtube and not self.upload_instagram:
             raise ConfigurationError(
-                "Enable UPLOAD_YOUTUBE, UPLOAD_INSTAGRAM, or UPLOAD_FACEBOOK for the "
-                "automated link queue."
+                "Enable UPLOAD_YOUTUBE or UPLOAD_INSTAGRAM for the automated link queue."
             )
 
     def instagram_hashtags(self) -> list[str]:
@@ -430,3 +409,5 @@ class Settings:
         self.links_file.touch(exist_ok=True)
         self.downloaded_links_log.parent.mkdir(parents=True, exist_ok=True)
         self.archive_dir.mkdir(parents=True, exist_ok=True)
+        if self.store_bundles_enabled:
+            self.store_bundle_dir.mkdir(parents=True, exist_ok=True)

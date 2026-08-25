@@ -23,8 +23,6 @@ CREATE TABLE IF NOT EXISTS jobs (
     youtube_video_id TEXT,
     instagram_media_id TEXT,
     instagram_url TEXT,
-    facebook_video_id TEXT,
-    facebook_url TEXT,
     archive_path TEXT,
     error TEXT,
     created_at TEXT NOT NULL,
@@ -48,29 +46,41 @@ CREATE TABLE IF NOT EXISTS job_clips (
     youtube_video_id TEXT,
     instagram_media_id TEXT,
     instagram_url TEXT,
-    facebook_video_id TEXT,
-    facebook_url TEXT,
     error TEXT,
     PRIMARY KEY (job_id, clip_index),
     FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_job_clips_job ON job_clips(job_id, clip_index);
+
+CREATE TABLE IF NOT EXISTS store_bundles (
+    bundle_number INTEGER PRIMARY KEY,
+    zip_path TEXT NOT NULL,
+    clip_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS store_bundle_clips (
+    bundle_number INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    job_id TEXT NOT NULL,
+    clip_index INTEGER NOT NULL,
+    PRIMARY KEY (job_id, clip_index),
+    UNIQUE (bundle_number, position),
+    FOREIGN KEY (bundle_number) REFERENCES store_bundles(bundle_number) ON DELETE CASCADE,
+    FOREIGN KEY (job_id, clip_index) REFERENCES job_clips(job_id, clip_index) ON DELETE CASCADE
+);
 """
 
 _MIGRATION_COLUMNS = {
     "instagram_caption": "TEXT",
     "instagram_media_id": "TEXT",
     "instagram_url": "TEXT",
-    "facebook_video_id": "TEXT",
-    "facebook_url": "TEXT",
     "archive_path": "TEXT",
 }
 _CLIP_MIGRATION_COLUMNS = {
     "thumbnail_path": "TEXT",
     "metadata_ready": "INTEGER NOT NULL DEFAULT 0",
     "enhancement_complete": "INTEGER NOT NULL DEFAULT 0",
-    "facebook_video_id": "TEXT",
-    "facebook_url": "TEXT",
 }
 
 
@@ -93,23 +103,6 @@ class JobRepository:
             for name, column_type in _CLIP_MIGRATION_COLUMNS.items():
                 if name not in existing_clip_columns:
                     connection.execute(f"ALTER TABLE job_clips ADD COLUMN {name} {column_type}")
-
-            # Meta can return Page Reel permalinks as paths such as /reel/123/. Normalize
-            # previously stored values so manifests and progress output always contain links.
-            connection.execute(
-                """
-                UPDATE jobs
-                SET facebook_url = 'https://www.facebook.com' || facebook_url
-                WHERE facebook_url LIKE '/%'
-                """
-            )
-            connection.execute(
-                """
-                UPDATE job_clips
-                SET facebook_url = 'https://www.facebook.com' || facebook_url
-                WHERE facebook_url LIKE '/%'
-                """
-            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -137,8 +130,6 @@ class JobRepository:
             youtube_video_id=row["youtube_video_id"],
             instagram_media_id=row["instagram_media_id"],
             instagram_url=row["instagram_url"],
-            facebook_video_id=row["facebook_video_id"],
-            facebook_url=row["facebook_url"],
             archive_path=row["archive_path"],
             error=row["error"],
             created_at=row["created_at"],
@@ -162,8 +153,6 @@ class JobRepository:
             youtube_video_id=row["youtube_video_id"],
             instagram_media_id=row["instagram_media_id"],
             instagram_url=row["instagram_url"],
-            facebook_video_id=row["facebook_video_id"],
-            facebook_url=row["facebook_url"],
             error=row["error"],
         )
 
@@ -210,8 +199,6 @@ class JobRepository:
             "youtube_video_id",
             "instagram_media_id",
             "instagram_url",
-            "facebook_video_id",
-            "facebook_url",
             "archive_path",
             "error",
         }
@@ -292,8 +279,6 @@ class JobRepository:
             "youtube_video_id",
             "instagram_media_id",
             "instagram_url",
-            "facebook_video_id",
-            "facebook_url",
             "error",
         }
         unknown = fields.keys() - allowed
@@ -326,8 +311,7 @@ class JobRepository:
                 SET metadata_ready = 0, enhancement_complete = 0,
                     output_path = NULL, thumbnail_path = NULL,
                     youtube_video_id = NULL, instagram_media_id = NULL,
-                    instagram_url = NULL, facebook_video_id = NULL,
-                    facebook_url = NULL, error = NULL
+                    instagram_url = NULL, error = NULL
                 WHERE job_id = ?
                 """,
                 (job_id,),
@@ -337,7 +321,6 @@ class JobRepository:
                 UPDATE jobs
                 SET output_path = NULL, youtube_video_id = NULL,
                     instagram_media_id = NULL, instagram_url = NULL,
-                    facebook_video_id = NULL, facebook_url = NULL,
                     archive_path = NULL, error = NULL
                 WHERE id = ?
                 """,
@@ -369,16 +352,13 @@ class JobRepository:
                     SUM(CASE WHEN output_path IS NOT NULL AND youtube_video_id IS NULL
                         THEN 1 ELSE 0 END) AS youtube,
                     SUM(CASE WHEN output_path IS NOT NULL AND instagram_media_id IS NULL
-                        THEN 1 ELSE 0 END) AS instagram,
-                    SUM(CASE WHEN output_path IS NOT NULL AND facebook_video_id IS NULL
-                        THEN 1 ELSE 0 END) AS facebook
+                        THEN 1 ELSE 0 END) AS instagram
                 FROM job_clips
                 """
             ).fetchone()
         return {
             "YouTube": int(row["youtube"] or 0),
             "Instagram": int(row["instagram"] or 0),
-            "Facebook": int(row["facebook"] or 0),
         }
 
     def list_pending_upload_jobs(
@@ -386,10 +366,9 @@ class JobRepository:
         *,
         youtube: bool,
         instagram: bool,
-        facebook: bool,
         limit: int = 3,
     ) -> list[Job]:
-        if not youtube and not instagram and not facebook:
+        if not youtube and not instagram:
             return []
         with self._connect() as connection:
             rows = connection.execute(
@@ -399,8 +378,7 @@ class JobRepository:
                 JOIN job_clips ON job_clips.job_id = jobs.id
                 WHERE job_clips.output_path IS NOT NULL
                   AND ((? = 1 AND job_clips.youtube_video_id IS NULL)
-                    OR (? = 1 AND job_clips.instagram_media_id IS NULL)
-                    OR (? = 1 AND job_clips.facebook_video_id IS NULL))
+                    OR (? = 1 AND job_clips.instagram_media_id IS NULL))
                   AND jobs.status IN (?, ?)
                 ORDER BY jobs.updated_at ASC
                 LIMIT ?
@@ -408,13 +386,71 @@ class JobRepository:
                 (
                     int(youtube),
                     int(instagram),
-                    int(facebook),
                     JobStatus.COMPLETE.value,
                     JobStatus.FAILED.value,
                     limit,
                 ),
             ).fetchall()
         return [self._from_row(row) for row in rows]
+
+    def list_unbundled_clips(self, limit: int = 500) -> list[JobClip]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT job_clips.*
+                FROM job_clips
+                JOIN jobs ON jobs.id = job_clips.job_id
+                LEFT JOIN store_bundle_clips
+                  ON store_bundle_clips.job_id = job_clips.job_id
+                 AND store_bundle_clips.clip_index = job_clips.clip_index
+                WHERE store_bundle_clips.job_id IS NULL
+                  AND job_clips.output_path IS NOT NULL
+                  AND job_clips.metadata_ready = 1
+                ORDER BY jobs.created_at, job_clips.clip_index
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [self._clip_from_row(row) for row in rows]
+
+    def next_store_bundle_number(self) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT COALESCE(MAX(bundle_number), 0) + 1 AS next_number FROM store_bundles"
+            ).fetchone()
+        return int(row["next_number"])
+
+    def save_store_bundle(
+        self,
+        bundle_number: int,
+        zip_path: Path,
+        clips: list[JobClip],
+    ) -> None:
+        now = self._now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO store_bundles (bundle_number, zip_path, clip_count, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (bundle_number, str(zip_path), len(clips), now),
+            )
+            for position, clip in enumerate(clips, start=1):
+                connection.execute(
+                    """
+                    INSERT INTO store_bundle_clips (
+                        bundle_number, position, job_id, clip_index
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (bundle_number, position, clip.job_id, clip.clip_index),
+                )
+
+    def list_store_bundles(self) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM store_bundles ORDER BY bundle_number"
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def fail_interrupted(self) -> int:
         running = (

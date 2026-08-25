@@ -29,8 +29,6 @@ def test_acknowledges_download_atomically_and_preserves_comments(tmp_path: Path)
         youtube_video_id=None,
         instagram_media_id=None,
         instagram_url=None,
-        facebook_video_id=None,
-        facebook_url=None,
         archive_path=None,
         error=None,
         created_at="now",
