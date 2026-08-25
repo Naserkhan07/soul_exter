@@ -504,8 +504,10 @@ def apply_instagram_hashtags(
     hashtag_pool: list[str],
     max_chars: int = 2_000,
     mentions: list[str] | None = None,
+    preserve_caption_hashtags: bool = False,
 ) -> str:
-    body = re.sub(r"(?i)(?:^|\s)#[\w]+", "", caption)
+    caption_hashtags = re.findall(r"(?i)(?:^|\s)(#[\w]+)", caption)
+    body = caption if preserve_caption_hashtags else re.sub(r"(?i)(?:^|\s)#[\w]+", "", caption)
 
     mention_tags: list[str] = []
     seen_mentions: set[str] = set()
@@ -526,16 +528,16 @@ def apply_instagram_hashtags(
     body = re.sub(r"\n{3,}", "\n\n", body).strip()
 
     tags: list[str] = []
-    seen: set[str] = set()
+    seen = {tag.casefold() for tag in caption_hashtags} if preserve_caption_hashtags else set()
     for tag in hashtag_pool:
         normalized = tag if tag.startswith("#") else f"#{tag}"
         key = normalized.casefold()
         if key not in seen:
             tags.append(normalized)
             seen.add(key)
-        if len(tags) == 30:
+        if len(seen) == 30:
             break
-    if not tags:
+    if not tags and not seen:
         tags = ["#Reels"]
 
     limit = min(max_chars, 2_200)

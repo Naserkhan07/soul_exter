@@ -35,6 +35,10 @@ const channelName = document.querySelector("#channel-name");
 const channelHandle = document.querySelector("#channel-handle");
 const channelDescription = document.querySelector("#channel-description");
 const followButton = document.querySelector("#follow-button");
+const checkoutDialog = document.querySelector("#checkout-dialog");
+const downloadLinks = document.querySelector("#download-links");
+const savedPurchases = document.querySelector("#saved-purchases");
+const purchaseStorageKey = "splitzzz-paid-orders";
 
 function selectChannel(channelId) {
   const channel = channels[channelId];
@@ -58,6 +62,90 @@ tabs.forEach((tab) => {
   tab.addEventListener("click", () => selectChannel(tab.dataset.channel));
 });
 
+function purchases() {
+  try {
+    const value = JSON.parse(localStorage.getItem(purchaseStorageKey) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePurchase(purchase) {
+  const saved = purchases().filter((item) => item.orderId !== purchase.orderId);
+  saved.push(purchase);
+  localStorage.setItem(purchaseStorageKey, JSON.stringify(saved));
+  renderPurchases();
+}
+
+async function verifyAndShowDownloads(proof) {
+  const response = await fetch("/api/verify-payment", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(proof),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.verified) {
+    throw new Error(result.error || "Payment verification failed.");
+  }
+
+  downloadLinks.replaceChildren();
+  result.downloads.forEach((download) => {
+    const link = document.createElement("a");
+    link.href = download.url;
+    const filename = document.createElement("span");
+    filename.textContent = download.filename;
+    const action = document.createElement("span");
+    action.textContent = "Download ZIP";
+    link.append(filename, action);
+    link.rel = "noopener noreferrer";
+    downloadLinks.append(link);
+  });
+  checkoutDialog.showModal();
+}
+
+async function checkoutProduct(product) {
+  const orderResponse = await fetch("/api/create-order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ productId: product.id }),
+  });
+  const order = await orderResponse.json();
+  if (!orderResponse.ok) {
+    throw new Error(order.error || "Checkout is unavailable.");
+  }
+  if (!window.Razorpay) throw new Error("Razorpay checkout could not load.");
+
+  const checkout = new window.Razorpay({
+    key: order.keyId,
+    order_id: order.orderId,
+    amount: order.amount,
+    currency: order.currency,
+    name: "Splitzzz",
+    description: product.name,
+    theme: { color: "#7357ff" },
+    handler: async (payment) => {
+      const proof = {
+        razorpay_order_id: payment.razorpay_order_id,
+        razorpay_payment_id: payment.razorpay_payment_id,
+        razorpay_signature: payment.razorpay_signature,
+      };
+      savePurchase({
+        ...proof,
+        orderId: payment.razorpay_order_id,
+        productId: product.id,
+        productName: product.name,
+      });
+      try {
+        await verifyAndShowDownloads(proof);
+      } catch (error) {
+        alert(error.message);
+      }
+    },
+  });
+  checkout.open();
+}
+
 function productCard(product) {
   const card = document.createElement("article");
   card.className = "price-card";
@@ -79,19 +167,66 @@ function productCard(product) {
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "disabled-buy";
-  button.disabled = true;
+  button.disabled = !product.available;
+  button.className = product.available ? "buy-button" : "disabled-buy";
   button.textContent = product.available ? "Buy now" : "Coming soon";
+  if (product.available) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await checkoutProduct(product);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
 
   card.append(label, title, detail, price, button);
   return card;
+}
+
+function renderPurchases() {
+  const saved = purchases();
+  savedPurchases.replaceChildren();
+  if (saved.length === 0) {
+    const message = document.createElement("p");
+    message.textContent = "No purchases saved on this device yet.";
+    savedPurchases.append(message);
+    return;
+  }
+  saved.forEach((purchase) => {
+    const row = document.createElement("div");
+    row.className = "saved-purchase";
+    const name = document.createElement("strong");
+    name.textContent = purchase.productName || purchase.productId;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Get download";
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await verifyAndShowDownloads(purchase);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    row.append(name, button);
+    savedPurchases.append(row);
+  });
 }
 
 async function loadCatalog() {
   const catalog = document.querySelector("#catalog");
   const empty = document.querySelector("#catalog-empty");
   try {
-    const response = await fetch("/products.json", { cache: "no-store" });
+    let response = await fetch("/api/products", { cache: "no-store" });
+    if (!response.ok) {
+      response = await fetch("/products.json", { cache: "no-store" });
+    }
     if (!response.ok) throw new Error("Catalog unavailable");
     const products = await response.json();
     if (!Array.isArray(products) || products.length === 0) return;
@@ -102,6 +237,8 @@ async function loadCatalog() {
   }
 }
 
+document.querySelector("#close-dialog").addEventListener("click", () => checkoutDialog.close());
 document.querySelector("#year").textContent = new Date().getFullYear();
 selectChannel("youtube");
+renderPurchases();
 loadCatalog();

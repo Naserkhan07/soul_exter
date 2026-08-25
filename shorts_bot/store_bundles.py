@@ -8,6 +8,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import boto3
+
 from .db import JobRepository
 from .errors import WorkflowError
 from .models import JobClip
@@ -25,12 +27,57 @@ class StoreBundleResult:
     sha256: str
 
 
+class R2BundleUploader:
+    """Upload store ZIPs to a private Cloudflare R2 bucket."""
+
+    def __init__(
+        self,
+        account_id: str,
+        access_key_id: str,
+        secret_access_key: str,
+        bucket_name: str,
+    ) -> None:
+        self.bucket_name = bucket_name
+        self.client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            region_name="auto",
+        )
+
+    def upload(self, zip_path: Path, checksum: str) -> str:
+        object_key = f"bundles/{zip_path.name}"
+        try:
+            self.client.upload_file(
+                str(zip_path),
+                self.bucket_name,
+                object_key,
+                ExtraArgs={
+                    "ContentType": "application/zip",
+                    "Metadata": {"sha256": checksum},
+                },
+            )
+            uploaded = self.client.head_object(Bucket=self.bucket_name, Key=object_key)
+        except Exception as exc:
+            raise StoreBundleError(f"Private R2 upload failed for {zip_path.name}.") from exc
+        if int(uploaded.get("ContentLength") or 0) != zip_path.stat().st_size:
+            raise StoreBundleError(f"R2 size verification failed for {zip_path.name}.")
+        return object_key
+
+
 class ReelBundleBuilder:
     """Collect rendered clips into permanent local ZIP packs."""
 
-    def __init__(self, destination: Path, bundle_size: int = 50) -> None:
+    def __init__(
+        self,
+        destination: Path,
+        bundle_size: int = 50,
+        uploader: R2BundleUploader | None = None,
+    ) -> None:
         self.destination = destination
         self.bundle_size = bundle_size
+        self.uploader = uploader
 
     def create_ready_bundles(self, repository: JobRepository) -> list[StoreBundleResult]:
         self.destination.mkdir(parents=True, exist_ok=True)
@@ -43,6 +90,8 @@ class ReelBundleBuilder:
             if len(clips) < self.bundle_size:
                 break
             created.append(self._create_bundle(repository, clips))
+        if self.uploader:
+            self._upload_pending(repository)
         return created
 
     def _create_bundle(
@@ -102,6 +151,19 @@ class ReelBundleBuilder:
             raise
         finally:
             temporary.unlink(missing_ok=True)
+
+    def _upload_pending(self, repository: JobRepository) -> None:
+        assert self.uploader is not None
+        for bundle in repository.list_pending_store_uploads():
+            bundle_number = int(bundle["bundle_number"])
+            zip_path = Path(str(bundle["zip_path"]))
+            if not zip_path.is_file():
+                raise StoreBundleError(
+                    f"Local ZIP for Splitzzz pack {bundle_number:03d} is missing."
+                )
+            checksum = self._sha256(zip_path)
+            object_key = self.uploader.upload(zip_path, checksum)
+            repository.mark_store_bundle_uploaded(bundle_number, object_key)
 
     @staticmethod
     def _manifest(clips: list[JobClip]) -> str:

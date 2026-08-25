@@ -96,6 +96,7 @@ class Settings:
     instagram_graph_api_version: str
     instagram_hashtags_file: Path
     instagram_caption_mentions: str
+    instagram_caption_rotation_file: Path
     upload_instagram: bool
     youtube_description_target_chars: int
     instagram_caption_target_chars: int
@@ -127,6 +128,10 @@ class Settings:
     store_bundles_enabled: bool
     store_bundle_size: int
     store_bundle_dir: Path
+    r2_account_id: str
+    r2_access_key_id: str
+    r2_secret_access_key: str
+    r2_bucket_name: str
     rights_acknowledged: bool
     links_file: Path
     downloaded_links_log: Path
@@ -191,6 +196,9 @@ class Settings:
                 "INSTAGRAM_CAPTION_MENTIONS",
                 "@wzz.unfiltered @precious.tulip1",
             ).strip(),
+            instagram_caption_rotation_file=Path(
+                os.getenv("INSTAGRAM_CAPTION_ROTATION_FILE", "instagram_captions.txt")
+            ).expanduser(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
             youtube_description_target_chars=_int_env("YOUTUBE_DESCRIPTION_TARGET_CHARS", 4_200),
             instagram_caption_target_chars=_int_env("INSTAGRAM_CAPTION_TARGET_CHARS", 2_000),
@@ -234,6 +242,10 @@ class Settings:
             store_bundles_enabled=_bool_env("STORE_BUNDLES_ENABLED", True),
             store_bundle_size=_int_env("STORE_BUNDLE_SIZE", 50),
             store_bundle_dir=Path(os.getenv("STORE_BUNDLE_DIR", "store-bundles")).expanduser(),
+            r2_account_id=os.getenv("R2_ACCOUNT_ID", "").strip(),
+            r2_access_key_id=os.getenv("R2_ACCESS_KEY_ID", "").strip(),
+            r2_secret_access_key=os.getenv("R2_SECRET_ACCESS_KEY", "").strip(),
+            r2_bucket_name=os.getenv("R2_BUCKET_NAME", "").strip(),
             rights_acknowledged=_bool_env("RIGHTS_ACKNOWLEDGED", False),
             links_file=Path(os.getenv("LINKS_FILE", "links.txt")).expanduser(),
             downloaded_links_log=Path(
@@ -295,6 +307,17 @@ class Settings:
             raise ConfigurationError("INSTAGRAM_GRAPH_API_VERSION must look like v26.0.")
         if not 2 <= self.store_bundle_size <= 100:
             raise ConfigurationError("STORE_BUNDLE_SIZE must be between 2 and 100.")
+        r2_values = (
+            self.r2_account_id,
+            self.r2_access_key_id,
+            self.r2_secret_access_key,
+            self.r2_bucket_name,
+        )
+        if any(r2_values) and not all(r2_values):
+            raise ConfigurationError(
+                "R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and "
+                "R2_BUCKET_NAME must all be set together."
+            )
         if not 5 <= self.links_poll_seconds <= 3600:
             raise ConfigurationError("LINKS_POLL_SECONDS must be between 5 and 3600.")
         if not 5 <= self.credential_check_minutes <= 1_440:
@@ -400,6 +423,17 @@ class Settings:
                 mentions.append(token)
                 seen.add(normalized)
         return mentions
+
+    def instagram_caption_rotation(self) -> list[str]:
+        if not self.instagram_caption_rotation_file.exists():
+            return []
+        return [
+            line.strip()
+            for line in self.instagram_caption_rotation_file.read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line.strip()
+        ]
 
     def prepare_directories(self) -> None:
         self.work_dir.mkdir(parents=True, exist_ok=True)

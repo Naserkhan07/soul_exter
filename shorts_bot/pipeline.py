@@ -19,7 +19,7 @@ from .errors import UploadError, UploadLimitError, WorkflowError
 from .instagram import InstagramUploader
 from .media import MediaProcessor
 from .models import Job, JobClip, JobStatus, ShortPlan, SourceVideo
-from .store_bundles import ReelBundleBuilder
+from .store_bundles import R2BundleUploader, ReelBundleBuilder
 from .youtube import YouTubeUploader
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,20 @@ class WorkflowServices:
                 else None
             ),
             bundle_builder=(
-                ReelBundleBuilder(settings.store_bundle_dir, settings.store_bundle_size)
+                ReelBundleBuilder(
+                    settings.store_bundle_dir,
+                    settings.store_bundle_size,
+                    uploader=(
+                        R2BundleUploader(
+                            settings.r2_account_id,
+                            settings.r2_access_key_id,
+                            settings.r2_secret_access_key,
+                            settings.r2_bucket_name,
+                        )
+                        if settings.r2_account_id
+                        else None
+                    ),
+                )
                 if settings.store_bundles_enabled
                 else None
             ),
@@ -385,17 +398,24 @@ class WorkflowPipeline:
             pending.add("Instagram")
         return pending
 
-    def _instagram_plan(self, plan: ShortPlan, clip_index: int) -> ShortPlan:
+    def _instagram_plan(self, plan: ShortPlan, sequence_index: int) -> ShortPlan:
         hashtag_pool = self.settings.instagram_hashtags()
         rotated_pool: list[str] = []
         if hashtag_pool:
-            offset = ((clip_index - 1) * 30) % len(hashtag_pool)
+            offset = (sequence_index * 30) % len(hashtag_pool)
             rotated_pool = hashtag_pool[offset:] + hashtag_pool[:offset]
+        caption_rotation = self.settings.instagram_caption_rotation()
+        caption_body = (
+            caption_rotation[sequence_index % len(caption_rotation)]
+            if caption_rotation
+            else plan.instagram_caption
+        )
         caption = apply_instagram_hashtags(
-            plan.instagram_caption,
+            caption_body,
             rotated_pool,
             self.settings.instagram_caption_target_chars,
             mentions=self.settings.instagram_mentions(),
+            preserve_caption_hashtags=bool(caption_rotation),
         )
         return replace(plan, instagram_caption=caption)
 
@@ -561,7 +581,8 @@ class WorkflowPipeline:
             and not clip.instagram_media_id
             and "Instagram" not in blocked_platforms
         ):
-            instagram_plan = self._instagram_plan(plan, clip.clip_index)
+            sequence_index = self.repository.clip_sequence_index(job.id, clip.clip_index)
+            instagram_plan = self._instagram_plan(plan, sequence_index)
             if instagram_plan.instagram_caption != clip.instagram_caption:
                 clip = self.repository.update_clip(
                     job.id,
@@ -647,7 +668,7 @@ class WorkflowPipeline:
                 JobStatus.UPLOADING,
                 "Publishing existing Short to Instagram",
             )
-            instagram_plan = self._instagram_plan(plan, 1)
+            instagram_plan = self._instagram_plan(plan, 0)
             instagram_caption = instagram_plan.instagram_caption
             instagram = await self.services.instagram_uploader.upload(output_path, instagram_plan)
             instagram_media_id = instagram.media_id

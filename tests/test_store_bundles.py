@@ -19,12 +19,28 @@ def test_creates_verified_local_zip_packs_without_reusing_clips(tmp_path: Path) 
         video.write_bytes(f"video-{index}".encode())
         repository.update_clip(job.id, index, output_path=str(video))
 
-    builder = ReelBundleBuilder(tmp_path / "store-bundles", bundle_size=2)
+    uploaded: list[str] = []
+
+    class FakeUploader:
+        def upload(self, zip_path: Path, checksum: str) -> str:
+            assert len(checksum) == 64
+            uploaded.append(zip_path.name)
+            return f"bundles/{zip_path.name}"
+
+    builder = ReelBundleBuilder(
+        tmp_path / "store-bundles",
+        bundle_size=2,
+        uploader=FakeUploader(),  # type: ignore[arg-type]
+    )
     results = builder.create_ready_bundles(repository)
 
     assert [result.bundle_number for result in results] == [1, 2]
     assert all(result.clip_count == 2 for result in results)
-    assert len(repository.list_store_bundles()) == 2
+    bundles = repository.list_store_bundles()
+    assert len(bundles) == 2
+    assert uploaded == [result.zip_path.name for result in results]
+    assert all(str(bundle["website_object_key"]).startswith("bundles/") for bundle in bundles)
+    assert repository.list_pending_store_uploads() == []
     assert builder.create_ready_bundles(repository) == []
 
     with zipfile.ZipFile(results[0].zip_path) as archive:

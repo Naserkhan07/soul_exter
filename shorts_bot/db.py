@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS store_bundles (
     bundle_number INTEGER PRIMARY KEY,
     zip_path TEXT NOT NULL,
     clip_count INTEGER NOT NULL,
+    website_object_key TEXT,
+    website_uploaded_at TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -82,6 +84,10 @@ _CLIP_MIGRATION_COLUMNS = {
     "metadata_ready": "INTEGER NOT NULL DEFAULT 0",
     "enhancement_complete": "INTEGER NOT NULL DEFAULT 0",
 }
+_STORE_BUNDLE_MIGRATION_COLUMNS = {
+    "website_object_key": "TEXT",
+    "website_uploaded_at": "TEXT",
+}
 
 
 class JobRepository:
@@ -103,6 +109,14 @@ class JobRepository:
             for name, column_type in _CLIP_MIGRATION_COLUMNS.items():
                 if name not in existing_clip_columns:
                     connection.execute(f"ALTER TABLE job_clips ADD COLUMN {name} {column_type}")
+
+            existing_store_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(store_bundles)").fetchall()
+            }
+            for name, column_type in _STORE_BUNDLE_MIGRATION_COLUMNS.items():
+                if name not in existing_store_columns:
+                    connection.execute(f"ALTER TABLE store_bundles ADD COLUMN {name} {column_type}")
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -413,6 +427,27 @@ class JobRepository:
             ).fetchall()
         return [self._clip_from_row(row) for row in rows]
 
+    def clip_sequence_index(self, job_id: str, clip_index: int) -> int:
+        with self._connect() as connection:
+            current = connection.execute(
+                "SELECT created_at FROM jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            if current is None:
+                raise KeyError(f"Unknown job {job_id}")
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS preceding
+                FROM job_clips
+                JOIN jobs ON jobs.id = job_clips.job_id
+                WHERE jobs.created_at < ?
+                   OR (jobs.created_at = ? AND jobs.id < ?)
+                   OR (jobs.id = ? AND job_clips.clip_index < ?)
+                """,
+                (current["created_at"], current["created_at"], job_id, job_id, clip_index),
+            ).fetchone()
+        return int(row["preceding"])
+
     def next_store_bundle_number(self) -> int:
         with self._connect() as connection:
             row = connection.execute(
@@ -451,6 +486,30 @@ class JobRepository:
                 "SELECT * FROM store_bundles ORDER BY bundle_number"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_pending_store_uploads(self) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM store_bundles
+                WHERE website_object_key IS NULL
+                ORDER BY bundle_number
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_store_bundle_uploaded(self, bundle_number: int, object_key: str) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE store_bundles
+                SET website_object_key = ?, website_uploaded_at = ?
+                WHERE bundle_number = ?
+                """,
+                (object_key, self._now(), bundle_number),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"Unknown store bundle {bundle_number}")
 
     def fail_interrupted(self) -> int:
         running = (

@@ -105,6 +105,7 @@ def settings_for(tmp_path: Path) -> Settings:
         instagram_user_id="1789",
         instagram_access_token="token",
         instagram_hashtags_file=tmp_path / "instagram_hashtags.txt",
+        instagram_caption_rotation_file=tmp_path / "instagram_captions.txt",
         work_dir=tmp_path / "work",
         database_path=tmp_path / "work" / "jobs.db",
         youtube_token_file=tmp_path / "token.json",
@@ -235,10 +236,13 @@ async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> Non
     hashtag_file = tmp_path / "instagram_hashtags.txt"
     requested_tags = [f"#requested{index}" for index in range(36)]
     hashtag_file.write_text("\n".join(requested_tags), encoding="utf-8")
+    caption_file = tmp_path / "instagram_captions.txt"
+    caption_file.write_text("Caption A #special\nCaption B #other\n", encoding="utf-8")
     settings = replace(
         settings_for(tmp_path),
         archive_on_upload_limit=False,
         instagram_hashtags_file=hashtag_file,
+        instagram_caption_rotation_file=caption_file,
     )
     repository = JobRepository(settings.database_path)
     job = repository.create(0, 0, "https://youtu.be/example")
@@ -303,6 +307,8 @@ async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> Non
     assert all(
         caption.startswith("@wzz.unfiltered @precious.tulip1\n\n") for caption in instagram_captions
     )
+    assert "Caption A #special" in instagram_captions[0]
+    assert "Caption B #other" in instagram_captions[1]
     assert all("#oldtag" not in caption for caption in instagram_captions)
     assert clips[0].instagram_media_id is None
     assert clips[1].instagram_media_id == "instagram-40"

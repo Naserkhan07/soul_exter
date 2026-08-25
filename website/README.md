@@ -35,9 +35,15 @@ Vercel secrets (never commit them):
 
 - `RAZORPAY_KEY_ID`
 - `RAZORPAY_KEY_SECRET`
-- `SPLITZZZ_SELLABLE_PRODUCTS_JSON` — server-owned product IDs and paise amounts
+- `SPLITZZZ_SELLABLE_PRODUCTS_JSON` — server-owned product IDs, paise amounts, and private object keys
+- `R2_ACCOUNT_ID`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `R2_BUCKET_NAME`
 - `STORE_LIVE=true`
 
-Example product JSON: `{"pack-001":{"amount":30000}}`. The browser must never receive the Razorpay
-secret. Payment verification does not yet release a file; private storage fulfilment is deliberately
-left disabled until the selected storage phase begins.
+Example product JSON:
+`{"pack-001":{"name":"50 Reel Pack 001","reelCount":50,"amount":30000,"objectKeys":["bundles/splitzzz-reels-pack-001-50-reels.zip"]}}`.
+The browser never receives Razorpay or R2 secrets. ZIP objects remain private; after the server
+verifies a paid Razorpay order, it returns download URLs signed for only 15 minutes. Browser source
+and the public product catalog contain no permanent ZIP URL.
