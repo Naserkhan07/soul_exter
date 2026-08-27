@@ -101,6 +101,7 @@ def settings_for(tmp_path: Path) -> Settings:
         upload_youtube=True,
         upload_instagram=True,
         upload_facebook=False,
+        delete_uploaded_clips=False,
         shorts_selection_mode="ai_highlights",
         youtube_channel_id="UC123",
         instagram_user_id="1789",
@@ -546,3 +547,136 @@ async def test_pipeline_publishes_each_clip_to_facebook(tmp_path: Path) -> None:
     assert result.facebook_url == "https://www.facebook.com/reel/facebook-id"
     assert clip.facebook_video_id == "facebook-id"
     assert clip.facebook_url == "https://www.facebook.com/reel/facebook-id"
+
+
+async def test_deletes_clip_files_after_every_platform_upload(tmp_path: Path) -> None:
+    settings = replace(
+        settings_for(tmp_path),
+        upload_facebook=True,
+        delete_uploaded_clips=True,
+    )
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    class FakeFacebook:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> tuple[str, str]:
+            return "facebook-id", "https://www.facebook.com/reel/facebook-id"
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
+        facebook_uploader=FakeFacebook(),  # type: ignore[arg-type]
+    )
+
+    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+    clip = repository.list_clips(job.id)[0]
+    job_dir = settings.work_dir / "jobs" / job.id
+
+    assert result.status == JobStatus.COMPLETE
+    assert clip.youtube_video_id == "youtube-id"
+    assert clip.facebook_video_id == "facebook-id"
+    assert clip.output_path is None
+    assert clip.thumbnail_path is None
+    assert not list(job_dir.glob("short-*.mp4"))
+    assert not list(job_dir.glob("thumbnail-*.jpg"))
+    assert "deleted 1 fully published clip file(s)" in result.progress_message
+
+
+async def test_keeps_clip_files_while_any_platform_upload_is_pending(tmp_path: Path) -> None:
+    settings = replace(
+        settings_for(tmp_path),
+        upload_facebook=True,
+        delete_uploaded_clips=True,
+        archive_on_upload_limit=False,
+    )
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    class FailingFacebook:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> tuple[str, str]:
+            raise UploadError("temporary Facebook failure")
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
+        facebook_uploader=FailingFacebook(),  # type: ignore[arg-type]
+    )
+
+    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+    clip = repository.list_clips(job.id)[0]
+
+    assert result.status == JobStatus.COMPLETE
+    assert clip.facebook_video_id is None
+    assert clip.output_path is not None
+    assert Path(clip.output_path).exists()
+
+
+async def test_keeps_published_clip_files_until_they_are_bundled(tmp_path: Path) -> None:
+    from shorts_bot.store_bundles import ReelBundleBuilder
+
+    settings = replace(
+        settings_for(tmp_path),
+        delete_uploaded_clips=True,
+        store_bundles_enabled=True,
+        store_bundle_size=2,
+        store_bundle_dir=tmp_path / "store-bundles",
+    )
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
+        bundle_builder=ReelBundleBuilder(tmp_path / "store-bundles", 2),
+    )
+
+    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+    clip = repository.list_clips(job.id)[0]
+
+    # Only one clip exists and the bundle needs two, so the clip is not bundled yet
+    # and its local file must be preserved for the future Splitzzz pack.
+    assert result.status == JobStatus.COMPLETE
+    assert clip.youtube_video_id == "youtube-id"
+    assert clip.output_path is not None
+    assert Path(clip.output_path).exists()
+
+
+async def test_skips_reprocessing_clips_already_published_everywhere(tmp_path: Path) -> None:
+    settings = replace(settings_for(tmp_path), delete_uploaded_clips=True)
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
+    )
+    pipeline = WorkflowPipeline(settings, repository, services)
+
+    first_run = await pipeline.process(job.id)
+    assert first_run.status == JobStatus.COMPLETE
+    clip = repository.list_clips(job.id)[0]
+    assert clip.output_path is None  # deleted after publishing everywhere
+
+    # Reprocessing the job must not re-render or re-upload the published clip.
+    second_run = await pipeline.process(job.id, reuse_downloaded=True)
+    clip = repository.list_clips(job.id)[0]
+
+    assert second_run.status == JobStatus.COMPLETE
+    assert clip.output_path is None
+    assert clip.youtube_video_id == "youtube-id"

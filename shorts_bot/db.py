@@ -468,6 +468,15 @@ class JobRepository:
             ).fetchall()
         return [self._clip_from_row(row) for row in rows]
 
+    def bundled_clip_indexes(self, job_id: str) -> set[int]:
+        """Clip indexes of this job that are already part of a Splitzzz store bundle."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT clip_index FROM store_bundle_clips WHERE job_id = ?",
+                (job_id,),
+            ).fetchall()
+        return {int(row["clip_index"]) for row in rows}
+
     def clip_sequence_index(self, job_id: str, clip_index: int) -> int:
         with self._connect() as connection:
             current = connection.execute(

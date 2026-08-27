@@ -129,6 +129,7 @@ class Settings:
     work_dir: Path
     database_path: Path
     keep_work_files: bool
+    delete_uploaded_clips: bool
     store_bundles_enabled: bool
     store_bundle_size: int
     store_bundle_dir: Path
@@ -253,6 +254,7 @@ class Settings:
             work_dir=work_dir,
             database_path=database_path,
             keep_work_files=_bool_env("KEEP_WORK_FILES", True),
+            delete_uploaded_clips=_bool_env("DELETE_UPLOADED_CLIPS", True),
             store_bundles_enabled=_bool_env("STORE_BUNDLES_ENABLED", True),
             store_bundle_size=_int_env("STORE_BUNDLE_SIZE", 50),
             store_bundle_dir=Path(os.getenv("STORE_BUNDLE_DIR", "store-bundles")).expanduser(),

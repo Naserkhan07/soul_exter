@@ -496,7 +496,8 @@ shorts-cli --platform none "https://youtu.be/VIDEO_ID"
 | `OPEN_UPLOAD_LIMIT_FOLDER` | `true` | Open the completed folder in Windows Explorer |
 | `WORK_DIR` | `work` | Local media directory |
 | `DATABASE_PATH` | `work/jobs.db` | Local SQLite history |
-| `KEEP_WORK_FILES` | `true` | Keep local MP4s after publishing |
+| `KEEP_WORK_FILES` | `true` | Keep the job folder (source video) after publishing |
+| `DELETE_UPLOADED_CLIPS` | `true` | Delete each clip MP4/thumbnail once it is published on every platform and bundled |
 | `START_LOCAL_WEBSITE` | `true` | Start the storefront together with `main.py` |
 | `LOCAL_WEBSITE_HOST` | `127.0.0.1` | Keep the local preview accessible only from this computer |
 | `LOCAL_WEBSITE_PORT` | `8080` | Preferred local storefront port; launcher can fall forward to 8089 |

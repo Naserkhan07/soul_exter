@@ -357,6 +357,13 @@ class WorkflowPipeline:
                     logger.warning("Store bundle creation is pending: %s", exc)
                     progress += "; store bundle creation pending automatic retry"
 
+            if self.settings.delete_uploaded_clips:
+                deleted_clip_files = self._delete_published_clip_files(job, clips)
+                if deleted_clip_files:
+                    clips = self.repository.list_clips(job.id)
+                    first = clips[0]
+                    progress += f"; deleted {deleted_clip_files} fully published clip file(s)"
+
             completed = self.repository.update(
                 job.id,
                 status=JobStatus.COMPLETE,
@@ -423,6 +430,53 @@ class WorkflowPipeline:
             pending.add("Facebook")
         return pending
 
+    def _clip_published_everywhere(self, clip: JobClip) -> bool:
+        """True when every active upload platform already has this clip."""
+        checks: list[bool] = []
+        if self.services.youtube_uploader:
+            checks.append(bool(clip.youtube_video_id))
+        if self.services.instagram_uploader:
+            checks.append(bool(clip.instagram_media_id))
+        if self.services.facebook_uploader:
+            checks.append(bool(clip.facebook_video_id))
+        return bool(checks) and all(checks)
+
+    def _delete_published_clip_files(self, job: Job, clips: list[JobClip]) -> int:
+        """Remove local MP4s/thumbnails of clips that are published on every platform.
+
+        Files stay on disk while any enabled platform upload is pending, and, when
+        Splitzzz store bundles are enabled, until the clip is inside a bundle ZIP.
+        """
+        bundled: set[int] | None = None
+        if self.services.bundle_builder:
+            bundled = self.repository.bundled_clip_indexes(job.id)
+        job_dir = self.settings.work_dir / "jobs" / job.id
+        removed = 0
+        for clip in clips:
+            if not clip.output_path:
+                continue
+            if not self._clip_published_everywhere(clip):
+                continue
+            if bundled is not None and clip.clip_index not in bundled:
+                continue
+            candidates = [
+                Path(clip.output_path),
+                job_dir / f"short-{clip.clip_index:03d}.mp4",
+                job_dir / f"short-{clip.clip_index:03d}-enhanced.mp4",
+            ]
+            if clip.thumbnail_path:
+                candidates.append(Path(clip.thumbnail_path))
+            for candidate in candidates:
+                candidate.unlink(missing_ok=True)
+            self.repository.update_clip(
+                job.id,
+                clip.clip_index,
+                output_path=None,
+                thumbnail_path=None,
+            )
+            removed += 1
+        return removed
+
     def _instagram_plan(self, plan: ShortPlan, sequence_index: int) -> ShortPlan:
         hashtag_pool = self.settings.instagram_hashtags()
         rotated_pool: list[str] = []
@@ -463,6 +517,9 @@ class WorkflowPipeline:
         job_dir: Path,
         blocked_platforms: dict[str, str],
     ) -> JobClip:
+        if self._clip_published_everywhere(clip):
+            # Every enabled platform already has this clip; never re-render or re-upload it.
+            return clip
         plan = self._plan_from_clip(clip)
         output_path = (
             Path(clip.output_path)
