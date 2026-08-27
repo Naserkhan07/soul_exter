@@ -39,6 +39,10 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "YTDLP_COOKIE_FILE",
         "UPLOAD_YOUTUBE",
         "UPLOAD_INSTAGRAM",
+        "UPLOAD_FACEBOOK",
+        "FACEBOOK_PAGE_ID",
+        "FACEBOOK_ACCESS_TOKEN",
+        "FACEBOOK_GRAPH_API_VERSION",
         "STORE_BUNDLES_ENABLED",
         "STORE_BUNDLE_SIZE",
         "STORE_BUNDLE_DIR",
@@ -67,6 +71,8 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     monkeypatch.setenv("RIGHTS_ACKNOWLEDGED", "true")
     monkeypatch.setenv("WORK_DIR", str(tmp_path / "work"))
     monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(tmp_path / "missing.toml"))
+    monkeypatch.setenv("FACEBOOK_PAGE_ID", "123456")
+    monkeypatch.setenv("FACEBOOK_ACCESS_TOKEN", "page-token")
 
     settings = Settings.from_env(env_file=None)
     settings.validate_pipeline()
@@ -90,6 +96,10 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.instagram_mentions() == ["@wzz.unfiltered", "@precious.tulip1"]
     assert settings.upload_youtube is False
     assert settings.upload_instagram is False
+    assert settings.upload_facebook is True
+    assert settings.facebook_page_id == "123456"
+    assert settings.facebook_access_token == "page-token"
+    assert settings.facebook_graph_api_version == "v26.0"
     assert settings.store_bundles_enabled is True
     assert settings.store_bundle_size == 50
     assert settings.youtube_privacy_status == "public"
@@ -117,7 +127,8 @@ def test_migrates_retired_groq_models_to_qwen(monkeypatch: pytest.MonkeyPatch) -
 def test_reads_non_secret_ids_from_toml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config_file = tmp_path / "channels.toml"
     config_file.write_text(
-        '[youtube]\nchannel_id = "UC123"\n[instagram]\nuser_id = "1789"\n',
+        '[youtube]\nchannel_id = "UC123"\n[instagram]\nuser_id = "1789"\n'
+        '[facebook]\npage_id = "123"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("CHANNEL_CONFIG_FILE", str(config_file))
@@ -126,6 +137,7 @@ def test_reads_non_secret_ids_from_toml(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     assert settings.youtube_channel_id == "UC123"
     assert settings.instagram_user_id == "1789"
+    assert settings.facebook_page_id == "123"
 
 
 def test_reads_browser_cookie_configuration(

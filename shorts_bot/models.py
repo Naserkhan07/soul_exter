@@ -61,6 +61,8 @@ class JobClip:
     youtube_video_id: str | None
     instagram_media_id: str | None
     instagram_url: str | None
+    facebook_video_id: str | None
+    facebook_url: str | None
     error: str | None
 
     @property
@@ -86,6 +88,8 @@ class Job:
     youtube_video_id: str | None
     instagram_media_id: str | None
     instagram_url: str | None
+    facebook_video_id: str | None
+    facebook_url: str | None
     archive_path: str | None
     error: str | None
     created_at: str

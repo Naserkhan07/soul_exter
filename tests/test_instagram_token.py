@@ -1,8 +1,10 @@
 from pathlib import Path
 
 import httpx
+import pytest
 
 from shorts_bot.instagram_token import (
+    InstagramTokenError,
     exchange_long_lived_page_token,
     set_dotenv_value,
 )
@@ -27,6 +29,7 @@ def test_exchanges_user_token_and_selects_matching_page_token() -> None:
                         for permission in (
                             "pages_show_list",
                             "pages_read_engagement",
+                            "pages_manage_posts",
                             "instagram_basic",
                             "instagram_content_publish",
                         )
@@ -43,6 +46,7 @@ def test_exchanges_user_token_and_selects_matching_page_token() -> None:
                             "id": "page-123",
                             "name": "Splitzz Page",
                             "access_token": "long-page-token",
+                            "tasks": ["PROFILE_PLUS_CREATE_CONTENT"],
                             "instagram_business_account": {
                                 "id": "1789",
                                 "username": "splitzz.isodope",
@@ -58,6 +62,7 @@ def test_exchanges_user_token_and_selects_matching_page_token() -> None:
         "app-secret",
         "short-user-token",
         "splitzz.isodope",
+        require_facebook=True,
         transport=httpx.MockTransport(handler),
     )
 
@@ -65,6 +70,57 @@ def test_exchanges_user_token_and_selects_matching_page_token() -> None:
     assert page_name == "Splitzz Page"
     assert page_id == "page-123"
     assert len(requests) == 3
+
+
+def test_facebook_setup_requires_page_content_task() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v26.0/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "long-user-token"})
+        if request.url.path == "/v26.0/me/permissions":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"permission": permission, "status": "granted"}
+                        for permission in (
+                            "pages_show_list",
+                            "pages_read_engagement",
+                            "pages_manage_posts",
+                            "instagram_basic",
+                            "instagram_content_publish",
+                        )
+                    ]
+                },
+            )
+        if request.url.path == "/v26.0/me/accounts":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "page-123",
+                            "name": "Splitzz Page",
+                            "access_token": "long-page-token",
+                            "tasks": ["PROFILE_PLUS_ANALYZE"],
+                            "instagram_business_account": {
+                                "id": "1789",
+                                "username": "splitzz.isodope",
+                            },
+                        }
+                    ]
+                },
+            )
+        raise AssertionError(f"Unexpected request: {request.url}")
+
+    with pytest.raises(InstagramTokenError, match="CREATE_CONTENT"):
+        exchange_long_lived_page_token(
+            "app-id",
+            "app-secret",
+            "short-user-token",
+            "splitzz.isodope",
+            require_facebook=True,
+            transport=httpx.MockTransport(handler),
+        )
 
 
 def test_saves_page_token_without_duplicate_dotenv_entries(tmp_path: Path) -> None:

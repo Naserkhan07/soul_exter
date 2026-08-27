@@ -8,3 +8,7 @@ channel_id = ""
 [instagram]
 # Numeric Instagram Professional Account ID from the Meta Graph API
 user_id = ""
+
+[facebook]
+# Numeric Facebook Page ID connected to the Instagram professional account
+page_id = ""

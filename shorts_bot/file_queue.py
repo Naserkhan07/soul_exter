@@ -167,9 +167,13 @@ async def run_file_queue(
         instagram_ready = bool(
             settings.upload_instagram and "Instagram" not in services.unavailable_platforms
         )
+        facebook_ready = bool(
+            settings.upload_facebook and "Facebook" not in services.unavailable_platforms
+        )
         pending_jobs = repository.list_pending_upload_jobs(
             youtube=youtube_ready,
             instagram=instagram_ready,
+            facebook=facebook_ready,
             limit=settings.pending_retry_jobs_per_cycle,
         )
         for pending_job in pending_jobs:

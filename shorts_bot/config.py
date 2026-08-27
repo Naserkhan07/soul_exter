@@ -98,6 +98,10 @@ class Settings:
     instagram_caption_mentions: str
     instagram_caption_rotation_file: Path
     upload_instagram: bool
+    facebook_page_id: str
+    facebook_access_token: str
+    facebook_graph_api_version: str
+    upload_facebook: bool
     youtube_description_target_chars: int
     instagram_caption_target_chars: int
     groq_metadata_delay_seconds: int
@@ -200,6 +204,16 @@ class Settings:
                 os.getenv("INSTAGRAM_CAPTION_ROTATION_FILE", "instagram_captions.txt")
             ).expanduser(),
             upload_instagram=_bool_env("UPLOAD_INSTAGRAM", False),
+            facebook_page_id=(
+                os.getenv("FACEBOOK_PAGE_ID", "").strip()
+                or _nested_string(channel_config, "facebook", "page_id")
+            ),
+            facebook_access_token=(
+                os.getenv("FACEBOOK_ACCESS_TOKEN", "").strip()
+                or os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
+            ),
+            facebook_graph_api_version=os.getenv("FACEBOOK_GRAPH_API_VERSION", "v26.0").strip(),
+            upload_facebook=_bool_env("UPLOAD_FACEBOOK", True),
             youtube_description_target_chars=_int_env("YOUTUBE_DESCRIPTION_TARGET_CHARS", 4_200),
             instagram_caption_target_chars=_int_env("INSTAGRAM_CAPTION_TARGET_CHARS", 2_000),
             groq_metadata_delay_seconds=_int_env("GROQ_METADATA_DELAY_SECONDS", 30),
@@ -305,6 +319,8 @@ class Settings:
             raise ConfigurationError("YOUTUBE_PRIVACY_STATUS must be private, unlisted, or public.")
         if not re.fullmatch(r"v\d+\.\d+", self.instagram_graph_api_version):
             raise ConfigurationError("INSTAGRAM_GRAPH_API_VERSION must look like v26.0.")
+        if not re.fullmatch(r"v\d+\.\d+", self.facebook_graph_api_version):
+            raise ConfigurationError("FACEBOOK_GRAPH_API_VERSION must look like v26.0.")
         if not 2 <= self.store_bundle_size <= 100:
             raise ConfigurationError("STORE_BUNDLE_SIZE must be between 2 and 100.")
         r2_values = (
@@ -393,12 +409,25 @@ class Settings:
                 raise ConfigurationError(
                     "INSTAGRAM_ACCESS_TOKEN is required for Instagram publishing."
                 )
+        if self.upload_facebook:
+            if not self.facebook_page_id:
+                raise ConfigurationError(
+                    f"Add your numeric Facebook page_id to {self.channel_config_file}."
+                )
+            if not self.facebook_page_id.isdigit():
+                raise ConfigurationError("Facebook page_id must be numeric, not a Page name.")
+            if not self.facebook_access_token:
+                raise ConfigurationError(
+                    "FACEBOOK_ACCESS_TOKEN is required, or leave it blank to reuse "
+                    "INSTAGRAM_ACCESS_TOKEN."
+                )
 
     def validate_file_queue(self) -> None:
         self.validate_pipeline()
-        if not self.upload_youtube and not self.upload_instagram:
+        if not self.upload_youtube and not self.upload_instagram and not self.upload_facebook:
             raise ConfigurationError(
-                "Enable UPLOAD_YOUTUBE or UPLOAD_INSTAGRAM for the automated link queue."
+                "Enable UPLOAD_YOUTUBE, UPLOAD_INSTAGRAM, or UPLOAD_FACEBOOK for the "
+                "automated link queue."
             )
 
     def instagram_hashtags(self) -> list[str]:

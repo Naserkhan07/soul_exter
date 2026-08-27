@@ -100,6 +100,7 @@ def settings_for(tmp_path: Path) -> Settings:
         rights_acknowledged=True,
         upload_youtube=True,
         upload_instagram=True,
+        upload_facebook=False,
         shorts_selection_mode="ai_highlights",
         youtube_channel_id="UC123",
         instagram_user_id="1789",
@@ -240,6 +241,7 @@ async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> Non
     caption_file.write_text("Caption A #special\nCaption B #other\n", encoding="utf-8")
     settings = replace(
         settings_for(tmp_path),
+        upload_facebook=True,
         archive_on_upload_limit=False,
         instagram_hashtags_file=hashtag_file,
         instagram_caption_rotation_file=caption_file,
@@ -247,6 +249,7 @@ async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> Non
     repository = JobRepository(settings.database_path)
     job = repository.create(0, 0, "https://youtu.be/example")
     instagram_attempts: list[float] = []
+    facebook_attempts: list[float] = []
     instagram_captions: list[str] = []
     messages: list[str] = []
 
@@ -287,6 +290,13 @@ async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> Non
                 raise UploadError("temporary Instagram upload failure")
             return InstagramUploadResult("instagram-40", "https://instagram.com/reel/40")
 
+    class FlakyFacebook:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> tuple[str, str]:
+            facebook_attempts.append(plan.start_seconds)
+            if plan.start_seconds == 0:
+                raise UploadError("temporary Facebook upload failure")
+            return "facebook-40", "https://facebook.com/reel/40"
+
     async def notify(updated, message: str) -> None:  # noqa: ANN001
         messages.append(message)
 
@@ -297,12 +307,14 @@ async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> Non
         enhancer=None,
         youtube_uploader=MultiYouTube(),  # type: ignore[arg-type]
         instagram_uploader=FlakyInstagram(),  # type: ignore[arg-type]
+        facebook_uploader=FlakyFacebook(),  # type: ignore[arg-type]
     )
     result = await WorkflowPipeline(settings, repository, services, notify).process(job.id)
     clips = repository.list_clips(job.id)
 
     assert result.status == JobStatus.COMPLETE
     assert instagram_attempts == [0, 40]
+    assert facebook_attempts == [0, 40]
     assert all(caption.count("#") == 30 for caption in instagram_captions)
     assert all(
         caption.startswith("@wzz.unfiltered @precious.tulip1\n\n") for caption in instagram_captions
@@ -311,8 +323,10 @@ async def test_one_reel_failure_does_not_skip_later_reels(tmp_path: Path) -> Non
     assert "Caption B #other" in instagram_captions[1]
     assert all("#oldtag" not in caption for caption in instagram_captions)
     assert clips[0].instagram_media_id is None
+    assert clips[0].facebook_video_id is None
     assert clips[1].instagram_media_id == "instagram-40"
-    assert "Instagram uploads pending" in result.progress_message
+    assert clips[1].facebook_video_id == "facebook-40"
+    assert "Facebook and Instagram uploads pending" in result.progress_message
     assert services.unavailable_platforms == {}
     assert any("continue with the next Reel" in message for message in messages)
 
@@ -503,3 +517,32 @@ async def test_pipeline_can_resume_an_already_downloaded_job(tmp_path: Path) -> 
     assert result.status == JobStatus.COMPLETE
     assert JobStatus.DOWNLOADING not in statuses
     assert statuses[0] == JobStatus.ANALYZING
+
+
+async def test_pipeline_publishes_each_clip_to_facebook(tmp_path: Path) -> None:
+    settings = replace(settings_for(tmp_path), upload_facebook=True)
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+
+    class FakeFacebook:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> tuple[str, str]:
+            assert video_path.exists()
+            return "facebook-id", "https://www.facebook.com/reel/facebook-id"
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=FakeMedia(),  # type: ignore[arg-type]
+        planner=FakePlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
+        facebook_uploader=FakeFacebook(),  # type: ignore[arg-type]
+    )
+
+    result = await WorkflowPipeline(settings, repository, services).process(job.id)
+    clip = repository.list_clips(job.id)[0]
+
+    assert result.facebook_video_id == "facebook-id"
+    assert result.facebook_url == "https://www.facebook.com/reel/facebook-id"
+    assert clip.facebook_video_id == "facebook-id"
+    assert clip.facebook_url == "https://www.facebook.com/reel/facebook-id"
