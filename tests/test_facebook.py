@@ -128,3 +128,25 @@ def test_detects_facebook_reel_publishing_limit() -> None:
 
     with pytest.raises(UploadLimitError, match="Facebook upload limit reached"):
         FacebookReelUploader._raise_for_meta_error(response, "Facebook Reel publishing")
+
+
+def test_detects_facebook_spam_protection_block() -> None:
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://graph.facebook.com/video_reels"),
+        json={
+            "error": {
+                "code": 368,
+                "message": (
+                    "We limit how often you can post, comment or do other things in a "
+                    "given amount of time in order to help protect the community from "
+                    "spam. You can try again later."
+                ),
+            }
+        },
+    )
+
+    with pytest.raises(UploadLimitError, match="Facebook upload limit reached"):
+        FacebookReelUploader._raise_for_meta_error(
+            response, "Facebook Reel upload-session creation"
+        )

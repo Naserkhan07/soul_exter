@@ -258,9 +258,13 @@ class FacebookReelUploader:
             "publishing limit",
             "application request limit",
             "quota",
+            "limit how often you can post",
+            "temporarily blocked",
+            "temporarily restricted",
         )
         if (
             response.status_code == 429
+            or code == 368  # Meta spam protection: temporarily blocked from posting
             or any(marker in normalized for marker in limit_markers)
             or (code in {4, 17, 32, 613} and "limit" in normalized)
         ):
