@@ -162,13 +162,13 @@ async def run_file_queue(
             flush=True,
         )
         youtube_ready = bool(
-            settings.upload_youtube and "YouTube" not in services.unavailable_platforms
+            settings.upload_youtube and services.platform_unavailable("YouTube") is None
         )
         instagram_ready = bool(
-            settings.upload_instagram and "Instagram" not in services.unavailable_platforms
+            settings.upload_instagram and services.platform_unavailable("Instagram") is None
         )
         facebook_ready = bool(
-            settings.upload_facebook and "Facebook" not in services.unavailable_platforms
+            settings.upload_facebook and services.platform_unavailable("Facebook") is None
         )
         pending_jobs = repository.list_pending_upload_jobs(
             youtube=youtube_ready,

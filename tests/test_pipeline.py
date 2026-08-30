@@ -680,3 +680,67 @@ async def test_skips_reprocessing_clips_already_published_everywhere(tmp_path: P
     assert second_run.status == JobStatus.COMPLETE
     assert clip.output_path is None
     assert clip.youtube_video_id == "youtube-id"
+
+
+async def test_facebook_upload_limit_sets_cooldown_and_pauses_facebook(
+    tmp_path: Path,
+) -> None:
+    settings = replace(
+        settings_for(tmp_path),
+        upload_facebook=True,
+        facebook_limit_cooldown_hours=24.0,
+        archive_on_upload_limit=False,
+    )
+    repository = JobRepository(settings.database_path)
+    job = repository.create(0, 0, "https://youtu.be/example")
+    messages: list[str] = []
+
+    class MultiPlanner:
+        async def create_plans(
+            self, audio_path: Path, source: SourceVideo, max_clips: int
+        ) -> list[ShortPlan]:
+            return [
+                ShortPlan(0, 25, "First #Shorts", "First", "Instagram caption First"),
+                ShortPlan(40, 25, "Second #Shorts", "Second", "Instagram caption Second"),
+            ]
+
+    class MultiMedia(FakeMedia):
+        def render_short(
+            self,
+            source: Path,
+            output: Path,
+            start_seconds: float,
+            duration_seconds: float,
+        ) -> Path:
+            output.write_bytes(b"rendered")
+            return output
+
+    class LimitedFacebook:
+        async def upload(self, video_path: Path, plan: ShortPlan) -> tuple[str, str]:
+            raise UploadLimitError(
+                "Facebook",
+                "We limit how often you can post, comment or do other things in a "
+                "given amount of time in order to help protect the community from spam.",
+            )
+
+    async def notify(updated, message: str) -> None:  # noqa: ANN001
+        messages.append(message)
+
+    services = WorkflowServices(
+        downloader=FakeDownloader(),  # type: ignore[arg-type]
+        media=MultiMedia(),  # type: ignore[arg-type]
+        planner=MultiPlanner(),  # type: ignore[arg-type]
+        enhancer=None,
+        youtube_uploader=FakeYouTubeUploader(),  # type: ignore[arg-type]
+        instagram_uploader=FakeInstagramUploader(),  # type: ignore[arg-type]
+        facebook_uploader=LimitedFacebook(),  # type: ignore[arg-type]
+    )
+    result = await WorkflowPipeline(settings, repository, services, notify).process(job.id)
+    clips = repository.list_clips(job.id)
+
+    assert result.status == JobStatus.COMPLETE
+    assert all(clip.facebook_video_id is None for clip in clips)
+    # Facebook was attempted once, then paused for the cooldown window.
+    assert "Facebook" in services.platform_cooldowns
+    assert services.platform_unavailable("Facebook") is not None
+    assert any("pausing Facebook for 24h" in message for message in messages)

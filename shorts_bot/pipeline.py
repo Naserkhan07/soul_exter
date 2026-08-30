@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import shutil
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
@@ -39,6 +40,22 @@ class WorkflowServices:
     facebook_uploader: FacebookReelUploader | None = None
     bundle_builder: ReelBundleBuilder | None = None
     unavailable_platforms: dict[str, str] = field(default_factory=dict)
+    # monotonic time until which a platform is skipped after an upload-limit
+    # error, so Meta spam-protection blocks are allowed to lift instead of
+    # being renewed by repeated probing.
+    platform_cooldowns: dict[str, float] = field(default_factory=dict)
+
+    def platform_unavailable(self, name: str) -> str | None:
+        """Reason a platform should be skipped, or None if it may be tried."""
+        now = time.monotonic()
+        cooldown_until = self.platform_cooldowns.get(name, 0.0)
+        if now < cooldown_until:
+            return self.unavailable_platforms.get(name, f"{name} limit cooldown active")
+        if name in self.platform_cooldowns:
+            # Cooldown expired: allow a fresh attempt.
+            self.platform_cooldowns.pop(name, None)
+            self.unavailable_platforms.pop(name, None)
+        return self.unavailable_platforms.get(name)
 
     async def preflight(self) -> list[str]:
         """Check credentials before downloads and isolate unavailable upload platforms."""
@@ -263,7 +280,11 @@ class WorkflowPipeline:
                 full_transcript = await self.services.planner.transcribe(audio_path)
 
             uploaded_platforms = self._configured_platforms()
-            blocked_platforms: dict[str, str] = dict(self.services.unavailable_platforms)
+            blocked_platforms: dict[str, str] = {
+                name: reason
+                for name in ("YouTube", "Instagram", "Facebook")
+                if (reason := self.services.platform_unavailable(name)) is not None
+            }
             total_clips = len(clips)
             metadata_requests = 0
             for clip in clips:
@@ -747,6 +768,9 @@ class WorkflowPipeline:
                         facebook_video_id=facebook_video_id,
                         facebook_url=facebook_url,
                     )
+                # A successful post means the platform is healthy again.
+                self.services.platform_cooldowns.pop("Facebook", None)
+                self.services.unavailable_platforms.pop("Facebook", None)
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
@@ -755,10 +779,15 @@ class WorkflowPipeline:
             except UploadLimitError as exc:
                 blocked_platforms["Facebook"] = str(exc)
                 self.services.unavailable_platforms["Facebook"] = str(exc)
+                self.services.platform_cooldowns["Facebook"] = (
+                    time.monotonic() + self.settings.facebook_limit_cooldown_hours * 3600
+                )
                 await self._status(
                     job.id,
                     JobStatus.UPLOADING,
-                    "Facebook 30-per-day publishing limit reached; continuing local generation",
+                    f"Facebook upload limit reached; pausing Facebook for "
+                    f"{self.settings.facebook_limit_cooldown_hours:g}h to let the limit "
+                    f"lift, then it will retry automatically: {exc}",
                 )
             except UploadError as exc:
                 await self._status(

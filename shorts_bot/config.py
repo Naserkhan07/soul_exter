@@ -53,6 +53,16 @@ def _int_env(name: str, default: int) -> int:
         raise ConfigurationError(f"{name} must be an integer.") from exc
 
 
+def _float_env(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be a number.") from exc
+
+
 def _groq_model_env(name: str) -> str:
     configured = os.getenv(name, _DEFAULT_GROQ_MODEL).strip()
     return _DEPRECATED_GROQ_MODELS.get(configured, configured)
@@ -102,6 +112,7 @@ class Settings:
     facebook_access_token: str
     facebook_graph_api_version: str
     upload_facebook: bool
+    facebook_limit_cooldown_hours: float
     youtube_description_target_chars: int
     instagram_caption_target_chars: int
     groq_metadata_delay_seconds: int
@@ -215,6 +226,7 @@ class Settings:
             ),
             facebook_graph_api_version=os.getenv("FACEBOOK_GRAPH_API_VERSION", "v26.0").strip(),
             upload_facebook=_bool_env("UPLOAD_FACEBOOK", True),
+            facebook_limit_cooldown_hours=_float_env("FACEBOOK_LIMIT_COOLDOWN_HOURS", 24.0),
             youtube_description_target_chars=_int_env("YOUTUBE_DESCRIPTION_TARGET_CHARS", 4_200),
             instagram_caption_target_chars=_int_env("INSTAGRAM_CAPTION_TARGET_CHARS", 2_000),
             groq_metadata_delay_seconds=_int_env("GROQ_METADATA_DELAY_SECONDS", 30),

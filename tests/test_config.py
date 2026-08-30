@@ -43,6 +43,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "FACEBOOK_PAGE_ID",
         "FACEBOOK_ACCESS_TOKEN",
         "FACEBOOK_GRAPH_API_VERSION",
+        "FACEBOOK_LIMIT_COOLDOWN_HOURS",
         "STORE_BUNDLES_ENABLED",
         "STORE_BUNDLE_SIZE",
         "STORE_BUNDLE_DIR",
@@ -100,6 +101,7 @@ def test_reads_valid_local_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert settings.facebook_page_id == "123456"
     assert settings.facebook_access_token == "page-token"
     assert settings.facebook_graph_api_version == "v26.0"
+    assert settings.facebook_limit_cooldown_hours == 24.0
     assert settings.store_bundles_enabled is True
     assert settings.store_bundle_size == 50
     assert settings.youtube_privacy_status == "public"
