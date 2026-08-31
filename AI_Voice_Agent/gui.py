@@ -42,7 +42,7 @@ log = logging.getLogger("gui")
 
 
 class VoiceAgentGUI:
-    def __init__(self, root, cfg: dict, mock: bool = False):
+    def __init__(self, root, cfg: dict, mock: bool = False, source: str | None = None):
         import tkinter as tk
         from tkinter import ttk
 
@@ -97,7 +97,15 @@ class VoiceAgentGUI:
 
         tk.Label(settings, text="Audio source:", bg="#262e3d", fg="#e6edf3",
                  font=("Segoe UI", 11)).grid(row=0, column=2, sticky="e", padx=(24, 8))
-        self.source_var = tk.StringVar(value="Any app (system)")
+        # The dropdown defaults to whichever capture the config asks for
+        # ("device" -> Microphone, otherwise "Any app (system)"), unless the
+        # user forced it via --mic / --any.
+        _default_src = "Any app (system)"
+        if source:
+            _default_src = source
+        elif self.cfg["audio"]["input"].get("capture") == "device":
+            _default_src = "Microphone"
+        self.source_var = tk.StringVar(value=_default_src)
         cb = ttk.Combobox(settings, textvariable=self.source_var,
                           values=["Any app (system)", "Microphone"],
                           state="readonly", width=16)
@@ -391,7 +399,19 @@ def main():
     ap.add_argument("--mock", action="store_true",
                     help="force all providers to mock (fully offline)")
     ap.add_argument("--config", default=None, help="path to config.yaml")
+    src_grp = ap.add_mutually_exclusive_group()
+    src_grp.add_argument("--mic", action="store_true",
+                         help="hear the person via the microphone (default when "
+                              "audio.input.capture=device)")
+    src_grp.add_argument("--any", action="store_true",
+                         help="hear whatever plays on the PC (loopback / Stereo Mix)")
     args = ap.parse_args()
+
+    source = None
+    if args.mic:
+        source = "Microphone"
+    elif args.any:
+        source = "Any app (system)"
 
     cfg = load_config(args.config)
 
@@ -409,7 +429,7 @@ def main():
 
     import tkinter as tk
     root = tk.Tk()
-    VoiceAgentGUI(root, cfg, mock=args.mock)
+    VoiceAgentGUI(root, cfg, mock=args.mock, source=source)
     root.mainloop()
 
 
