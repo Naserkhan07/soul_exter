@@ -56,14 +56,25 @@ def get_hf_token():
 
 def load_model():
     from transformers import (
+        AutoConfig,
         Qwen2_5OmniForConditionalGeneration,
         Qwen2_5OmniProcessor,
     )
     hf_token = get_hf_token()
     print(f"Loading {MODEL_ID} ...")
+    # Some transformers versions ship a TalkerConfig WITHOUT pad_token_id, which
+    # crashes with 'Qwen2_5OmniTalkerConfig' has no attribute 'pad_token_id'.
+    # Patch every sub-config before loading the weights (harmless if present).
+    config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True, token=hf_token)
+    for _sub in ("talker_config", "thinker_config", "text_config"):
+        _sc = getattr(config, _sub, None)
+        if _sc is not None and not hasattr(_sc, "pad_token_id"):
+            _sc.pad_token_id = getattr(config, "pad_token_id", 151643)
+            print("patched", _sub, ".pad_token_id")
     model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
         MODEL_ID,
-        torch_dtype=torch.float16,
+        config=config,
+        torch_dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=True,
         token=hf_token,
