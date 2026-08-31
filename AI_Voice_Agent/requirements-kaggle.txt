@@ -1,0 +1,13 @@
+# Dependencies for the Qwen Omni Speech-to-Speech server (run on Kaggle GPU).
+# Install inside the Kaggle notebook — see scripts/kaggle/qwen_omni_server.ipynb
+transformers>=4.44
+accelerate
+torch>=2.1
+torchaudio
+soundfile
+librosa
+fastapi
+uvicorn
+python-multipart
+bitsandbytes
+pyngrok

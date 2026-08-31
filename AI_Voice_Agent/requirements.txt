@@ -1,0 +1,8 @@
+# ===== 100% FREE stack =====
+# requests + PyYAML: always needed
+requests>=2.31
+PyYAML>=6.0
+
+# edge-tts: FREE multilingual text-to-speech (Microsoft Edge voices, no API key).
+# This is the default TTS. If you skip it, switch tts.provider to "mock".
+edge-tts>=6.1

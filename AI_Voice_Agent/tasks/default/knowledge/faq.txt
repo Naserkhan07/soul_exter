@@ -1,0 +1,17 @@
+Q: Does the AI need a GPU or expensive hardware?
+A: No. Our recommended setup uses online speech models, so any laptop works.
+
+Q: Is it expensive to run?
+A: You can use free options like Edge voices for speech; the LLM and speech
+   models have free tiers. You pay only if you choose a paid provider.
+
+Q: Can it talk in Hindi or Urdu?
+A: Yes. It detects the person's language automatically and replies in the
+   same language.
+
+Q: Can I change what the AI talks about?
+A: Yes, instantly. You edit the task folder — no retraining.
+
+Q: Does it connect to a phone?
+A: Yes. It can use your microphone first, and later connect to a phone call
+   through an audio bridge.

@@ -1,0 +1,156 @@
+# =============================================================
+#  AI Voice Agent — configuration
+#  Every model provider is ONLINE (no local GPU required).
+#  Pick a provider per component; the rest are ignored.
+#  Set "mock" for every component to run a fully offline
+#  deterministic conversation (used for testing the logic).
+# =============================================================
+
+agent:
+  name: "AI_Voice_Agent"
+  task: "my_business"          # folder under ./tasks/ (e.g. default, my_business)
+  identity:
+    name: "Naveed"             # the agent's name (used in the Start greeting)
+    greeting: "Hi, I'm {name}."   # said when you press Start, before the opening
+  language: "auto"             # "auto" = detect from the person's speech each turn
+  fallback_language: "en"
+  reply_style: "conversational" # conversational | terse | helpful
+  max_turns: 1000
+  log_dir: "logs"
+  data_dir: "data"
+
+# ---------------- Speech-to-Text (listening) ----------------
+# FREE:  "groq"  (Whisper-large-v3 on Groq free tier — fast, multilingual)
+# paid:  "openai" (whisper-1), "deepgram" (nova-3)
+# offline: "mock"
+# For truly-free use keep "groq" (needs a free GROQ_API_KEY). Use --mock to
+# run fully offline with no key at all.
+stt:
+  provider: "groq"
+  groq:
+    model: "whisper-large-v3"
+  openai:
+    model: "whisper-1"
+    language: null               # null = auto
+  deepgram:
+    model: "nova-3"
+    smart_format: true
+    language: null
+
+# ---------------- Language model (understanding / speaking) --
+# FREE:  "groq"  (llama-3.3-70b on Groq free tier — very fast, multilingual)
+# free:  "gemini" (gemini-1.5-flash free tier)
+# paid:  "openai" (gpt-4o-mini)
+# offline: "mock"
+llm:
+  provider: "groq"
+  temperature: 0.6
+  max_tokens: 300
+  openai:
+    model: "gpt-4o-mini"
+    base_url: "https://api.openai.com/v1"
+  groq:
+    model: "llama-3.3-70b-versatile"
+    base_url: "https://api.groq.com/openai/v1"
+  gemini:
+    model: "gemini-1.5-flash"
+    base_url: "https://generativelanguage.googleapis.com/v1beta/models"
+
+# ---------------- Text-to-Speech (voice output) --------------
+# FREE:  "edge"  (Microsoft Edge TTS — 100% free, no API key, 100+ voices,
+#                 many languages incl. hi/ur/ar/te). Needs: pip install edge-tts
+# paid:  "openai", "elevenlabs"
+# offline: "mock"
+tts:
+  provider: "edge"
+  openai:
+    model: "gpt-4o-mini-tts"
+    voice: "alloy"              # alloy|echo|fable|onyx|nova|shimmer
+    output_format: "mp3"
+  elevenlabs:
+    voice: "Rachel"
+    model: "eleven_multilingual_v2"   # best multilingual quality
+  edge:
+    voice: "en-US-AriaNeural"    # pick per language at runtime when auto
+    rate: "+0%"
+
+# ---------------- Audio (real microphone/speaker on your PC) -
+audio:
+  input:
+    capture: "system_loopback"   # how the agent HEARS the person:
+                                 #   "system_loopback" = record what the system
+                                 #     is playing (the person's voice from the
+                                 #     call) — NO virtual cable needed
+                                 #   "device" = read from a specific input
+                                 #     device id below (e.g. a virtual cable)
+    device: null                 # only used when capture == "device"
+    sample_rate: 16000
+    channels: 1
+    chunk_ms: 30
+  output:
+    device: null                 # USB audio device the AGENT speaks into the
+                                 # phone call (set its id via --list-audio)
+    sample_rate: 24000
+  vad:
+    provider: "energy"           # "energy" (built-in) | "silero" (more accurate)
+    energy_threshold: 0.02       # RMS threshold in [-1,1] — 0.02 works for a
+                                 # call; raise if it picks up noise, lower if it
+                                 # misses soft speech
+    min_speech_ms: 350
+    silence_pad_ms: 300
+    min_silence_ms: 800          # end-of-speech detection
+  barge_in:
+    enabled: true                # stop talking when the person interrupts
+    sensitivity: 0.55
+
+# ---------------- Phone bridge -------------------------------
+# This is the "you dial, the agent talks" free workflow:
+#   bridge: "loopback"  -> route your MANUAL phone call (on your laptop or
+#                          phone) into the agent via a virtual audio cable
+#                          (VB-Cable, free). See phone/README.md.
+#   bridge: "none"      -> local mic + speaker (Stage 1 test, no phone).
+#   bridge: "twilio"    -> cloud telephony (PAID, per-minute).
+#   bridge: "audio"     -> physical phone via a USB audio interface.
+phone:
+  bridge: "loopback"
+  twilio:
+    account_sid: ""
+    auth_token: ""
+    from_number: ""
+  sip:
+    domain: ""
+    user: ""
+    password: ""
+
+# ---------------- Speech-to-Speech (ONE-model path) ------------
+# Replaces the separate STT + LLM + TTS pipeline with a single Qwen Omni
+# model that takes speech in and speaks the reply directly.
+#   mock         : offline test (no audio/GPU)
+#   qwen_kaggle  : Qwen Omni hosted on a free Kaggle GPU (scripts/kaggle/)
+#   qwen_omni    : Qwen Omni on your own GPU server
+# You pick EITHER the sst pipeline (stt+llm+tts) OR this sts path via main.py.
+sts:
+  provider: "mock"
+  qwen_omni:
+    url: "http://127.0.0.1:8501/sts"   # local Qwen server endpoint
+  qwen_kaggle:
+    url: ""                            # Kaggle tunnel URL (set at runtime)
+    model: "Qwen/Qwen2.5-Omni-3B-Instruct"
+
+# ---------------- Memory --------------------------------------
+memory:
+  type: "json"                   # json (simple, v1) | sqlite (later)
+  max_context_turns: 12          # most recent turns sent to the model
+  summarize_after: 30            # turns before we start summarising
+  persist: true                  # save each call transcript to data/conversations
+
+# ---------------- Model keys (also loaded from .env) ---------
+# You can put keys here OR in a .env file (recommended).
+# FREE stack needs ONLY the Groq key (STT + LLM). Edge TTS needs no key.
+keys:
+  groq: ""
+  gemini: ""                     # free-tier Gemini (optional)
+  openai: ""
+  deepgram: ""
+  elevenlabs: ""
+  qwen_url: ""                   # Kaggle Qwen STS tunnel URL (if using --sts)

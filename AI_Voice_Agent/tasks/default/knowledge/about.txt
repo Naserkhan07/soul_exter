@@ -1,0 +1,13 @@
+We are a small team that builds AI voice assistants that can hold real phone
+conversations with people.
+
+WHAT WE DO:
+- We build an AI that listens, understands, and speaks naturally on a live call.
+- The AI can be taught a specific subject and will only talk about that subject.
+- The AI follows the language of the person (English, Hindi, Urdu, Telugu, Arabic, and more).
+- The AI remembers the conversation during the call.
+
+WHAT WE PROVIDE:
+- A ready-to-use AI voice agent that runs from your own computer.
+- Easy setup: you just add a task folder describing your business.
+- No retraining needed to change the subject — you edit a text file.

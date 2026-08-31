@@ -1,0 +1,59 @@
+SERVICES — WHAT WE PROVIDE
+
+We provide a full spectrum of services engineered for regulated enterprise
+environments:
+
+1) POLARION ALM
+   Application Lifecycle Management for requirements, testing, compliance and
+   quality. Requirements management, ASPICE alignment, DO-178C support, test
+   management, defect management, reporting & analytics.
+
+2) MENDIX LOW-CODE
+   Rapidly build scalable enterprise applications with low-code technology.
+   Workflow automation, change & configuration management, engineering
+   collaboration, lifecycle visualization, rapid deployment, business/IT
+   collaboration.
+
+3) TEAMCENTER PLM (Product Lifecycle Management)
+   Teamcenter unifies product data, processes and people across the lifecycle —
+   establishing a true end-to-end digital thread. Product data management,
+   change management, configuration management, engineering collaboration,
+   lifecycle visualization, supplier collaboration.
+
+4) AI & MACHINE LEARNING
+   Intelligent automation engineered for business outcomes. Predictive
+   analytics, AI agents & assistants, computer vision, process automation,
+   data modeling, business intelligence.
+
+5) CUSTOM SOFTWARE
+   End-to-end custom development — web applications, mobile applications,
+   cloud-native software, API integrations, UI/UX design, enterprise
+   integration.
+
+6) DIGITAL TRANSFORMATION CONSULTING
+   Advisory that turns ambition into a roadmap. Business assessment, digital
+   strategy, architecture roadmaps, governance, technology adoption, operating
+   model design.
+
+7) ASPICE CONSULTING (Automotive SPICE)
+   ASPICE gap analysis, process implementation, assessment preparation,
+   process optimization, internal audits, reference model alignment.
+
+8) FUNCTIONAL SAFETY
+   Hazard analysis & risk assessment, safety lifecycle management, ASIL
+   classification, compliance support, safety validation & verification, safety
+   case development.
+
+9) CYBERSECURITY
+   Threat analysis & risk assessment, secure architecture, vulnerability
+   assessment, penetration testing, compliance audits, security audits.
+
+10) DIGITAL MARKETING
+    Full-funnel digital marketing. Search engine optimization (SEO), social
+    media marketing, paid advertising/PPC, content strategy, brand strategy,
+    analytics & reporting.
+
+11) CUSTOMIZED SOLUTIONS
+    We don't build one-size-fits-all. Custom application development,
+    enterprise integration, cloud solutions, business-specific automation,
+    customer-experience improvement, operational automation.
