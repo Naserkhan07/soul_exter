@@ -67,6 +67,7 @@ def load_model():
         AutoConfig,
         Qwen2_5OmniForConditionalGeneration,
         Qwen2_5OmniProcessor,
+        BitsAndBytesConfig,
     )
     hf_token = get_hf_token()
     print(f"Loading {MODEL_ID} ...")
@@ -79,10 +80,15 @@ def load_model():
         if _sc is not None and not hasattr(_sc, "pad_token_id"):
             _sc.pad_token_id = getattr(config, "pad_token_id", 151643)
             print("patched", _sub, ".pad_token_id")
+    # 4-bit quantization is ESSENTIAL: bf16 of this ~6B model uses ~12GB, which
+    # leaves no room for the audio-codec (DiT) generation -> CUDA out of memory.
+    bnb = BitsAndBytesConfig(load_in_4bit=True,
+                             bnb_4bit_compute_dtype=torch.float16,
+                             bnb_4bit_quant_type="nf4")
     model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
         MODEL_ID,
         config=config,
-        torch_dtype=torch.bfloat16,
+        quantization_config=bnb,
         device_map="auto",
         trust_remote_code=True,
         token=hf_token,
@@ -140,7 +146,7 @@ def make_app(model, processor):
 
         text = processor.apply_chat_template(messages, tokenize=False,
                                              add_generation_prompt=True)
-        inputs = processor(text=text, audios=[audio], return_tensors="pt",
+        inputs = processor(text=text, audio=[audio], return_tensors="pt",
                            padding=True)
         inputs = {k: v.to(model.device) if torch.is_tensor(v) else v
                   for k, v in inputs.items()}
@@ -177,7 +183,7 @@ def gen_kwargs():
         "top_p": 0.95,
         "top_k": 20,
         "do_sample": True,
-        "max_new_tokens": 256,
+        "max_new_tokens": 160,
     }
 
 
