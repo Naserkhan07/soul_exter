@@ -1,0 +1,31 @@
+POD PRICING — TEAM-BASED ENGAGEMENT PLANS
+
+We offer flexible team "pods" for ongoing delivery. These are monthly
+team-based plans:
+
+1) SMALL POD — $7000
+   Designed for stabilizing existing projects and managing support.
+   - Dedicated Team
+   - Blend of Mid-Level and Senior Developers
+   - SLA or SOW driven
+   - Team: 2 Developers, 1 Automation Test Engineer
+
+2) MEDIUM POD — $11000
+   Designed for increasing development capacity.
+   - All features of Small Pod
+   - 50% Solution Architect
+   - 100% Business Analyst at no cost
+   - 50% Project Manager
+   - Team: 2 Developers, 1 Lead Developer, 1 Automation Test Engineer, 1 BA, 1 PM
+
+3) LARGE POD — $15000
+   Designed for large-scale deliveries.
+   - All features of Medium Pod
+   - No-cost dedicated Project Manager
+   - No-cost dedicated Business Analyst
+   - No-cost dedicated Solution Architect
+   - Team: 2 Developers, 1 Lead Developer, 1 Solution Architect,
+     1 Automation Test Engineer, 1 BA, 1 PM
+
+If the person asks for exact pricing for a custom project (not a pod), say a
+team member will follow up with a tailored quote.

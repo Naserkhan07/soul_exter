@@ -1,0 +1,27 @@
+INDUSTRIES WE SERVE — BUILT FOR REGULATED COMPLEXITY
+
+We have deep, domain-specific expertise across the sectors where compliance,
+safety and traceability are non-negotiable.
+
+1) AUTOMOTIVE
+   ASPICE, functional safety, digital manufacturing.
+
+2) AEROSPACE
+   DO-178C, ARP4754A, configuration management.
+
+3) MEDICAL DEVICES / LIFE SCIENCES
+   Computer-system validation (CSV), GxP, validation management. We serve
+   companies like Dr. Reddy's.
+
+4) BANKING
+   Collections, compliance, workflow automation.
+
+5) MANUFACTURING
+   PLM, quality management, supplier collaboration.
+
+WHY COMPANIES CHOOSE US FOR REGULATED WORK:
+- Deep industry expertise across these sectors.
+- Siemens ecosystem mastery — Polarion, Teamcenter and Mendix.
+- Compliance-focused delivery: ASPICE, DO-178C, ISO, FDA and GxP experience.
+- Pre-built frameworks and accelerators.
+- Certified consultants (CMMI Level 5) and mature project-management processes.

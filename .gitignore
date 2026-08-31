@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Secrets
+.env
+
+# Conversation logs / audio
+AI_Voice_Agent/logs/*
+!AI_Voice_Agent/logs/.gitkeep
+AI_Voice_Agent/data/conversations/*
+!AI_Voice_Agent/data/conversations/.gitkeep
+*.wav
+*.mp3
+*.jsonl

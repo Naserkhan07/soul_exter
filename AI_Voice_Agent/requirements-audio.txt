@@ -1,0 +1,22 @@
+# Real audio + the loopback phone bridge on your PC
+# pip install -r requirements-audio.txt
+#
+# IMPORTANT: these MUST be recent — WASAPI system loopback needs
+#   sounddevice >= 0.4.4  (WasapiSettings(loopback=True))
+# and soundcard must be recent too. If the agent isn't hearing the person,
+# force-upgrade them:
+#   pip install -U sounddevice soundcard numpy soundfile
+sounddevice>=0.4.6
+numpy>=1.24
+soundfile>=0.12
+
+# WASAPI system-loopback capture on Windows — lets the agent HEAR the person's
+# voice from the system output without a virtual cable (phone via USB).
+soundcard>=0.4.3
+
+# FREE multilingual neural TTS (already in requirements.txt — Microsoft Edge)
+# edge-tts>=6.1
+
+# More accurate voice-activity detection (optional; heavier)
+# torch==2.2.2
+# silero-vad

@@ -1,0 +1,68 @@
+Q: Who are you / what company is this?
+A: We're Maqsusi Digital Industries Software — MDIS. We're a digital-engineering
+   and digital-transformation partner for regulated industries like automotive,
+   aerospace, medical devices, banking and manufacturing.
+
+Q: What does your company do?
+A: We help companies modernize their engineering and operations using the
+   Siemens ecosystem — Polarion, Teamcenter and Mendix — plus AI/ML and custom
+   software. We also provide digital services like websites, SEO, digital
+   marketing, apps and AI workflows.
+
+Q: What is Polarion?
+A: Polarion is a browser-based Application Lifecycle Management (ALM) platform
+   by Siemens. It lets engineering teams manage requirements, development,
+   testing and release in one connected place, with end-to-end traceability and
+   compliance support. It's widely used in automotive, aerospace and medical
+   devices.
+
+Q: Can you explain Polarion in detail?
+A: Of course. Polarion is an ALM platform. Instead of using separate tools for
+   requirements, tests and code, Polarion keeps them linked in one system. When
+   a requirement changes, you instantly see which code and tests are affected.
+   It supports automated workflows, real-time collaboration, and helps with
+   standards like ASPICE, ISO 26262, IEC 62304, DO-178C and FDA/GxP. That's why
+   companies in automotive, aerospace and medical devices use it. We implement,
+   customise, migrate, train and support Polarion, and we also have our own
+   Polarion marketplace apps for reporting and traceability.
+
+Q: Do you work with Mendix?
+A: Yes. We're a Mendix specialist. We build enterprise applications quickly
+   with low-code, including workflow automation, integrations and rapid
+   deployment.
+
+Q: Do you work with Teamcenter?
+A: Yes. We deliver Teamcenter PLM solutions that unify product data, processes
+   and people across the product lifecycle.
+
+Q: Do you build websites and apps?
+A: Yes. We build custom websites with modern UI/UX, web and mobile applications,
+   and cloud-native software.
+
+Q: Do you provide SEO and digital marketing?
+A: Yes. We do full-funnel digital marketing including SEO, social media, paid
+   advertising, content and brand strategy, and analytics.
+
+Q: Do you work with AI?
+A: Yes. We build AI/ML solutions — predictive analytics, AI assistants and AI
+   voice agents, computer vision, process automation and business intelligence.
+
+Q: Which industries do you work with?
+A: Automotive, aerospace, medical devices / life sciences, banking and
+   manufacturing. We're a Siemens Channel Partner with CMMI Level 5 and
+   ISO 9001:2015.
+
+Q: Do you have ready-made products?
+A: Yes. We have Polarion and Mendix marketplace apps, and LGS core products
+   including DigiVal, ATS & CRM 360, Talent Trace, Engage 360 and Collection
+   Management, which serve life sciences, banking and recruitment.
+
+Q: How much do your services cost?
+A: For team-based engagements we have pod plans — Small $7000, Medium $11000
+   and Large $15000 per month. For a custom project quote, a team member will
+   follow up with exact pricing.
+
+Q: Who are some of your clients?
+A: We serve industry leaders like Siemens, Dr. Reddy's, MRPL, Skyroot, ZF and
+   Rane, and we've delivered for automotive, aerospace, life sciences, banking
+   and manufacturing.

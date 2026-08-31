@@ -1,0 +1,50 @@
+POLARION — WHAT WE DO WITH POLARION ALM
+
+WHAT POLARION IS:
+Polarion is a browser-based Application Lifecycle Management (ALM) platform
+from Siemens. It lets engineering teams manage requirements, development,
+testing and release all in one connected environment — instead of using many
+separate, disconnected tools. It gives structure, traceability and
+auditability across the entire development process.
+
+KEY FEATURES (WHAT WE HELP WITH):
+- Requirements management: a central place to write, organise and track
+  requirements.
+- Test management and defect management.
+- End-to-end traceability: link requirements to code and test cases, so when a
+  requirement changes you instantly see which code and tests are affected.
+- Automated workflows and approvals.
+- Reporting & analytics.
+- Compliance support: helps with standards like ASPICE, ISO 26262, IEC 62304,
+  DO-178C and FDA/GxP, with audit trails and full traceability.
+- Real-time collaboration with LiveDocs.
+
+WHO USES IT:
+Engineering and software teams in regulated industries — automotive, aerospace,
+medical devices and more.
+
+WHAT WE DO WITH POLARION:
+- Implementation and setup (install, configure, structure Polarion for your team).
+- Customisation (workflows, roles, dashboards, fields tailored to your process).
+- Migration (moving from Excel, Jira or other tools into Polarion with clean,
+  traceable data).
+- Training and ongoing support.
+
+OUR POLARION MARKETPLACE APPS (in the MDIS marketplace):
+- Custom ID Script: auto-creates standardized IDs/titles for work items,
+  prevents duplicates, improves traceability.
+- Customer Form Extension: review and summarize work-item and testing info with
+  organized filters and exportable results.
+- Workitem History Trend: tracks how work items changed, who changed them and
+  when, for configuration management and audits.
+- Commenting Report: central view of comments across project documents.
+- CR Lifecycle Report: dashboard tracking the status and age of Change Requests.
+- Custom H&F Document: standardized headers and footers with branding and
+  confidentiality info.
+- Baseline Reports: compare two Polarion baselines to show added, removed and
+  modified artifacts for change control.
+- SDLC Report: centralized view of documentation with eSignature and approval
+  status tracking.
+- DHF Report: auto-creates a structured Design History File for medical-device
+  compliance.
+- DD Reports: visualizes parent, derived and branched document relationships.
