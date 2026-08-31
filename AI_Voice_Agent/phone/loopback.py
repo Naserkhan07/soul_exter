@@ -235,6 +235,7 @@ class LoopbackBridge:
         self.cfg = cfg or LoopbackConfig()
         self.on_utterance = on_utterance   # gets a speech segment (float32 @16k)
         self.on_transcript = on_transcript or (lambda text: None)
+        self.on_level = None               # optional: on_level(samples) for meters
         self._speaking = threading.Event()
         self._stop = threading.Event()
         self._suppress_capture = False
@@ -267,6 +268,11 @@ class LoopbackBridge:
     def _feed_chunk(self, samples: np.ndarray) -> None:
         if self._stop.is_set():
             return
+        if self.on_level:
+            try:
+                self.on_level(samples)
+            except Exception:
+                pass
         # While the agent is speaking through the speakers (no USB output), the
         # loopback would hear its own voice. Suppress capture then so it doesn't
         # reply to itself. (With a USB output device there's no loopback of its

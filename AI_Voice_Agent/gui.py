@@ -140,6 +140,20 @@ class VoiceAgentGUI:
         tk.Label(self.root, textvariable=self.status_var, bg="#1e2430",
                  fg="#58a6ff", font=("Segoe UI", 11, "bold")).pack(pady=(4, 2))
 
+        # ---- audio input meter (shows whether the agent is HEARING anything) --
+        meter = tk.Frame(self.root, bg="#1e2430")
+        meter.pack(fill="x", padx=12, pady=(0, 2))
+        tk.Label(meter, text="🎧 Hearing:", bg="#1e2430", fg="#9fb3c8",
+                 font=("Segoe UI", 10)).pack(side="left")
+        self.meter_bar = tk.Frame(meter, width=260, height=12, bg="#0f1420",
+                                  highlightthickness=1, highlightbackground="#333")
+        self.meter_bar.pack(side="left", padx=8)
+        self.meter_fill = tk.Frame(self.meter_bar, width=0, height=12, bg="#2ea043")
+        self.meter_fill.pack(side="left")
+        self.meter_var = tk.StringVar(value="0% (speak to test)")
+        tk.Label(meter, textvariable=self.meter_var, bg="#1e2430", fg="#58a6ff",
+                 font=("Consolas", 9)).pack(side="left")
+
         # ---- lead panel ----
         lead_frame = tk.Frame(self.root, bg="#262e3d", relief="flat")
         lead_frame.pack(fill="x", **pad)
@@ -213,6 +227,16 @@ class VoiceAgentGUI:
     def _set_status(self, text: str, color: str = "#58a6ff"):
         self.status_var.set(text)
         self.root.children  # noop to keep ref
+
+    def _set_level(self, pct: int, speaking: bool):
+        """Update the audio-input meter from the capture feed."""
+        try:
+            w = max(0, min(260, int(260 * pct / 100)))
+            self.meter_fill.configure(width=w,
+                                      bg="#3fb950" if speaking else "#2ea043")
+            self.meter_var.set(f"{pct}% {'(SPEECH)' if speaking else ''}")
+        except Exception:
+            pass
 
     def _refresh_lead(self):
         """Push the current lead state to the lead panel."""
@@ -307,6 +331,15 @@ class VoiceAgentGUI:
             bridge.open()
             self._ui(self._set_status, f"● Speaking to person ({source}) ...")
 
+            # Live audio-level meter: report RMS of what we're hearing so you can
+            # SEE whether the person's voice is actually reaching the agent.
+            import numpy as _np
+            def _level(samples):
+                rms = float(_np.sqrt(_np.mean(samples.astype(_np.float32) ** 2)))
+                pct = int(min(100, max(0, rms * 2000)))
+                self._ui(self._set_level, pct, pct > 2)
+            bridge.on_level = _level
+
             # 1) introduce yourself, 2) task opening, 3) conversation loop
             greeting = self.cfg["agent"]["identity"].get("greeting", "Hi, I'm {name}.")
             say(greeting.format(name=name))
@@ -360,6 +393,19 @@ def main():
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+
+    # Diagnostic: show Python version + audio devices up front so we can confirm
+    # the agent is running on the right interpreter and can see the loopback.
+    import sys as _sys
+    log.info("Python: %s.%s.%s (%s)",
+             _sys.version_info[0], _sys.version_info[1], _sys.version_info[2], _sys.executable)
+    try:
+        from phone.loopback import list_devices
+        for row in list_devices():
+            log.info("AUDIO  %s", row)
+    except Exception as e:
+        log.warning("Could not list audio devices: %s", e)
+
     import tkinter as tk
     root = tk.Tk()
     VoiceAgentGUI(root, cfg, mock=args.mock)

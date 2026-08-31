@@ -25,13 +25,37 @@ REQUIRED = ["tkinter"]
 
 
 def _python() -> list[str]:
-    """Prefer the project venv if present, else the active interpreter."""
+    """Pick the best Python interpreter.
+
+    Order of preference:
+      1. Project venv (scripts/setup_windows.bat creates one).
+      2. Python 3.12 (best for the Windows audio libs) if a `py` launcher or a
+         python3.12.exe is available.
+      3. Whatever `python` is on the PATH.
+    """
     venv = ROOT / "venv" / "Scripts" / "python.exe"  # Windows
     if venv.exists():
         return [str(venv)]
     venv = ROOT / "venv" / "bin" / "python"          # Linux/macOS
     if venv.exists():
         return [str(venv)]
+
+    # Prefer Python 3.12 on Windows — the audio libraries (sounddevice,
+    # soundcard) are proven there; very new Pythons (3.13/3.14) often break
+    # WASAPI loopback. Try the py launcher first, then a direct 3.12 path.
+    if sys.platform.startswith("win"):
+        for cand in (
+            ["py", "-3.12"],
+            [str(Path(sys.prefix).parent / "python3.12.exe")],
+        ):
+            try:
+                r = subprocess.run(cand + ["-c", "import sys; print(sys.version_info[:2])"],
+                                   capture_output=True, timeout=10)
+                if r.returncode == 0 and r.stdout.decode().strip().startswith("(3, 12"):
+                    return cand
+            except Exception:
+                pass
+
     return [sys.executable]
 
 
