@@ -138,22 +138,39 @@ def test_lead_capture():
     assert lead.completeness >= 1.0
 
 
-def test_web_channel_session_and_lead():
-    """A channel runs the agent with per-session memory + lead capture."""
+def test_controller_lead_capture_flow():
+    """The controller captures a full lead across turns (name + contact + interest)."""
     from config import load_config
     from main import build_controller
-    from channels.base import ChannelBroker
-    from channels.broker import _controller_factory
-    from channels.web import WebChannel
 
     cfg = load_config()
-    broker = ChannelBroker(_controller_factory(cfg, mock=True))
-    web = WebChannel(broker, {"port": 8770}, mock=True)
-    r1 = web._api_message({"text": "My name is Sarah"})
-    assert "Sarah" in r1["lead"]["name"]
-    r2 = web._api_message({"text": "I need SEO for my shop, call me at 9988776655"})
-    assert r2["lead"]["captured"] is True
-    assert r2["lead"]["interest"] == "SEO"
+    ctrl = build_controller(cfg, mock=True)
+    ctrl.start_call()
+    ctrl.update_lead("My name is Sarah")
+    ctrl.update_lead("I need SEO for my shop, call me at 9988776655")
+    lead = ctrl.lead
+    assert lead.name == "Sarah"
+    assert lead.captured is True
+    assert lead.interest == "SEO"
+
+
+def test_multilingual_reply_language():
+    """The agent replies in the person's language (auto-detect)."""
+    from models.llm.mock_llm import detect_language
+    from config import load_config
+    from main import build_controller
+    ctrl = build_controller(load_config(), mock=True)
+    ctrl.start_call()
+    cases = [
+        ("नमस्ते, मुझे पोलारियन के बारे में बताओ", "hi"),
+        ("مجھے آپ کی خدمات کے بارے میں بتائیں", "ur"),
+        ("మీ సేవల గురించి చెప్పండి", "te"),
+        ("أخبرني عن خدماتكم", "ar"),
+        ("Tell me about your services", "en"),
+    ]
+    for text, expected in cases:
+        lang = detect_language(text)
+        assert lang == expected, f"{text!r} -> {lang}, expected {expected}"
 
 
 def _run_all():

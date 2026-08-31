@@ -71,7 +71,10 @@ class TaskProfile:
         lines.append("## SAFETY (never overridden)\n" + _DEFAULT_SAFETY)
         lines.append(
             "## CONVERSATION\n"
-            "Speak in the SAME language the person used in their last message.\n"
+            "Detect the language of the person's latest message and reply in EXACTLY that "
+            "language, fluently and naturally (English, Hindi, Urdu, Telugu, Arabic, and any "
+            "language they speak). Never switch language mid-reply and never answer in English "
+            "when they spoke another language.\n"
             "Keep spoken replies short and natural — like a phone conversation, not an essay.\n"
             "If the message is a greeting, greet back briefly. If it is a question, answer from "
             "knowledge. Ask a follow-up when it helps the conversation."

@@ -11,10 +11,12 @@ Usage:
     python gui.py --mock           # fully offline (no keys, no internet)
 
 Audio source is chosen in the window:
-    * "Phone (USB)"  -> hears the person from the SYSTEM output (WASAPI
-                        loopback), replies through your USB audio device.
-    * "Laptop (mic)" -> hears the person from your microphone, replies through
-                        your speakers.
+    * "Any app (system)" -> hears the person from whatever the SYSTEM is
+                            playing (phone call, WhatsApp, Teams, Zoom,
+                            Messenger...), replies through your USB/speaker
+                            device. Generic — works with any app.
+    * "Microphone"       -> hears the person from your microphone, replies
+                            through your speakers.
 """
 
 from __future__ import annotations
@@ -84,10 +86,10 @@ class VoiceAgentGUI:
 
         tk.Label(settings, text="Audio source:", bg="#262e3d", fg="#e6edf3",
                  font=("Segoe UI", 11)).grid(row=0, column=2, sticky="e", padx=(24, 8))
-        self.source_var = tk.StringVar(value="Phone (USB)")
+        self.source_var = tk.StringVar(value="Any app (system)")
         cb = ttk.Combobox(settings, textvariable=self.source_var,
-                          values=["Phone (USB)", "Laptop (mic)"],
-                          state="readonly", width=14)
+                          values=["Any app (system)", "Microphone"],
+                          state="readonly", width=16)
         cb.grid(row=0, column=3, sticky="w", padx=8)
 
         # ---- buttons ----
@@ -223,11 +225,11 @@ class VoiceAgentGUI:
             opening = ctrl.start_call()
 
             # Build the loopback config for the chosen source
-            if source.startswith("Phone"):
+            if source.startswith("Any"):
                 capture = "system_loopback"      # hear the person from system out
                 output_device = self.cfg["audio"]["output"].get("device")
                 output_sr = self.cfg["audio"]["output"].get("sample_rate", 24000)
-            else:  # Laptop (mic)
+            else:  # Microphone
                 capture = "device"               # hear from the microphone
                 output_device = self.cfg["audio"]["output"].get("device")  # speaker
                 output_sr = self.cfg["audio"]["output"].get("sample_rate", 24000)

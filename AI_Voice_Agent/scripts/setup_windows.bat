@@ -33,8 +33,8 @@ echo.
 echo NEXT STEPS:
 echo   1) Copy .env.example to .env and paste your free GROQ_API_KEY.
 echo   2) Edit tasks\my_business\ to teach the agent YOUR business.
-echo   3) Run  python main.py            (free online stack)
-echo      Run  python main.py --mock      (fully offline, no key needed)
-echo      Run  python main.py --voice     (microphone + speaker)
+echo   3) Run  python run.py          (ONE command - opens the app window)
+echo      Run  python run.py --mock   (fully offline, no key needed)
+echo      Run  python run.py --test   (run the automated tests)
 echo.
 pause

@@ -56,16 +56,9 @@ Simple, very fast, one free Groq key. Used for the live-call loopback bridge.
 
 ```
 AI_Voice_Agent/
+├── run.py                🚀 ONE command to run the whole project (opens the GUI)
 ├── gui.py                🖥️ desktop window with START/STOP + audio-source picker
 ├── main.py               entry point (text / --voice / --call / --sts / --mock)
-├── run_channel.py        run the agent on a messaging channel (web/tg/wa/teams/cli)
-├── channels/             ★ text messaging layer (WhatsApp, Teams, Telegram, Web)
-│   ├── base.py           Channel ABC + per-user sessions + broker
-│   ├── broker.py         build/run a channel from config
-│   ├── web.py            browser chat (works out of the box)
-│   ├── telegram.py       Telegram bot (free, long-polling)
-│   ├── whatsapp.py       WhatsApp Business Cloud API webhook
-│   └── teams.py          Microsoft Teams Bot Framework endpoint
 ├── config/
 │   ├── config.yaml       ALL settings (providers, audio, phone, memory)
 │   └── loader.py         reads config + .env, resolves API keys

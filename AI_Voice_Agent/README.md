@@ -31,20 +31,22 @@ Everything is **modular** and **model-agnostic**:
 ## Quick start (Windows)
 
 ```bat
-setup_windows.bat        :: creates venv, installs deps
-python gui.py            :: 🖥️ GUI window with a START button (recommended)
-python main.py           :: text test — uses the free Groq + Edge stack
-python main.py --mock    :: fully offline test — no keys, no internet needed
-python main.py --voice   :: real microphone + speaker
+setup_windows.bat        :: creates venv, installs deps (one-time)
+python run.py            :: 🚀 run the WHOLE project — opens the app window
+python run.py --mock     :: same, but fully offline (no keys, no internet)
+python run.py --test     :: run the automated tests
 ```
 
-**The GUI is the easy way to go live:** a window opens with a **START** button
-and an **audio-source** selector.
+That's it — **one command** (`python run.py`) opens the agent window. It works
+no matter which app your call is in (phone, WhatsApp, Teams, Zoom, Messenger,
+etc.) because it listens to the **system audio output** and speaks through your
+USB/speaker device.
 
-- Choose **"Phone (USB)"** → the agent hears the person from your *system
-  output* and replies through your **USB device** to the phone.
-- Choose **"Laptop (mic)"** → the agent hears from your *microphone* and
-  replies through your speakers.
+**The window has a START button and an audio-source selector:**
+- **"Any app (system)"** → the agent hears whoever is on the call from the
+  *system output* (works with any app), and replies through your USB/speaker.
+- **"Microphone"** → the agent hears from your *microphone* and replies
+  through your speakers (great for testing without a call).
 
 Press **START** → the agent introduces itself (e.g. *"Hi, I'm Naveed"*), says
 the task opening, then talks with the person.
@@ -143,17 +145,15 @@ To go live with the free stack:
 
 | Command | What it does |
 |---------|--------------|
-| `python gui.py` | 🖥️ Desktop window: START/STOP, live transcript, lead-capture panel |
+| `python run.py` | 🚀 **Run the whole project** — opens the app window (click START) |
+| `python run.py --mock` | Same, fully offline (no keys, no internet) |
+| `python run.py --test` | Run the automated tests |
 | `python main.py` | Terminal conversation (free Groq + Edge stack) |
-| `python run_channel.py web` | 🌐 Browser chat at http://localhost:8770 |
-| `python run_channel.py telegram` | 💬 Telegram bot (needs a free BotFather token) |
-| `python run_channel.py whatsapp` | 💬 WhatsApp Business API (Meta webhook) |
-| `python run_channel.py teams` | 💬 Microsoft Teams bot endpoint |
 | `python main.py --mock` | Fully offline (mock providers, no keys) |
 | `python main.py --sts` | **Speech-to-Speech** (one Qwen Omni model) — test offline with mock |
 | `python main.py --sts --audio <file.wav>` | Send one real audio turn to a Qwen Omni server |
 | `python main.py --voice` | Microphone + speaker loop (real audio) |
-| `python main.py --call` | Live phone call through the configured bridge |
+| `python main.py --call` | Live call via the generic system-loopback bridge |
 | `python main.py --task <name>` | Use a specific task profile |
 | `python tests/test_agent.py` | Run the automated tests |
 
@@ -229,30 +229,20 @@ person interrupts while the agent is speaking, it stops and listens. Needs
 
 ---
 
-## Phone calls
+## Calls in any app (generic, not per-platform)
 
-The AI and the phone are **separate layers**. `--call` uses an audio bridge so
-the agent consumes live two-way call audio. Details, options (physical audio
-interface vs. VoIP/SIP vs. Twilio), and the free-vs-paid tradeoffs are in
-[`phone/README.md`](phone/README.md).
+The agent is **platform-agnostic**: it doesn't integrate with WhatsApp/Teams/any
+specific app. It just captures whatever the **system is playing** and speaks
+through your USB/speaker device. So if you're on a phone call, WhatsApp, Teams,
+Zoom or Messenger, the agent hears the person and talks — no per-app setup.
 
-## Messaging channels (WhatsApp, Teams, Telegram, Web)
+Set the output device in `config.yaml` (`audio.output.device`, find the id with
+`python main.py --list-audio`), pick **"Any app (system)"** in the window, press
+START.
 
-The same agent brain also works as **text chat** on messaging platforms — no
-phone needed. Run one channel at a time with `python run_channel.py <name>`:
-
-| Channel | Setup | Cost |
-|---------|-------|------|
-| **Web** | None — browser chat at `http://localhost:8770` | Free |
-| **Telegram** | One free token from @BotFather | Free |
-| **WhatsApp** | WhatsApp Business Cloud API (Meta) — business number + webhook | Free tier / small |
-| **Teams** | Microsoft Bot Framework (Azure) — app registration + public HTTPS endpoint | Free tier / small |
-
-Each person gets their own session (memory + lead capture). Channels live in
-`channels/` and share the same controller — same task, knowledge, multilingual
-and lead logic as the phone/GUI. For **voice calls** inside these apps you'd add
-the platform's voice API (e.g. Telegram voice, WhatsApp voice notes, Teams
-Graph calling) on top of this text layer.
+For a normal phone call the two-way audio goes through a USB audio device / the
+laptop's system output; see [`phone/README.md`](phone/README.md) for the bridge
+details and free-vs-paid tradeoffs.
 
 ---
 
@@ -260,12 +250,14 @@ Graph calling) on top of this text layer.
 
 ```
 AI_Voice_Agent/
-├── main.py                 entry point (text / --voice / --call)
+├── run.py                  🚀 ONE command to run the whole project
+├── gui.py                  desktop window (START/STOP, transcript, lead panel)
+├── main.py                 entry point (text / --voice / --call / --sts)
 ├── config/config.yaml      providers, languages, audio, keys
-├── agent/                  controller, task, memory, rules
-├── models/                 pluggable STT / LLM / TTS (+ mock)
+├── agent/                  controller, task, memory, rules, lead
+├── models/                 pluggable STT / LLM / TTS / STS (+ mock)
 ├── audio/                  mic, speaker, VAD, streaming engine
-├── phone/                  audio bridge + connection/consent
+├── phone/                  generic audio bridge + connection/consent
 ├── tasks/                  your teachable "brains"
 ├── data/conversations/     saved call transcripts
 ├── tests/                  offline test suite

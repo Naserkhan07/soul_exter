@@ -48,6 +48,24 @@ _ROMAN_WORDS = {
 }
 
 
+# Arabic-script function words used to tell Arabic from Urdu.
+_ARABIC_WORDS = {"ال", "عن", "هذا", "هذه", "ما", "كيف", "لماذا", "متى", "هل",
+                 "لكم", "كم", "خدمات", "بخصوص", "التحدث", "مؤسسة", "علي", "في",
+                 "و", "أنا", "أخبرني", "عندي", "أريد"}
+_URDU_WORDS = {"ہے", "کیا", "کیسے", "کیونکہ", "ہیں", "میں", "آپ", "نہیں", "کرنے",
+               "کے", "سے", "بہت", "بتائیں", "ہمارے", "اور", "یہ", "تھوڑا",
+               "سمجھیں", "بارے"}
+
+
+def _ur_ar_disambiguate(text: str) -> str:
+    """Return 'ur' or 'ar' by counting Arabic vs Urdu function words."""
+    ar = sum(text.count(w) for w in _ARABIC_WORDS)
+    ur = sum(text.count(w) for w in _URDU_WORDS)
+    if ar >= ur and ar > 0:
+        return "ar"
+    return "ur"
+
+
 def detect_language(text: str) -> str:
     """Return a BCP-47 code for the dominant script/language."""
     text = text.strip()
@@ -57,9 +75,9 @@ def detect_language(text: str) -> str:
     for lang, pat in _SCRIPTS.items():
         hits = len(re.findall(pat, text))
         if hits >= 2:
-            # Urdu/Arabic share the Arabic script — distinguish by keywords
+            # Urdu/Arabic share the Arabic script — disambiguate by keywords
             if lang == "ur":
-                return "ar" if _roman_hit(text, "ar") else "ur"
+                return _ur_ar_disambiguate(text)
             return lang
     # 2) Latin script -> romanised keyword vote
     scores = {lang: sum(w in text.lower().split() for w in words)

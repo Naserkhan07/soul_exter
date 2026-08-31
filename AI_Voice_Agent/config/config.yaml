@@ -137,33 +137,6 @@ sts:
     url: ""                            # Kaggle tunnel URL (set at runtime)
     model: "Qwen/Qwen2.5-Omni-3B-Instruct"
 
-# ---------------- Channels (text messaging platforms) ---------
-# Run with:  python run_channel.py <name>
-#   web      : browser chat on http://<host>:<port> (works out of the box)
-#   telegram : Telegram bot (needs a free token from @BotFather)
-#   whatsapp : WhatsApp Business Cloud API (Meta webhook)
-#   teams    : Microsoft Teams Bot Framework endpoint
-#   cli      : terminal chat
-channels:
-  web:
-    host: "0.0.0.0"
-    port: 8770
-  telegram:
-    token: ""                     # from @BotFather; or env TELEGRAM_TOKEN
-    poll_timeout: 30
-  whatsapp:
-    verify_token: ""              # any secret you choose
-    access_token: ""              # permanent Meta token
-    phone_number_id: ""           # your WhatsApp Business number id
-    host: "0.0.0.0"
-    port: 9000
-  teams:
-    app_id: ""                    # Microsoft Entra application (client) ID
-    app_secret: ""
-    tenant: "common"
-    host: "0.0.0.0"
-    port: 9001
-
 # ---------------- Memory --------------------------------------
 memory:
   type: "json"                   # json (simple, v1) | sqlite (later)
