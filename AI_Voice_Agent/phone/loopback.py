@@ -23,10 +23,17 @@ from __future__ import annotations
 
 import logging
 import threading
+import warnings
 from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
+
+# soundcard warns "data discontinuity in recording" whenever its loopback read
+# loop loses frames (common when nothing is playing). It's noise — the capture
+# still works — so silence it to keep the GUI/console clean.
+warnings.filterwarnings("ignore", message=".*data discontinuity.*",
+                        category=UserWarning)
 
 log = logging.getLogger("phone.loopback")
 
@@ -128,10 +135,11 @@ class _DeviceSource:
 class _SystemLoopbackSource:
     """Capture what the SYSTEM is playing (WASAPI loopback) — the person's voice.
 
-    No virtual cable needed. Primary backend: soundcard (its recorder must be
-    used as a context manager — that initializes its internal `_pending_chunk`,
-    which is why a plain `record()` used to crash). Fallback: a sounddevice
-    WASAPI loopback input device.
+    No virtual cable needed. Tries, in order:
+      1. sounddevice WASAPI loopback input device (low-latency callback, most
+         reliable). Loopback devices appear as extra input devices whose name
+         contains "loopback".
+      2. soundcard WASAPI loopback (recorder used as a context manager).
     """
 
     def __init__(self, cfg: LoopbackConfig):
@@ -145,10 +153,40 @@ class _SystemLoopbackSource:
         _ensure_com()
         self.feed = feed
         try:
-            self._start_soundcard()
-        except Exception as e:  # pragma: no cover
-            log.warning("soundcard loopback failed (%s); trying sounddevice loopback.", e)
             self._start_sounddevice()
+            return
+        except Exception as e:  # pragma: no cover
+            log.warning("sounddevice loopback failed (%s); trying soundcard.", e)
+            self._start_soundcard()
+
+    def _start_sounddevice(self) -> None:
+        import sounddevice as sd
+        # WASAPI loopback devices appear as extra input devices whose name
+        # usually contains "loopback".
+        idx = None
+        for d in sd.query_devices():
+            name = (d.get("name") or "").lower()
+            if d.get("max_input_channels", 0) > 0 and "loopback" in name:
+                idx = d["index"]
+                break
+        if idx is None:
+            raise RuntimeError(
+                "No WASAPI loopback input device found via sounddevice. "
+                "Install Python 3.12 + pip install -U sounddevice soundcard."
+            )
+        self._stream = sd.InputStream(
+            samplerate=self.cfg.sample_rate, channels=1, dtype="float32",
+            device=idx, blocksize=CHUNK, callback=self._sd_cb)
+        self._stream.start()
+        log.info("System loopback via sounddevice loopback device [%s]", idx)
+
+    def _sd_cb(self, indata, frames, time_info, status):
+        arr = np.asarray(indata)
+        samples = arr[:, 0].copy() if arr.ndim == 2 else arr.copy()
+        try:
+            self.feed(samples)
+        except Exception:  # pragma: no cover
+            pass
 
     def _start_soundcard(self) -> None:
         import soundcard as sc
@@ -173,32 +211,6 @@ class _SystemLoopbackSource:
                     self.feed(np.ascontiguousarray(samples.astype(np.float32)))
         except Exception as e:  # pragma: no cover
             log.warning("System loopback (soundcard) stopped: %s", e)
-
-    def _start_sounddevice(self) -> None:
-        import sounddevice as sd
-        # WASAPI loopback devices appear as extra input devices whose name
-        # usually contains "loopback".
-        idx = None
-        for d in sd.query_devices():
-            if d.get("max_input_channels", 0) > 0 and \
-                    "loopback" in (d.get("name") or "").lower():
-                idx = d["index"]
-                break
-        if idx is None:
-            raise RuntimeError("No WASAPI loopback input device found via sounddevice.")
-        self._stream = sd.InputStream(
-            samplerate=self.cfg.sample_rate, channels=1, dtype="float32",
-            device=idx, blocksize=CHUNK, callback=self._sd_cb)
-        self._stream.start()
-        log.info("System loopback via sounddevice loopback device [%s]", idx)
-
-    def _sd_cb(self, indata, frames, time_info, status):
-        arr = np.asarray(indata)
-        samples = arr[:, 0].copy() if arr.ndim == 2 else arr.copy()
-        try:
-            self.feed(samples)
-        except Exception:  # pragma: no cover
-            pass
 
     # ---------------- stop ----------------
     def stop(self) -> None:
