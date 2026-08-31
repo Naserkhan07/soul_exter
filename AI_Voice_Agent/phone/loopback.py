@@ -15,48 +15,21 @@ Alternatively you can keep capture_mode = "device" and use a virtual cable or
 a specific input device id.
 
 On Windows this needs:
-    - pip install -r requirements-audio.txt   (sounddevice, numpy, soundfile,
-                                               soundcard for system loopback)
+    - pip install -r requirements-audio.txt   (sounddevice, numpy, soundfile)
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-import warnings
 from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
 
-# soundcard warns "data discontinuity in recording" whenever its loopback read
-# loop loses frames (common when nothing is playing). It's noise — the capture
-# still works — so silence it to keep the GUI/console clean.
-warnings.filterwarnings("ignore", message=".*data discontinuity.*",
-                        category=UserWarning)
-
 log = logging.getLogger("phone.loopback")
 
 CHUNK = 512  # samples per block (~32ms @16k)
-
-
-def _ensure_com():
-    """Initialize Windows COM on the current thread.
-
-    soundcard's WASAPI loopback uses Windows Media Foundation (COM). When the
-    agent runs in a background thread (as the GUI does), COM is not initialized
-    and soundcard fails with 'Error 0x800401f0' (CO_E_NOTINITIALIZED). This
-    initializes it. Harmless (and a no-op) on Linux/macOS.
-    """
-    import platform
-    if platform.system() != "Windows":
-        return
-    try:
-        import ctypes
-        # COINIT_MULTITHREADED = 0x0  (lets the object be used from any thread)
-        ctypes.windll.ole32.CoInitializeEx(None, 0)
-    except Exception:
-        pass
 
 
 @dataclass
@@ -133,71 +106,58 @@ class _DeviceSource:
 
 
 class _SystemLoopbackSource:
-    """Capture what the SYSTEM is playing (WASAPI loopback) — the person's voice.
+    """Capture what the SYSTEM is playing — the person's voice.
 
-    No virtual cable needed. Tries, in order:
-      1. sounddevice WASAPI loopback input device (low-latency callback, most
-         reliable). Loopback devices appear as extra input devices whose name
-         contains "loopback".
-      2. soundcard WASAPI loopback (recorder used as a context manager).
+    No virtual cable needed. Uses sounddevice ONLY (soundcard is unstable on
+    some Windows/Realtek setups and is avoided). It auto-finds a capture device
+    that records system output:
+      1. A WASAPI loopback device (name contains "loopback")
+      2. A "Stereo Mix" / "What U Hear" / "Wave out mix" / "Mix" input device
+         (Realtek's built-in 'record what you hear' — very common)
     """
 
     def __init__(self, cfg: LoopbackConfig):
         self.cfg = cfg
-        self._stream = None      # sounddevice stream
-        self._thread = None      # soundcard read thread
+        self._stream = None
         self._stopped = False
 
     # ---------------- start ----------------
     def start(self, feed: Callable[[np.ndarray], None]) -> None:
-        _ensure_com()
         self.feed = feed
-        # Prefer sounddevice WASAPI loopback — it needs no COM and no soundcard,
-        # so it avoids the Python-3.14 soundcard crashes (_COMLibrary/com_loaded).
-        try:
-            self._start_sounddevice()
-            return
-        except Exception as e:  # pragma: no cover
-            log.warning("sounddevice loopback failed (%s); trying soundcard.", e)
-        try:
-            self._start_soundcard()
-        except Exception as e:  # pragma: no cover
-            raise RuntimeError(
-                "No working system-loopback capture. On Windows, use Python 3.12 "
-                "and make sure a WASAPI loopback device exists. "
-                f"Last error: {e}"
-            ) from e
+        self._start_sounddevice()
+
+    def _find_capture_index(self) -> int | None:
+        """Find an input device that captures system output, or None."""
+        import sounddevice as sd
+        devices = list(sd.query_devices())
+        # 1) prefer an explicit loopback device
+        for d in devices:
+            name = (d.get("name") or "").lower()
+            if d.get("max_input_channels", 0) > 0 and "loopback" in name:
+                return d["index"]
+        # 2) then a Realtek "Stereo Mix / What U Hear / Mix" capture device
+        keywords = ("stereo mix", "what u hear", "wave out mix", "wave out", "mixing")
+        for d in devices:
+            name = (d.get("name") or "").lower()
+            if d.get("max_input_channels", 0) > 0 and any(k in name for k in keywords):
+                return d["index"]
+        return None
 
     def _start_sounddevice(self) -> None:
         import sounddevice as sd
-        # WASAPI loopback devices appear as extra input devices whose name
-        # usually contains "loopback" (or "[Loopback]"). Find the one that
-        # matches the default output device.
-        out = sd.query_devices(kind="output")
-        out_name = (out.get("name") or "").lower()
-        out_idx = out["index"]
-
-        idx = None
-        for d in sd.query_devices():
-            name = (d.get("name") or "").lower()
-            if d.get("max_input_channels", 0) > 0 and (
-                    "loopback" in name
-                    or (out_name and out_name.split("(")[0].strip() in name)):
-                # prefer the one tied to the default output
-                if "loopback" in name or str(out_idx) in name:
-                    idx = d["index"]
-                    break
-                idx = idx or d["index"]
+        idx = self._find_capture_index()
         if idx is None:
             raise RuntimeError(
-                "No WASAPI loopback input device found via sounddevice. "
-                "Install Python 3.12 + pip install -U sounddevice soundcard."
+                "No system-output capture device found (looked for 'loopback', "
+                "'Stereo Mix' or 'What U Hear'). Please enable 'Stereo Mix' or a "
+                "loopback device in Windows Sound settings, or set "
+                "audio.input.device in config.yaml."
             )
         self._stream = sd.InputStream(
             samplerate=self.cfg.sample_rate, channels=1, dtype="float32",
             device=idx, blocksize=CHUNK, callback=self._sd_cb)
         self._stream.start()
-        log.info("System loopback via sounddevice loopback device [%s] (%s)",
+        log.info("System capture via sounddevice input [%s] (%s)",
                  idx, sd.query_devices(idx)["name"])
 
     def _sd_cb(self, indata, frames, time_info, status):
@@ -207,30 +167,6 @@ class _SystemLoopbackSource:
             self.feed(samples)
         except Exception:  # pragma: no cover
             pass
-
-    def _start_soundcard(self) -> None:
-        import soundcard as sc
-        speaker = sc.default_speaker()
-        self._sc_mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
-        log.info("System loopback via soundcard on speaker: %s", speaker.name)
-        self._thread = threading.Thread(target=self._sc_run, daemon=True)
-        self._thread.start()
-
-    def _sc_run(self) -> None:
-        _ensure_com()
-        try:
-            # soundcard requires the recorder to be used as a context manager.
-            with self._sc_mic.recorder(samplerate=self.cfg.sample_rate,
-                                       channels=1) as rec:
-                while not self._stopped:
-                    data = rec.record(numframes=None)
-                    if data is None or len(data) == 0:
-                        continue
-                    samples = np.asarray(data)
-                    samples = samples[:, 0] if samples.ndim == 2 else samples
-                    self.feed(np.ascontiguousarray(samples.astype(np.float32)))
-        except Exception as e:  # pragma: no cover
-            log.warning("System loopback (soundcard) stopped: %s", e)
 
     # ---------------- stop ----------------
     def stop(self) -> None:
