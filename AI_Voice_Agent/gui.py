@@ -349,7 +349,8 @@ class VoiceAgentGUI:
             def on_utterance(segment):
                 try:
                     from main import _float32_to_wav
-                    wav = _float32_to_wav(segment, loop_cfg.sample_rate)
+                    rate = getattr(bridge, "capture_rate", loop_cfg.sample_rate)
+                    wav = _float32_to_wav(segment, rate)
                     person, reply, audio, changes = process_audio_turn(ctrl, wav, loop_cfg.sample_rate)
                     if not person:
                         return

@@ -84,6 +84,7 @@ class _DeviceSource:
 
     def __init__(self, cfg: LoopbackConfig):
         self.cfg = cfg
+        self.actual_rate = cfg.sample_rate
 
     def start(self, feed: Callable[[np.ndarray], None]) -> None:
         import sounddevice as sd
@@ -93,6 +94,7 @@ class _DeviceSource:
             samplerate=self.cfg.sample_rate, channels=1, dtype="float32",
             device=self.cfg.input_device, blocksize=CHUNK, callback=self._cb)
         self.stream.start()
+        self.actual_rate = self.cfg.sample_rate
 
     def _cb(self, indata, frames, time_info, status):
         arr = np.asarray(indata)
@@ -120,45 +122,72 @@ class _SystemLoopbackSource:
         self.cfg = cfg
         self._stream = None
         self._stopped = False
+        self.actual_rate = cfg.sample_rate
 
     # ---------------- start ----------------
     def start(self, feed: Callable[[np.ndarray], None]) -> None:
         self.feed = feed
         self._start_sounddevice()
 
-    def _find_capture_index(self) -> int | None:
-        """Find an input device that captures system output, or None."""
+    def _candidate_inputs(self) -> list[int]:
+        """Input-device indices to try, in order (system-output capture first)."""
         import sounddevice as sd
         devices = list(sd.query_devices())
-        # 1) prefer an explicit loopback device
+        inputs = [d["index"] for d in devices if d.get("max_input_channels", 0) > 0]
+        loopback = []
+        stereo = []
+        other = []
         for d in devices:
+            if d.get("max_input_channels", 0) <= 0:
+                continue
             name = (d.get("name") or "").lower()
-            if d.get("max_input_channels", 0) > 0 and "loopback" in name:
-                return d["index"]
-        # 2) then a Realtek "Stereo Mix / What U Hear / Mix" capture device
-        keywords = ("stereo mix", "what u hear", "wave out mix", "wave out", "mixing")
-        for d in devices:
-            name = (d.get("name") or "").lower()
-            if d.get("max_input_channels", 0) > 0 and any(k in name for k in keywords):
-                return d["index"]
-        return None
+            if "loopback" in name:
+                loopback.append(d["index"])
+            elif any(k in name for k in ("stereo mix", "what u hear", "wave out",
+                                         "wave out mix", "mixing")):
+                stereo.append(d["index"])
+            else:
+                other.append(d["index"])
+        # If the user forced a device in config, try it first.
+        if self.cfg.input_device is not None and self.cfg.input_device in inputs:
+            return [self.cfg.input_device] + loopback + stereo + other
+        return loopback + stereo + other
 
     def _start_sounddevice(self) -> None:
         import sounddevice as sd
-        idx = self._find_capture_index()
-        if idx is None:
-            raise RuntimeError(
-                "No system-output capture device found (looked for 'loopback', "
-                "'Stereo Mix' or 'What U Hear'). Please enable 'Stereo Mix' or a "
-                "loopback device in Windows Sound settings, or set "
-                "audio.input.device in config.yaml."
-            )
-        self._stream = sd.InputStream(
-            samplerate=self.cfg.sample_rate, channels=1, dtype="float32",
-            device=idx, blocksize=CHUNK, callback=self._sd_cb)
-        self._stream.start()
-        log.info("System capture via sounddevice input [%s] (%s)",
-                 idx, sd.query_devices(idx)["name"])
+        last_err = None
+        for idx in self._candidate_inputs():
+            try:
+                info = sd.query_devices(idx)
+                sr = info.get("default_samplerate")
+                # Some capture devices only work at their native sample rate.
+                for try_sr in (self.cfg.sample_rate, sr or 48000, 44100, 48000, 16000):
+                    if not try_sr:
+                        continue
+                    try:
+                        self._stream = sd.InputStream(
+                            samplerate=int(try_sr), channels=1, dtype="float32",
+                            device=idx, blocksize=CHUNK, callback=self._sd_cb)
+                        self._stream.start()
+                        # remember the actual rate for later WAV encoding
+                        self.actual_rate = int(try_sr)
+                        self.cfg_sample_rate = int(try_sr)
+                        log.info("System capture via sounddevice input [%s] (%s) @%s",
+                                 idx, info.get("name"), int(try_sr))
+                        return
+                    except Exception as e:  # pragma: no cover
+                        last_err = e
+                        continue
+            except Exception as e:  # pragma: no cover
+                last_err = e
+        raise RuntimeError(
+            "Could not open any system-output capture device. On this Realtek "
+            "laptop, please ENABLE 'Stereo Mix':\n"
+            "  Windows Sound settings -> Recording tab -> right-click Stereo Mix "
+            "-> Enable (and set as default),\n"
+            "or install a WASAPI loopback / virtual audio device.\n"
+            f"Last error: {last_err}"
+        )
 
     def _sd_cb(self, indata, frames, time_info, status):
         arr = np.asarray(indata)
@@ -202,6 +231,7 @@ class LoopbackBridge:
         self.min_speech_frames = int(self.cfg.min_speech_ms / 1000 * self.cfg.sample_rate / CHUNK + 1)
         self.min_silence_frames = int(self.cfg.min_silence_ms / 1000 * self.cfg.sample_rate / CHUNK + 1)
         self._source = None
+        self.capture_rate = self.cfg.sample_rate
 
     # ---------------- lifecycle ----------------
     def open(self) -> None:
@@ -212,8 +242,11 @@ class LoopbackBridge:
         else:
             self._source = _DeviceSource(self.cfg)
         self._source.start(self._feed_chunk)
-        log.info("Loopback open. capture_mode=%s input=%s output=%s",
-                 self.cfg.capture_mode, self.cfg.input_device, self.cfg.output_device)
+        # actual capture rate (the device may run at a different rate than config)
+        self.capture_rate = getattr(self._source, "actual_rate", self.cfg.sample_rate)
+        log.info("Loopback open. capture_mode=%s input=%s output=%s rate=%s",
+                 self.cfg.capture_mode, self.cfg.input_device,
+                 self.cfg.output_device, self.capture_rate)
 
     def close(self) -> None:
         self._stop.set()
