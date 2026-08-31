@@ -154,12 +154,22 @@ class _SystemLoopbackSource:
 
     def _start_sounddevice(self) -> None:
         import sounddevice as sd
+        try:
+            from sounddevice import WasapiSettings
+            _settings = WasapiSettings(loopback=True)
+        except TypeError as e:  # sounddevice too old for the loopback kwarg
+            raise RuntimeError(
+                "Your 'sounddevice' is too old for WASAPI loopback.\n"
+                "Please upgrade it and try again:\n"
+                "    pip install -U sounddevice soundcard\n"
+                f"(WasapiSettings error: {e})"
+            ) from e
         out = sd.query_devices(kind="output")
         out_idx = out["index"]
         self._stream = sd.InputStream(
             samplerate=self.cfg.sample_rate, channels=1, dtype="float32",
             device=out_idx,                          # loop back this output device
-            extra_settings=sd.WasapiSettings(loopback=True),
+            extra_settings=_settings,
             blocksize=CHUNK, callback=self._sd_cb)
         self._stream.start()
         log.info("System loopback via sounddevice (WASAPI loopback) on output [%s] %s",
@@ -227,6 +237,7 @@ class LoopbackBridge:
         self.on_transcript = on_transcript or (lambda text: None)
         self._speaking = threading.Event()
         self._stop = threading.Event()
+        self._suppress_capture = False
         self._buf: list[np.ndarray] = []
         self._in_speech = False
         self._speech_run = 0
@@ -255,6 +266,12 @@ class LoopbackBridge:
     # ---------------- shared chunk feed: VAD + segment detection ----
     def _feed_chunk(self, samples: np.ndarray) -> None:
         if self._stop.is_set():
+            return
+        # While the agent is speaking through the speakers (no USB output), the
+        # loopback would hear its own voice. Suppress capture then so it doesn't
+        # reply to itself. (With a USB output device there's no loopback of its
+        # own voice, so barge-in still works.)
+        if self._suppress_capture and self._speaking.is_set():
             return
         loud = _rms(samples) >= self.cfg.energy_threshold
         if loud:
@@ -297,24 +314,33 @@ class LoopbackBridge:
         self.play_samples(data, sample_rate)
 
     def play_samples(self, samples: np.ndarray, sample_rate: int) -> None:
-        """Play decoded float32 samples with barge-in on the output device."""
-        if self.cfg.output_device is None:
-            log.warning("No output device set — agent reply not played into call.")
-            return
+        """Play decoded float32 samples on the output device.
+
+        If no output device is set, play through the system default speakers
+        (so the agent can be heard) while suppressing loopback capture so it
+        doesn't hear its own reply. Set `audio.output.device` to a USB device to
+        speak into a phone line and keep barge-in working.
+        """
         data = np.ascontiguousarray(samples.astype(np.float32))
         self._speaking.set()
+        self._suppress_capture = (self.cfg.output_device is None)
         try:
             chunk = max(1, int(sample_rate * 0.03))
             with self.sd.OutputStream(samplerate=sample_rate, channels=1,
                                       dtype="float32",
                                       device=self.cfg.output_device) as out:
                 for i in range(0, len(data), chunk):
-                    if self._stop.is_set() or self._barge_triggered():
+                    if self._stop.is_set():
+                        break
+                    if not self._suppress_capture and self._barge_triggered():
                         log.info("Barge-in: agent stopped speaking.")
                         break
                     out.write(data[i:i + chunk])
+        except Exception as e:  # pragma: no cover
+            log.warning("Could not play reply: %s", e)
         finally:
             self._speaking.clear()
+            self._suppress_capture = False
 
     def _barge_triggered(self) -> bool:
         if not self.cfg.barge_in:

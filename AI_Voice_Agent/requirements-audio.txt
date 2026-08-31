@@ -1,5 +1,11 @@
 # Real audio + the loopback phone bridge on your PC
 # pip install -r requirements-audio.txt
+#
+# IMPORTANT: these MUST be recent — WASAPI system loopback needs
+#   sounddevice >= 0.4.4  (WasapiSettings(loopback=True))
+# and soundcard must be recent too. If the agent isn't hearing the person,
+# force-upgrade them:
+#   pip install -U sounddevice soundcard numpy soundfile
 sounddevice>=0.4.6
 numpy>=1.24
 soundfile>=0.12
