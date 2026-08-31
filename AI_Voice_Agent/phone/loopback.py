@@ -33,6 +33,25 @@ log = logging.getLogger("phone.loopback")
 CHUNK = 512  # samples per block (~32ms @16k)
 
 
+def _ensure_com():
+    """Initialize Windows COM on the current thread.
+
+    soundcard's WASAPI loopback uses Windows Media Foundation (COM). When the
+    agent runs in a background thread (as the GUI does), COM is not initialized
+    and soundcard fails with 'Error 0x800401f0' (CO_E_NOTINITIALIZED). This
+    initializes it. Harmless (and a no-op) on Linux/macOS.
+    """
+    import platform
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+        # COINIT_MULTITHREADED = 0x0  (lets the object be used from any thread)
+        ctypes.windll.ole32.CoInitializeEx(None, 0)
+    except Exception:
+        pass
+
+
 @dataclass
 class LoopbackConfig:
     capture_mode: str = "system_loopback"   # "system_loopback" | "device"
@@ -109,29 +128,66 @@ class _DeviceSource:
 class _SystemLoopbackSource:
     """Capture what the SYSTEM is playing (WASAPI loopback) — the person's voice.
 
-    Uses the `soundcard` library which supports WASAPI loopback on Windows.
-    No virtual cable needed: we record the default speaker output.
+    No virtual cable needed. We record the default speaker output.
+
+    Two backends, tried in order:
+      1. sounddevice WASAPI loopback (no manual COM; robust on modern Python)
+      2. soundcard WASAPI loopback (needs COM init; kept as fallback)
     """
 
     def __init__(self, cfg: LoopbackConfig):
         self.cfg = cfg
-        self._thread: threading.Thread | None = None
+        self._stream = None      # sounddevice stream
+        self._thread = None      # soundcard read thread
+        self._stopped = False
 
+    # ---------------- start ----------------
     def start(self, feed: Callable[[np.ndarray], None]) -> None:
-        import soundcard as sc
+        _ensure_com()
         self.feed = feed
+        try:
+            self._start_sounddevice()
+            return
+        except Exception as e:  # pragma: no cover
+            log.warning("sounddevice WASAPI loopback failed (%s); trying soundcard.", e)
+            self._start_soundcard()
+
+    def _start_sounddevice(self) -> None:
+        import sounddevice as sd
+        out = sd.query_devices(kind="output")
+        out_idx = out["index"]
+        self._stream = sd.InputStream(
+            samplerate=self.cfg.sample_rate, channels=1, dtype="float32",
+            device=out_idx,                          # loop back this output device
+            extra_settings=sd.WasapiSettings(loopback=True),
+            blocksize=CHUNK, callback=self._sd_cb)
+        self._stream.start()
+        log.info("System loopback via sounddevice (WASAPI loopback) on output [%s] %s",
+                 out_idx, out["name"])
+
+    def _sd_cb(self, indata, frames, time_info, status):
+        arr = np.asarray(indata)
+        samples = arr[:, 0].copy() if arr.ndim == 2 else arr.copy()
+        try:
+            self.feed(samples)
+        except Exception:  # pragma: no cover
+            pass
+
+    def _start_soundcard(self) -> None:
+        import soundcard as sc
         speaker = sc.default_speaker()
-        # A "microphone" that records the speaker's output (loopback).
-        self.mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
-        self.recorder = self.mic.recorder(samplerate=self.cfg.sample_rate, channels=1)
-        self.recorder.start()
-        log.info("System loopback capture on speaker: %s", speaker.name)
+        mic = sc.get_microphone(id=str(speaker.name), include_loopback=True)
+        # NOTE: soundcard Recorder has NO .start() method — it records via the
+        # .record() loop below (the old `recorder.start()` call was a bug).
+        self.recorder = mic.recorder(samplerate=self.cfg.sample_rate, channels=1)
+        log.info("System loopback via soundcard on speaker: %s", speaker.name)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
+        _ensure_com()
         try:
-            while not getattr(self, "_stopped", False):
+            while not self._stopped:
                 data = self.recorder.record(numframes=CHUNK)
                 if data is None or len(data) == 0:
                     continue
@@ -139,12 +195,20 @@ class _SystemLoopbackSource:
                 samples = samples[:, 0] if samples.ndim == 2 else samples
                 self.feed(np.ascontiguousarray(samples.astype(np.float32)))
         except Exception as e:  # pragma: no cover
-            log.warning("System loopback stopped: %s", e)
+            log.warning("System loopback (soundcard) stopped: %s", e)
 
+    # ---------------- stop ----------------
     def stop(self) -> None:
         self._stopped = True
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                pass
         try:
-            self.recorder.stop()
+            if getattr(self, "recorder", None) is not None:
+                self.recorder.stop()
         except Exception:
             pass
 
