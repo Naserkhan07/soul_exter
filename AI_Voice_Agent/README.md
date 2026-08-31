@@ -235,6 +235,14 @@ on a **free Kaggle GPU**, so your Windows PC does nothing heavy.
 > need a <3B model for speech-to-speech you'd use a different family (e.g.
 > Gemini-nano-class, or distilled systems) — none are 1B/2B today.
 
+> **Troubleshooting the load cell:**
+> - `'Qwen2_5OmniTalkerConfig' object has no attribute 'pad_token_id'` → your
+>   `transformers` is **too old**. The install cell now forces an upgrade
+>   (`pip install -U transformers accelerate bitsandbytes`) — re-run it.
+> - A `401/403` (not 404) → the model is gated; add a `HF_TOKEN` secret.
+> - A `404 / Repository Not Found` → wrong model ID; it must be
+>   `Qwen/Qwen2.5-Omni-3B` (no `-Instruct`).
+
 The tunnel URL changes each session, so update `sts.qwen_kaggle.url` whenever
 you restart Kaggle. For a stable URL you'd add your own ngrok token (free tier).
 

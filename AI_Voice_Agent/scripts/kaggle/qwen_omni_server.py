@@ -5,6 +5,12 @@ This hosts the one-model speech-to-speech model. It listens for person-speech
 audio and replies with the agent's spoken audio, so your Windows PC does NOT
 run any heavy AI.
 
+Model ID: Qwen/Qwen2.5-Omni-3B   (NO '-Instruct' suffix — that ID does not exist)
+
+Requires a RECENT `transformers` (>= 4.51; use the latest). Older versions fail
+with "'Qwen2_5OmniTalkerConfig' object has no attribute 'pad_token_id'". Upgrade
+with:  pip install -U transformers accelerate bitsandbytes
+
 Endpoint:
     POST /sts   multipart  file=<person speech WAV/FLAC>
                             system=<system prompt text>
