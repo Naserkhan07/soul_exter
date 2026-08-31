@@ -51,6 +51,7 @@ class VoiceAgentGUI:
         self.mock = mock
         self.tk = tk
         self.ttk = ttk
+        self._source = source
         self.ctrl = None
         self.bridge = None
         self.running = False
@@ -101,8 +102,8 @@ class VoiceAgentGUI:
         # ("device" -> Microphone, otherwise "Any app (system)"), unless the
         # user forced it via --mic / --any.
         _default_src = "Any app (system)"
-        if source:
-            _default_src = source
+        if self._source:
+            _default_src = self._source
         elif self.cfg["audio"]["input"].get("capture") == "device":
             _default_src = "Microphone"
         self.source_var = tk.StringVar(value=_default_src)

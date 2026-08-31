@@ -33,7 +33,11 @@ agent:
 #   provider: "qwen_omni"   -> Qwen Omni on your own GPU server.
 #   provider: "mock"        -> fully offline test (no audio/GPU/keys).
 sts:
-  provider: "qwen_kaggle"
+  # Qwen (Kaggle) does hearing AND replying in one shot. To instead use the
+  # three-stage loop (Gemini hears -> a reply model thinks -> Edge TTS speaks),
+  # set provider to "mock" and enable stt/llm below. Switch back to "qwen_kaggle"
+  # (and paste your tunnel URL) when you want the one-model Qwen path again.
+  provider: "mock"
   qwen_omni:
     url: "http://127.0.0.1:8501/sts"   # local Qwen server endpoint
   qwen_kaggle:
@@ -51,7 +55,10 @@ sts:
 #                          and switch sts.provider to "mock" to activate this.
 #   provider: "openai" (whisper-1), "deepgram" (nova-3) | offline: "mock"
 stt:
-  provider: "mock"
+  # GEMINI IS USED ONLY TO HEAR: it turns the person's voice into text ("hi").
+  # It never generates voice, so this stays on Gemini's free audio-input tier.
+  # The spoken reply comes from free Edge TTS.
+  provider: "gemini"
   gemini:
     model: "gemini-1.5-flash"   # free tier supports audio input
     mime_type: "audio/wav"      # what the capture produces
