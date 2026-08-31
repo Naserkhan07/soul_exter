@@ -38,7 +38,7 @@ sts:
     url: "http://127.0.0.1:8501/sts"   # local Qwen server endpoint
   qwen_kaggle:
     url: ""                            # <-- PASTE your Kaggle tunnel URL here
-    model: "Qwen/Qwen2.5-Omni-3B-Instruct"
+    model: "Qwen/Qwen2.5-Omni-3B"      # NOTE: no "-Instruct" suffix (that ID doesn't exist)
 
 # ---------------- Speech-to-Text (optional fallback) ----------
 # Used ONLY by the old three-stage pipeline or text mode. With Qwen as the

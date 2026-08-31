@@ -33,31 +33,19 @@ import os
 
 import torch
 
-MODEL_ID = os.environ.get("QWEN_OMNI_MODEL", "Qwen/Qwen2.5-Omni-3B-Instruct")
+MODEL_ID = os.environ.get("QWEN_OMNI_MODEL", "Qwen/Qwen2.5-Omni-3B")
 
 
 # ------------------------------------------------------------------ setup
-def get_hf_token() -> str:
-    """Qwen2.5-Omni is a GATED model — it needs a Hugging Face read token.
+def get_hf_token():
+    """Optional Hugging Face token for gated models.
 
-    1) Accept the license at https://huggingface.co/Qwen/Qwen2.5-Omni-3B-Instruct
-    2) Create a read token at https://huggingface.co/settings/tokens
-    3) Export HF_TOKEN (or set it as a Kaggle Secret named HF_TOKEN).
+    The model ID is Qwen/Qwen2.5-Omni-3B (NO '-Instruct' suffix — that ID does
+    not exist). Some Qwen models are gated; if yours is, export HF_TOKEN (or set
+    it as a Kaggle Secret named HF_TOKEN) after accepting the model's license.
+    For non-gated models a token is not required.
     """
-    token = os.environ.get("HF_TOKEN", "").strip()
-    if token:
-        return token
-    try:
-        from getpass import getpass
-        token = getpass("Paste your Hugging Face read token (HF_TOKEN): ").strip()
-    except Exception:
-        token = ""
-    if not token:
-        raise RuntimeError(
-            "Qwen2.5-Omni is a gated model — set the HF_TOKEN env/secret with your "
-            "Hugging Face read token (accept the license first)."
-        )
-    return token
+    return os.environ.get("HF_TOKEN", "").strip() or None
 
 
 def load_model():
