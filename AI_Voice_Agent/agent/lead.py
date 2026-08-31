@@ -14,20 +14,25 @@ from __future__ import annotations
 
 import re
 
-_NAME = re.compile(r"(?:my name is|my name's|i[' ]m|i am|this is)\s+([a-z][a-z .'-]{1,40})", re.I)
+_NAME = re.compile(r"(?:my name is|my name's|i[' ]m|i am|this is)\s+([A-Za-z][A-Za-z'.\-]*(?:\s+[A-Za-z][A-Za-z'.\-]*)?)", re.I)
+# Words that follow an intro phrase but are not really part of the name.
+_NAME_STOP = {"and", "or", "from", "about", "looking", "want", "wanted", "need",
+              "needed", "interested", "calling", "contact", "here", "just",
+              "very", "really", "new", "with", "for", "the", "a", "an",
+              "please", "is", "i", "we", "our", "my"}
 _PHONE = re.compile(r"(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,5}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}(?:\s*(?:ext\.?|x)\s*\d+)?", re.I)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 
 # Interest keywords -> readable label
 _INTERESTS = [
     (re.compile(r"polarion", re.I), "Polarion (ALM)"),
-    (re.compile(r"website|web ?site|site"), "Website"),
-    (re.compile(r"seo|google|rank"), "SEO"),
-    (re.compile(r"marketing|ads|advert"), "Digital Marketing"),
-    (re.compile(r"app|application|mobile"), "Apps"),
-    (re.compile(r"ai|artificial intelligence|workflow|automation|voice agent"),
+    (re.compile(r"website|web ?site|site", re.I), "Website"),
+    (re.compile(r"seo|google|rank", re.I), "SEO"),
+    (re.compile(r"marketing|ads|advert", re.I), "Digital Marketing"),
+    (re.compile(r"app|application|mobile", re.I), "Apps"),
+    (re.compile(r"ai|artificial intelligence|workflow|automation|voice agent", re.I),
      "AI Workflows / Automation"),
-    (re.compile(r"digital services|digital"), "Digital Services"),
+    (re.compile(r"digital services|digital", re.I), "Digital Services"),
 ]
 
 
@@ -67,8 +72,11 @@ class Lead:
         changes: list[str] = []
         m = _NAME.search(text)
         if m and not self.name:
-            self.name = m.group(1).strip().rstrip(".,!?")
-            changes.append(f"✔ Got the person's name: {self.name}")
+            raw = m.group(1).strip().rstrip(".,!?")
+            words = [w for w in raw.split() if w.lower() not in _NAME_STOP]
+            if words:
+                self.name = " ".join(words[:2])
+                changes.append(f"✔ Got the person's name: {self.name}")
 
         phone = self._find_phone(text)
         if phone and not (self.phone or self.email):

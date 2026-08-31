@@ -145,6 +145,10 @@ To go live with the free stack:
 |---------|--------------|
 | `python gui.py` | 🖥️ Desktop window: START/STOP, live transcript, lead-capture panel |
 | `python main.py` | Terminal conversation (free Groq + Edge stack) |
+| `python run_channel.py web` | 🌐 Browser chat at http://localhost:8770 |
+| `python run_channel.py telegram` | 💬 Telegram bot (needs a free BotFather token) |
+| `python run_channel.py whatsapp` | 💬 WhatsApp Business API (Meta webhook) |
+| `python run_channel.py teams` | 💬 Microsoft Teams bot endpoint |
 | `python main.py --mock` | Fully offline (mock providers, no keys) |
 | `python main.py --sts` | **Speech-to-Speech** (one Qwen Omni model) — test offline with mock |
 | `python main.py --sts --audio <file.wav>` | Send one real audio turn to a Qwen Omni server |
@@ -231,6 +235,24 @@ The AI and the phone are **separate layers**. `--call` uses an audio bridge so
 the agent consumes live two-way call audio. Details, options (physical audio
 interface vs. VoIP/SIP vs. Twilio), and the free-vs-paid tradeoffs are in
 [`phone/README.md`](phone/README.md).
+
+## Messaging channels (WhatsApp, Teams, Telegram, Web)
+
+The same agent brain also works as **text chat** on messaging platforms — no
+phone needed. Run one channel at a time with `python run_channel.py <name>`:
+
+| Channel | Setup | Cost |
+|---------|-------|------|
+| **Web** | None — browser chat at `http://localhost:8770` | Free |
+| **Telegram** | One free token from @BotFather | Free |
+| **WhatsApp** | WhatsApp Business Cloud API (Meta) — business number + webhook | Free tier / small |
+| **Teams** | Microsoft Bot Framework (Azure) — app registration + public HTTPS endpoint | Free tier / small |
+
+Each person gets their own session (memory + lead capture). Channels live in
+`channels/` and share the same controller — same task, knowledge, multilingual
+and lead logic as the phone/GUI. For **voice calls** inside these apps you'd add
+the platform's voice API (e.g. Telegram voice, WhatsApp voice notes, Teams
+Graph calling) on top of this text layer.
 
 ---
 

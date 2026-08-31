@@ -138,6 +138,24 @@ def test_lead_capture():
     assert lead.completeness >= 1.0
 
 
+def test_web_channel_session_and_lead():
+    """A channel runs the agent with per-session memory + lead capture."""
+    from config import load_config
+    from main import build_controller
+    from channels.base import ChannelBroker
+    from channels.broker import _controller_factory
+    from channels.web import WebChannel
+
+    cfg = load_config()
+    broker = ChannelBroker(_controller_factory(cfg, mock=True))
+    web = WebChannel(broker, {"port": 8770}, mock=True)
+    r1 = web._api_message({"text": "My name is Sarah"})
+    assert "Sarah" in r1["lead"]["name"]
+    r2 = web._api_message({"text": "I need SEO for my shop, call me at 9988776655"})
+    assert r2["lead"]["captured"] is True
+    assert r2["lead"]["interest"] == "SEO"
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
