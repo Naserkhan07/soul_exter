@@ -152,23 +152,42 @@ class _SystemLoopbackSource:
     def start(self, feed: Callable[[np.ndarray], None]) -> None:
         _ensure_com()
         self.feed = feed
+        # Prefer sounddevice WASAPI loopback — it needs no COM and no soundcard,
+        # so it avoids the Python-3.14 soundcard crashes (_COMLibrary/com_loaded).
         try:
             self._start_sounddevice()
             return
         except Exception as e:  # pragma: no cover
             log.warning("sounddevice loopback failed (%s); trying soundcard.", e)
+        try:
             self._start_soundcard()
+        except Exception as e:  # pragma: no cover
+            raise RuntimeError(
+                "No working system-loopback capture. On Windows, use Python 3.12 "
+                "and make sure a WASAPI loopback device exists. "
+                f"Last error: {e}"
+            ) from e
 
     def _start_sounddevice(self) -> None:
         import sounddevice as sd
         # WASAPI loopback devices appear as extra input devices whose name
-        # usually contains "loopback".
+        # usually contains "loopback" (or "[Loopback]"). Find the one that
+        # matches the default output device.
+        out = sd.query_devices(kind="output")
+        out_name = (out.get("name") or "").lower()
+        out_idx = out["index"]
+
         idx = None
         for d in sd.query_devices():
             name = (d.get("name") or "").lower()
-            if d.get("max_input_channels", 0) > 0 and "loopback" in name:
-                idx = d["index"]
-                break
+            if d.get("max_input_channels", 0) > 0 and (
+                    "loopback" in name
+                    or (out_name and out_name.split("(")[0].strip() in name)):
+                # prefer the one tied to the default output
+                if "loopback" in name or str(out_idx) in name:
+                    idx = d["index"]
+                    break
+                idx = idx or d["index"]
         if idx is None:
             raise RuntimeError(
                 "No WASAPI loopback input device found via sounddevice. "
@@ -178,7 +197,8 @@ class _SystemLoopbackSource:
             samplerate=self.cfg.sample_rate, channels=1, dtype="float32",
             device=idx, blocksize=CHUNK, callback=self._sd_cb)
         self._stream.start()
-        log.info("System loopback via sounddevice loopback device [%s]", idx)
+        log.info("System loopback via sounddevice loopback device [%s] (%s)",
+                 idx, sd.query_devices(idx)["name"])
 
     def _sd_cb(self, indata, frames, time_info, status):
         arr = np.asarray(indata)
