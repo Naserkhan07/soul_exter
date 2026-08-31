@@ -32,15 +32,19 @@ Everything is **modular** and **model-agnostic**:
 
 ```bat
 setup_windows.bat        :: creates venv, installs deps (one-time)
-python run.py            :: 🚀 run the WHOLE project — opens the app window
+python run.py            :: 🚀 opens a floating desktop window — click START
 python run.py --mock     :: same, but fully offline (no keys, no internet)
 python run.py --test     :: run the automated tests
 ```
 
-That's it — **one command** (`python run.py`) opens the agent window. It works
-no matter which app your call is in (phone, WhatsApp, Teams, Zoom, Messenger,
-etc.) because it listens to the **system audio output** and speaks through your
-USB/speaker device.
+That's it — **one command** (`python run.py`) opens a **native floating desktop
+window** (this is NOT a web page). Run it from a plain **Command Prompt /
+PowerShell terminal** — not from an IDE like VS Code's run button. The window
+**stays on top of your other apps** (📌 Always on top is on by default); use
+**▭ Compact** to shrink it to a tiny always-on-top live-transcript widget, and
+**⤢ Full** to restore. It works no matter which app your call is in (phone,
+WhatsApp, Teams, Zoom, Messenger, etc.) because it listens to the **system
+audio output** and speaks through your USB/speaker device.
 
 **The window has a START button and an audio-source selector:**
 - **"Any app (system)"** → the agent hears whoever is on the call from the
@@ -193,8 +197,20 @@ This is the **default and only** brain: a single **Qwen Omni** model takes the
 person's audio in and speaks the reply out (no separate STT/LLM/TTS). It runs
 on a **free Kaggle GPU**, so your Windows PC does nothing heavy.
 
+> **⚠️ Before it loads, you MUST unlock the model (it's gated).** The error
+> `401 Unauthorized` / `Repository Not Found` for `Qwen/Qwen2.5-Omni-3B-Instruct`
+> means you haven't done these steps yet:
+> 1. **Accept the license:** open https://huggingface.co/Qwen/Qwen2.5-Omni-3B-Instruct,
+>    log in, and click **"Agree and access repository"**.
+> 2. **Create a read token:** https://huggingface.co/settings/tokens → **New
+>    token** (role: **read**) → copy it.
+> 3. **Give it to the notebook:** in Kaggle, open **Settings → Secrets → Add a
+>    new secret** named `HF_TOKEN` and paste your token. (The notebook also
+>    accepts pasting the token directly if no secret is set.)
+
 1. **Start the Kaggle server.** Open `scripts/kaggle/qwen_omni_server.ipynb` in
-   Kaggle, set **Accelerator = GPU T4 x2 (16GB)**, and run all cells.
+   Kaggle, set **Accelerator = GPU T4 x2 (16GB)**, and run all cells (the model
+   load cell reads your `HF_TOKEN` secret).
 2. It loads **Qwen2.5-Omni-3B** (4-bit) and opens a public tunnel, printing:
    `STS: https://xxxx.tunnel.ai/sts`.
 3. **Point the agent at it** in `config/config.yaml`:

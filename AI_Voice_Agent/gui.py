@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""AI Voice Agent — desktop GUI.
+"""AI Voice Agent — floating overlay desktop window.
 
-A simple window with a START button. When you press Start, the agent
-introduces itself ("Hi, I'm Naveed"), says the task opening, then talks with
-the person on the call — whether they're on your laptop (mic/speaker) or on a
-phone connected by USB cable.
+This is a NATIVE desktop window (not a web page). Open it from a plain Command
+Prompt / PowerShell terminal — NOT from an IDE such as VS Code's "run" button —
+with:
 
-Usage:
-    python gui.py                  # Qwen on Kaggle (brain) + Edge TTS greeting
-    python gui.py --mock           # fully offline (no keys, no internet)
+    python run.py            # opens this window (Qwen on Kaggle + Edge greeting)
+    python run.py --mock     # fully offline (no keys, no internet)
+
+The window is a small floating overlay that stays on top of your other apps
+(📌 Always on top is ON by default). Use ▭ Compact to shrink it into a tiny
+live-transcript widget, and ⤢ Full to restore.
+
+When you press START the agent introduces itself ("Hi, I'm Naveed"), says the
+task opening, then talks with the person on the call — whether they're on your
+laptop (mic/speaker) or on a phone connected by USB cable.
 
 Audio source is chosen in the window:
     * "Any app (system)" -> hears the person from whatever the SYSTEM is
@@ -55,6 +61,11 @@ class VoiceAgentGUI:
         root.title("AI Voice Agent")
         root.geometry("720x560")
         root.configure(bg="#1e2430")
+
+        # Floating overlay: stay on top of other apps (togglable).
+        self.topmost_var = tk.BooleanVar(value=True)
+        root.attributes("-topmost", True)
+        self._compact = False
 
         self._build_widgets()
         self._poll_ui()
@@ -106,6 +117,23 @@ class VoiceAgentGUI:
                                   padx=24, pady=10, cursor="hand2", width=14,
                                   state="disabled")
         self.stop_btn.pack(side="left", padx=10)
+
+        # ---- overlay options (floating window) ----
+        ov = tk.Frame(self.root, bg="#1e2430")
+        ov.pack(pady=(0, 4))
+        tk.Checkbutton(ov, text="📌 Always on top (floating)", variable=self.topmost_var,
+                       command=self._toggle_topmost, bg="#1e2430", fg="#9fb3c8",
+                       selectcolor="#1e2430", activebackground="#1e2430",
+                       activeforeground="#e6edf3", highlightthickness=0,
+                       font=("Segoe UI", 10)).pack(side="left", padx=(0, 12))
+        tk.Button(ov, text="▭ Compact", command=self._toggle_compact,
+                  bg="#262e3d", fg="#e6edf3", activebackground="#3d4556",
+                  activeforeground="#ffffff", relief="flat", cursor="hand2",
+                  font=("Segoe UI", 10)).pack(side="left", padx=4)
+        tk.Button(ov, text="⤢ Full", command=self._toggle_full,
+                  bg="#262e3d", fg="#e6edf3", activebackground="#3d4556",
+                  activeforeground="#ffffff", relief="flat", cursor="hand2",
+                  font=("Segoe UI", 10)).pack(side="left", padx=4)
 
         # ---- status ----
         self.status_var = tk.StringVar(value="● Ready — choose audio source, then press START")
@@ -162,6 +190,25 @@ class VoiceAgentGUI:
         self.transcript.insert("end", line + "\n")
         self.transcript.see("end")
         self.transcript.configure(state="disabled")
+
+    def _toggle_topmost(self):
+        self.root.attributes("-topmost", self.topmost_var.get())
+
+    def _toggle_compact(self):
+        """Shrink into a small always-on-top floating overlay (live transcript)."""
+        if self._compact:
+            return
+        self._compact = True
+        self.root.attributes("-topmost", True)
+        self.topmost_var.set(True)
+        self.root.geometry("400x240")
+        self.transcript.configure(height=4)
+        self.root.attributes("-topmost", True)
+
+    def _toggle_full(self):
+        self._compact = False
+        self.root.geometry("720x560")
+        self.transcript.configure(height=11)
 
     def _set_status(self, text: str, color: str = "#58a6ff"):
         self.status_var.set(text)

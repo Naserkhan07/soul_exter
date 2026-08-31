@@ -35,20 +35,47 @@ import torch
 
 MODEL_ID = os.environ.get("QWEN_OMNI_MODEL", "Qwen/Qwen2.5-Omni-3B-Instruct")
 
+
 # ------------------------------------------------------------------ setup
+def get_hf_token() -> str:
+    """Qwen2.5-Omni is a GATED model — it needs a Hugging Face read token.
+
+    1) Accept the license at https://huggingface.co/Qwen/Qwen2.5-Omni-3B-Instruct
+    2) Create a read token at https://huggingface.co/settings/tokens
+    3) Export HF_TOKEN (or set it as a Kaggle Secret named HF_TOKEN).
+    """
+    token = os.environ.get("HF_TOKEN", "").strip()
+    if token:
+        return token
+    try:
+        from getpass import getpass
+        token = getpass("Paste your Hugging Face read token (HF_TOKEN): ").strip()
+    except Exception:
+        token = ""
+    if not token:
+        raise RuntimeError(
+            "Qwen2.5-Omni is a gated model — set the HF_TOKEN env/secret with your "
+            "Hugging Face read token (accept the license first)."
+        )
+    return token
+
+
 def load_model():
     from transformers import (
         Qwen2_5OmniForConditionalGeneration,
         Qwen2_5OmniProcessor,
     )
+    hf_token = get_hf_token()
     print(f"Loading {MODEL_ID} ...")
     model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
         MODEL_ID,
         torch_dtype=torch.float16,
         device_map="auto",
         trust_remote_code=True,
+        token=hf_token,
     )
-    processor = Qwen2_5OmniProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+    processor = Qwen2_5OmniProcessor.from_pretrained(
+        MODEL_ID, trust_remote_code=True, token=hf_token)
     return model, processor
 
 
