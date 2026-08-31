@@ -88,13 +88,19 @@ tts:
 # ---------------- Audio (real microphone/speaker on your PC) -
 audio:
   input:
-    capture: "system_loopback"   # how the agent HEARS the person:
+    capture: "device"            # how the agent HEARS the person:
+                                 #   "device"          = read from a microphone /
+                                 #     input device (id below, or null = system
+                                 #     default input). USE THIS to hear a real
+                                 #     phone call through your laptop's mic.
                                  #   "system_loopback" = record what the system
-                                 #     is playing (the person's voice from the
-                                 #     call) — NO virtual cable needed
-                                 #   "device" = read from a specific input
-                                 #     device id below (e.g. a virtual cable)
-    device: null                 # only used when capture == "device"
+                                 #     is playing (only hears audio INSIDE the
+                                 #     PC — e.g. WhatsApp Desktop / songs / calls
+                                 #     on the PC itself). Will NOT hear a physical
+                                 #     phone held near the laptop.
+    device: null                 # input device id from the startup AUDIO list
+                                 # (e.g. 13 = Realtek Mic Array, 5 = Microphone
+                                 # Array). null = Windows default recording device.
     sample_rate: 16000
     channels: 1
     chunk_ms: 30
