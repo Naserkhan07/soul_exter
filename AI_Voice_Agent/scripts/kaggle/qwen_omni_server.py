@@ -55,6 +55,14 @@ def get_hf_token():
 
 
 def load_model():
+    import transformers as _tf
+    _ver = tuple(int(x) for x in _tf.__version__.split(".")[:3])
+    if _ver < (4, 51, 0):
+        raise RuntimeError(
+            f"transformers {_tf.__version__} is too old for Qwen2.5-Omni. "
+            "Run: pip install -U 'transformers>=4.55.0' accelerate bitsandbytes, "
+            "then restart your kernel/process and reload."
+        )
     from transformers import (
         AutoConfig,
         Qwen2_5OmniForConditionalGeneration,
