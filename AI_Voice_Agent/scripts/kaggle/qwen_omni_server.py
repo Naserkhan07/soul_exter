@@ -191,6 +191,18 @@ def main():
     if mode in ("auto", "ngrok"):
         try:
             from pyngrok import ngrok
+            # Set your ngrok authtoken (free account) via the NGROK_AUTHTOKEN
+            # env/secret, or edit the literal below.
+            token = os.environ.get("NGROK_AUTHTOKEN", "").strip()
+            if not token:
+                token = "PASTE_YOUR_NGROK_AUTHTOKEN_HERE"
+            if token and "PASTE_" not in token:
+                ngrok.set_auth_token(token)
+            else:
+                raise SystemExit(
+                    "Set NGROK_AUTHTOKEN (or paste your token in this file) "
+                    "to open the public tunnel."
+                )
             port = 8501
             app_path = app  # type: ignore[assignment]
             # Run uvicorn in a thread, then open the tunnel.
