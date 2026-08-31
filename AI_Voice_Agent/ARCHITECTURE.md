@@ -26,9 +26,9 @@ architectures, every module, and step-by-step flowcharts of a live call.
 
 ---
 
-## 2. The two architectures (both built)
+## 2. The brain — ONE model (default)
 
-### Architecture A — ONE model: Speech-to-Speech (`--sts`)
+### Architecture A — Speech-to-Speech: Qwen Omni on a free Kaggle GPU
 
 ```
  person audio ──► [ Qwen Omni (one model) ] ──► agent speech audio
@@ -36,19 +36,13 @@ architectures, every module, and step-by-step flowcharts of a live call.
                     ├─ reasons about the reply
                     └─ speaks it aloud directly
 ```
-Hosted on a **free Kaggle GPU** (Qwen2.5-Omni-3B, 4-bit). No STT/TTS on your PC.
-Best naturalness (tone, pauses, rhythm preserved). Heavier / slower.
+The default brain. Hosted on a **free Kaggle GPU** (Qwen2.5-Omni-3B, 4-bit) so
+your Windows PC does nothing heavy. No Groq, no API key, no separate STT/LLM/TTS.
+Best naturalness (tone, pauses, rhythm preserved).
 
-### Architecture B — THREE stages (default `main.py`)
-
-```
- person audio → [STT] → text → [LLM] → text → [TTS] → agent audio
-                 Groq Whisper     Groq Llama      Edge voices
-```
-Simple, very fast, one free Groq key. Used for the live-call loopback bridge.
-
-> Both share the SAME controller and memory — you never rebuild anything; pick
-> the mode with a CLI flag.
+> An older three-stage fallback (STT → LLM → TTS) still exists for testing but
+> is not the default. Everything shares the SAME controller, memory, task and
+> lead logic — switching brains is just a config change.
 
 ---
 
@@ -69,8 +63,8 @@ AI_Voice_Agent/
 │   └── rules.py          safety guardrails
 ├── models/               ★ pluggable AI backends
 │   ├── base.py           interfaces (STT/LLM/TTS/STS) + factories
-│   ├── stt/              speech→text   (groq, openai, deepgram, mock)
-│   ├── llm/              text→reply    (groq, openai, gemini, mock)
+│   ├── stt/              speech→text   (openai, deepgram, mock)
+│   ├── llm/              text→reply    (openai, gemini, mock)
 │   ├── tts/              text→audio    (edge, openai, elevenlabs, mock)
 │   └── sts/              audio→audio   (qwen omni/kaggle, mock)
 ├── audio/                real mic/speaker on your PC
@@ -133,7 +127,7 @@ This is the whole "you dial, agent talks" flow, end to end:
                                   ▼
          ┌───────────────────────────────────────────────────┐
          │ on_utterance(segment)                             │
-         │   encode to WAV → STT (Groq Whisper) → text       │
+         │   encode to WAV → Qwen Omni (audio in → audio out)│
          └───────────────────────┬───────────────────────────┘
                                   ▼
          ┌───────────────────────────────────────────────────┐
@@ -174,9 +168,9 @@ This is the whole "you dial, agent talks" flow, end to end:
 ```
  config/config.yaml ──┐
                       ├──► load_config() ──► merged dict
- .env (GROQ_API_KEY,  ┘        │
- QWEN_URL, ...)                ▼
-                        resolve_keys() → {groq, openai, ...}
+ .env (QWEN_URL,     ┘        │
+ GEMINI_API_KEY, ...)         ▼
+                        resolve_keys() → {qwen_url, openai, ...}
                               │  reads env var, falls back to config keys
                               ▼
                   passed to the model factories
@@ -212,8 +206,8 @@ tasks/my_business/                          load_task("my_business")
 ### 5.4 `models/base.py` — the pluggable interfaces
 
 ```
-                    ┌───────── STTBase ──► Groq / OpenAI / Deepgram / mock
-   interface ──────►├───────── LLMBase ──► Groq / OpenAI / Gemini / mock
+                    ┌───────── STTBase ──► OpenAI / Deepgram / mock
+   interface ──────►├───────── LLMBase ──► OpenAI / Gemini / mock
    (one abstract    ├───────── TTSBase ──► Edge / OpenAI / ElevenLabs / mock
     class each)     └───────── STSBase ──► Qwen Omni / Kaggle / mock
                            │
@@ -241,12 +235,13 @@ tasks/my_business/                          load_task("my_business")
 ## 6. The two "hear → think → speak" pipelines side by side
 
 ```
-   PIPELINE B (default, live call)          PIPELINE A (--sts, Qwen)
- ──────────────────────────────────      ─────────────────────────────
- audio → STT(Groq) → text                audio ─┐
-                       → LLM(Groq)→text         Qwen Omni (one model)
-                       → TTS(Edge)→audio ←──────┘ understand+reason+speak
- fast, 1 free key                         more natural, heavier
+   PIPELINE A (default: Qwen on Kaggle)     (optional old 3-stage fallback)
+ ─────────────────────────────────────     ─────────────────────────────
+ audio ─┐                                  audio → STT(openai/gemini)→text
+        Qwen Omni (one model)                                    → LLM→text
+        understand+reason+speak                                   → TTS(Edge)
+ ───────┴──► agent audio                    (not default; no Groq)
+ one free model
 ```
 
 Both funnel into the SAME `Controller` so memory, safety, task, and phone
@@ -258,8 +253,9 @@ bridging stay identical.
 
 | Command | Does what |
 |---------|-----------|
+| `python run.py` | 🚀 Whole project — GUI, Qwen on Kaggle powers replies |
 | `python main.py --mock` | Offline text demo, no keys |
-| `python main.py` | Live text: Groq + Edge (needs one free Groq key) |
+| `python main.py` | Live text (mock/optional fallback providers) |
 | `python main.py --sts --mock` | One-model path, offline test |
 | `python main.py --sts --audio x.wav` | Real Qwen on Kaggle |
 | `python main.py --voice` | Mic + speaker on your PC (test loop) |

@@ -25,15 +25,17 @@ pip install -r requirements-audio.txt
 echo.
 echo Setup complete!
 echo.
-echo ============ 100%% FREE STACK ============
-echo   LISTEN : Groq Whisper (free) - needs a free key at console.groq.com
-echo   THINK  : Groq Llama    (free) - uses the same key
-echo   SPEAK  : Microsoft Edge TTS (free, no key, many languages)
+echo ============ PRIMARY BRAIN: Qwen on a free Kaggle GPU ============
+echo   THINK + SPEAK : Qwen2.5-Omni (one model hears and replies)
+echo                   No API key needed - just a free Kaggle notebook.
+echo   GREETING VOICE: Microsoft Edge TTS (free, no key, many languages)
 echo.
 echo NEXT STEPS:
-echo   1) Copy .env.example to .env and paste your free GROQ_API_KEY.
-echo   2) Edit tasks\my_business\ to teach the agent YOUR business.
-echo   3) Run  python run.py          (ONE command - opens the app window)
+echo   1) Start scripts\kaggle\qwen_omni_server.ipynb on Kaggle
+echo      (Accelerator = GPU T4 x2), copy the tunnel URL it prints.
+echo   2) Paste it into config\config.yaml -> sts.qwen_kaggle.url
+echo   3) Edit tasks\my_business\ to teach the agent YOUR business.
+echo   4) Run  python run.py          (ONE command - opens the app window)
 echo      Run  python run.py --mock   (fully offline, no key needed)
 echo      Run  python run.py --test   (run the automated tests)
 echo.

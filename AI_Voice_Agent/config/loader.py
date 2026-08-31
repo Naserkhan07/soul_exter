@@ -35,7 +35,6 @@ def resolve_keys(cfg: dict[str, Any]) -> dict[str, str]:
     mapping = {
         "openai": "OPENAI_API_KEY",
         "deepgram": "DEEPGRAM_API_KEY",
-        "groq": "GROQ_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "elevenlabs": "ELEVENLABS_API_KEY",
         "qwen_url": "QWEN_URL",

@@ -1,9 +1,14 @@
 # =============================================================
 #  AI Voice Agent — configuration
-#  Every model provider is ONLINE (no local GPU required).
-#  Pick a provider per component; the rest are ignored.
-#  Set "mock" for every component to run a fully offline
-#  deterministic conversation (used for testing the logic).
+#
+#  PRIMARY BRAIN: Qwen Omni (Speech-to-Speech) on a FREE Kaggle GPU.
+#  One model hears the person and speaks the reply — it handles BOTH the
+#  thinking and the voice. No Groq, no paid provider needed.
+#
+#  To go live:
+#   1) Start scripts/kaggle/qwen_omni_server.ipynb on Kaggle (GPU T4 x2),
+#   2) copy the tunnel URL it prints into  sts.qwen_kaggle.url  below,
+#   3) run  python run.py  -> START.
 # =============================================================
 
 agent:
@@ -19,16 +24,28 @@ agent:
   log_dir: "logs"
   data_dir: "data"
 
-# ---------------- Speech-to-Text (listening) ----------------
-# FREE:  "groq"  (Whisper-large-v3 on Groq free tier — fast, multilingual)
-# paid:  "openai" (whisper-1), "deepgram" (nova-3)
-# offline: "mock"
-# For truly-free use keep "groq" (needs a free GROQ_API_KEY). Use --mock to
-# run fully offline with no key at all.
+# ---------------- Speech-to-Speech (THE brain) ---------------
+# A single Qwen Omni model takes the person's speech in and speaks the reply
+# out — no separate STT/LLM/TTS. Runs on a free Kaggle GPU (scripts/kaggle/).
+#
+#   provider: "qwen_kaggle" -> Qwen Omni on a free Kaggle GPU (DEFAULT). Set
+#                              the tunnel URL below after starting the notebook.
+#   provider: "qwen_omni"   -> Qwen Omni on your own GPU server.
+#   provider: "mock"        -> fully offline test (no audio/GPU/keys).
+sts:
+  provider: "qwen_kaggle"
+  qwen_omni:
+    url: "http://127.0.0.1:8501/sts"   # local Qwen server endpoint
+  qwen_kaggle:
+    url: ""                            # <-- PASTE your Kaggle tunnel URL here
+    model: "Qwen/Qwen2.5-Omni-3B-Instruct"
+
+# ---------------- Speech-to-Text (optional fallback) ----------
+# Used ONLY by the old three-stage pipeline or text mode. With Qwen as the
+# brain (sts) these are ignored. No Groq.
+# paid: "openai" (whisper-1), "deepgram" (nova-3)   | offline: "mock"
 stt:
-  provider: "groq"
-  groq:
-    model: "whisper-large-v3"
+  provider: "mock"
   openai:
     model: "whisper-1"
     language: null               # null = auto
@@ -37,30 +54,24 @@ stt:
     smart_format: true
     language: null
 
-# ---------------- Language model (understanding / speaking) --
-# FREE:  "groq"  (llama-3.3-70b on Groq free tier — very fast, multilingual)
-# free:  "gemini" (gemini-1.5-flash free tier)
-# paid:  "openai" (gpt-4o-mini)
-# offline: "mock"
+# ---------------- Language model (optional fallback) ----------
+# Used ONLY by the old three-stage pipeline or text mode. With Qwen as the
+# brain (sts) these are ignored. No Groq.
+# free: "gemini" (gemini-1.5-flash)  | paid: "openai" | offline: "mock"
 llm:
-  provider: "groq"
+  provider: "mock"
   temperature: 0.6
   max_tokens: 300
   openai:
     model: "gpt-4o-mini"
     base_url: "https://api.openai.com/v1"
-  groq:
-    model: "llama-3.3-70b-versatile"
-    base_url: "https://api.groq.com/openai/v1"
   gemini:
     model: "gemini-1.5-flash"
     base_url: "https://generativelanguage.googleapis.com/v1beta/models"
 
-# ---------------- Text-to-Speech (voice output) --------------
-# FREE:  "edge"  (Microsoft Edge TTS — 100% free, no API key, 100+ voices,
-#                 many languages incl. hi/ur/ar/te). Needs: pip install edge-tts
-# paid:  "openai", "elevenlabs"
-# offline: "mock"
+# ---------------- Text-to-Speech (greeting only) --------------
+# Only the Start greeting / opening line use TTS (Qwen replies come back as
+# audio already). Free, keyless Microsoft Edge voices in many languages.
 tts:
   provider: "edge"
   openai:
@@ -104,12 +115,10 @@ audio:
     sensitivity: 0.55
 
 # ---------------- Phone bridge -------------------------------
-# This is the "you dial, the agent talks" free workflow:
-#   bridge: "loopback"  -> route your MANUAL phone call (on your laptop or
-#                          phone) into the agent via a virtual audio cable
-#                          (VB-Cable, free). See phone/README.md.
-#   bridge: "none"      -> local mic + speaker (Stage 1 test, no phone).
-#   bridge: "twilio"    -> cloud telephony (PAID, per-minute).
+# "You dial, the agent talks" free workflow:
+#   bridge: "loopback"  -> capture whatever the system is playing (works with
+#                          any call app), speak through your USB/speaker device.
+#   bridge: "none"      -> local mic + speaker (test, no phone).
 #   bridge: "audio"     -> physical phone via a USB audio interface.
 phone:
   bridge: "loopback"
@@ -122,27 +131,6 @@ phone:
     user: ""
     password: ""
 
-# ---------------- Speech-to-Speech (ONE-model path) ------------
-# Replaces the separate STT + LLM + TTS pipeline (Groq + Edge) with a single
-# Qwen Omni model that takes speech in and speaks the reply directly.
-#
-#   provider: "mock"        -> offline test (no audio/GPU)
-#   provider: "qwen_kaggle" -> Qwen Omni on a free Kaggle GPU. This makes the
-#                              GUI, --call and --voice use Qwen as the brain
-#                              INSTEAD of Groq. Set the URL below after
-#                              starting the Kaggle notebook (scripts/kaggle/).
-#   provider: "qwen_omni"   -> Qwen Omni on your own GPU server.
-#
-# The GUI/voice/call auto-pick this path whenever a real sts provider is set,
-# so switching Groq -> Qwen is just: sts.provider: "qwen_kaggle" + URL.
-sts:
-  provider: "mock"
-  qwen_omni:
-    url: "http://127.0.0.1:8501/sts"   # local Qwen server endpoint
-  qwen_kaggle:
-    url: ""                            # Kaggle tunnel URL (set at runtime)
-    model: "Qwen/Qwen2.5-Omni-3B-Instruct"
-
 # ---------------- Memory --------------------------------------
 memory:
   type: "json"                   # json (simple, v1) | sqlite (later)
@@ -151,12 +139,12 @@ memory:
   persist: true                  # save each call transcript to data/conversations
 
 # ---------------- Model keys (also loaded from .env) ---------
-# You can put keys here OR in a .env file (recommended).
-# FREE stack needs ONLY the Groq key (STT + LLM). Edge TTS needs no key.
+# Qwen on Kaggle needs NO API key (just the tunnel URL in sts.qwen_kaggle.url).
+# Edge TTS needs no key. The other keys below are only for the optional paid/
+# free non-Qwen fallbacks.
 keys:
-  groq: ""
-  gemini: ""                     # free-tier Gemini (optional)
+  gemini: ""                     # free-tier Gemini (optional fallback)
   openai: ""
   deepgram: ""
   elevenlabs: ""
-  qwen_url: ""                   # Kaggle Qwen STS tunnel URL (if using --sts)
+  qwen_url: ""                   # Kaggle Qwen STS tunnel URL (same as sts.qwen_kaggle.url)

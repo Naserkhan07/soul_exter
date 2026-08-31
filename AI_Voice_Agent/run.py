@@ -7,7 +7,7 @@ Teams, Zoom, Messenger, etc.) — because it listens to the SYSTEM audio output
 and speaks through your USB/speaker device.
 
 Usage:
-    python run.py            # live (free Groq + Edge stack — needs a Groq key)
+    python run.py            # live — Qwen on Kaggle does the talking
     python run.py --mock     # fully offline (no keys, no internet)
     python run.py --test     # run the automated tests and exit
 """
@@ -48,7 +48,8 @@ def _setup_guide() -> str:
     return (
         "\nMissing pieces. On Windows:\n"
         "  scripts\\setup_windows.bat    (creates venv + installs deps)\n"
-        "  copy .env.example .env       (add your free GROQ_API_KEY)\n"
+        "  start scripts\\kaggle\\qwen_omni_server.ipynb on Kaggle and paste its\n"
+        "  tunnel URL into config\\config.yaml -> sts.qwen_kaggle.url\n"
         "  pip install -r requirements-audio.txt   (for real voice)\n"
     )
 

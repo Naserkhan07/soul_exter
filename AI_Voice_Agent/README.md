@@ -7,23 +7,23 @@ automated business actions.
 
 Everything is **modular** and **model-agnostic**:
 
-- The **AI brain** runs on **online** speech/LLM providers (works on any laptop,
-  or an online GPU like Kaggle — no local GPU needed), and there's a fully
-  offline **mock** mode to test the whole logic with zero setup.
+- The **AI brain** is **Qwen Omni (Speech-to-Speech)** running on a **free
+  Kaggle GPU** — one model hears the person and speaks the reply (handles BOTH
+  the thinking and the voice). No Groq, no paid provider.
 - You **teach the agent** by editing plain-text **task profiles** — no retraining.
 - A **phone bridge** connects the same agent to a real phone call.
 
 ```
-        🎤 MIC / ☎️ PHONE
-              │
+        🎤 MIC / ☎️ PHONE / any app
+              │   (system output)
               ▼
-   ┌──────────────────────┐
-   │   STT  (understand)  │
-   │   LLM  (reason)      │
-   │   TTS  (speak)       │
-   └──────────┬───────────┘
-              │
-         🔊 SPEAKER / ☎️
+   ┌──────────────────────────────┐
+   │   Qwen Omni (one model)      │
+   │   hears the speech  ────►    │
+   │   thinks ──► replies aloud   │
+   └──────────────┬───────────────┘
+                  │  (reply audio)
+              🔊 SPEAKER / ☎️
 ```
 
 ---
@@ -72,8 +72,10 @@ On Linux/macOS the same commands work with `python3 -m venv venv` first.
 
 ## Manual steps (do these once on your Windows PC)
 
-1. **Install Python 3.10+** from https://python.org — tick **"Add Python to
-   PATH"** during install.
+1. **Install Python 3.10–3.12** from https://python.org — tick **"Add Python to
+   PATH"** during install. *Note: you're on Python 3.14.7 — audio libraries
+   (sounddevice/numpy/soundfile) can lag new Python releases, so **3.12 is
+   recommended** for the voice/audio parts. The logic runs fine on any version.*
 2. **Create the project venv + install deps.** Open a Command Prompt in the
    `AI_Voice_Agent` folder and run:
    ```bat
@@ -82,16 +84,13 @@ On Linux/macOS the same commands work with `python3 -m venv venv` first.
    (This makes `venv`, installs `requirements.txt` and the audio deps. If you
    prefer by hand: `py -3 -m venv venv` → `venv\Scripts\activate` →
    `pip install -r requirements.txt -r requirements-audio.txt`.)
-3. **Add your free AI key** (for the Groq stack):
-   - Copy `.env.example` to `.env`.
-   - Get a free key at https://console.groq.com/keys and paste it as
-     `GROQ_API_KEY=...`.
-   - *No key needed for Edge TTS (speaking) — it's free and keyless.*
-4. **(Optional) Use Qwen on a free Kaggle GPU instead of Groq** — see the
-   [Qwen-on-Kaggle section](#-qwen-on-kaggle-use-qwen-instead-of-groq) below.
-5. **Teach the agent YOUR business** — edit `tasks/my_business/` (already
+3. **Point the brain at Qwen on Kaggle (free, no API key).** Start
+   `scripts\kaggle\qwen_omni_server.ipynb` on a free Kaggle GPU (T4 x2), copy the
+   tunnel URL it prints, and paste it into `config\config.yaml` →
+   `sts.qwen_kaggle.url`. This is the ONLY setup step for the AI — no key needed.
+4. **Teach the agent YOUR business** — edit `tasks/my_business/` (already
    pre-loaded with the Maqsusi business). See the section below.
-6. **Run it:** `python run.py` → press **START**. Choose **"Any app (system)"**
+5. **Run it:** `python run.py` → press **START**. Choose **"Any app (system)"**
    to talk with a person on any call, or **"Microphone"** to test with your own
    voice.
 
@@ -146,29 +145,27 @@ and run `python main.py --task <new_name>`.
 
 ---
 
-## Choose your models — 100% FREE stack (from config.yaml)
+## The brain — 100% FREE: Qwen Omni on a Kaggle GPU
 
-Everything defaults to free providers. The only thing you need is **one free
-Groq key** (for listening + thinking); speaking uses **Microsoft Edge TTS**
-which needs no key at all.
+The **only** brain is **Qwen Omni** running on a **free Kaggle GPU**. One model
+hears the person and speaks the reply — it handles both the thinking and the
+voice. No Groq, no API keys, no paid provider.
 
-| Component | FREE default | Notes |
-|-----------|--------------|-------|
-| Listen (STT) | **Groq `whisper-large-v3`** | free tier, fast, multilingual |
-| Reason (LLM) | **Groq `llama-3.3-70b-versatile`** | free tier, very fast |
-| Speak (TTS)  | **Microsoft Edge TTS** | 100% free, no key, 100+ voices (hi/ur/ar/te…) |
-| Offline test | **mock** (`--mock`) | no keys, no internet |
+| What | Provider | Key? |
+|------|----------|------|
+| Think + hear + speak | **Qwen2.5-Omni-3B** (on Kaggle) | No key — just a free Kaggle notebook |
+| Greeting voice only | **Microsoft Edge TTS** | No key (free, 100+ voices) |
+| Offline test | **mock** (`--mock`) | No keys, no internet |
 
-> A free alternative for the LLM is **Gemini `gemini-1.5-flash`** (Google free
-> tier). The paid providers (OpenAI, Deepgram, ElevenLabs) are still available
-> in the code but are **not** used by default — just switch the `provider` line
-> in `config/config.yaml` if you ever want them.
+> Optional fallbacks (only if you ever *don't* want Qwen): the old three-stage
+> path still exists with **Gemini** (free tier) or **OpenAI/Deepgram** (paid).
+> They are **not** the default and are **not** needed.
 
-To go live with the free stack:
-1. Copy `.env.example` → `.env`, paste your free `GROQ_API_KEY`
-   (get it at https://console.groq.com/keys).
-2. `pip install -r requirements.txt` (installs `edge-tts`).
-3. Run `python main.py`.
+**To go live with the free Qwen stack:**
+1. Start `scripts/kaggle/qwen_omni_server.ipynb` on Kaggle (**GPU T4 x2**),
+   run all cells, and copy the `STS: https://…/sts` URL it prints.
+2. Paste it into `config/config.yaml` → `sts.qwen_kaggle.url`.
+3. Run `python run.py` → click **START**.
 
 ---
 
@@ -179,7 +176,7 @@ To go live with the free stack:
 | `python run.py` | 🚀 **Run the whole project** — opens the app window (click START) |
 | `python run.py --mock` | Same, fully offline (no keys, no internet) |
 | `python run.py --test` | Run the automated tests |
-| `python main.py` | Terminal conversation (free Groq + Edge stack) |
+| `python main.py` | Terminal conversation (mock/optional fallback providers) |
 | `python main.py --mock` | Fully offline (mock providers, no keys) |
 | `python main.py --sts` | **Speech-to-Speech** (one Qwen Omni model) — test offline with mock |
 | `python main.py --sts --audio <file.wav>` | Send one real audio turn to a Qwen Omni server |
@@ -190,29 +187,11 @@ To go live with the free stack:
 
 ---
 
-## Two architectures (pick one)
+## One brain — Qwen on Kaggle (Speech-to-Speech)
 
-This project supports BOTH designs from your original spec.
-
-**Pipeline B — three stages (default: Groq + Edge)**
-`STT → LLM → TTS` with the free online stack. Simplest to run, one free key.
-This is what you get out of the box.
-
-**Pipeline A — Speech-to-Speech, one model (Qwen on Kaggle)**
-A single Qwen Omni model takes the person's audio in and speaks the reply out
-(no separate STT/LLM/TTS). Hosted on a free Kaggle GPU so your PC does nothing
-heavy. You can make this the **primary brain** — the GUI, `--call` and `--voice`
-all auto-switch to Qwen when you configure it (see below).
-
-You don't rebuild anything — the controller handles both. Switch with a config
-change.
-
----
-
-## 🔥 Qwen on Kaggle — use Qwen INSTEAD of Groq
-
-To make the Qwen Omni model (running on a **free Kaggle GPU**) the agent's brain
-instead of Groq:
+This is the **default and only** brain: a single **Qwen Omni** model takes the
+person's audio in and speaks the reply out (no separate STT/LLM/TTS). It runs
+on a **free Kaggle GPU**, so your Windows PC does nothing heavy.
 
 1. **Start the Kaggle server.** Open `scripts/kaggle/qwen_omni_server.ipynb` in
    Kaggle, set **Accelerator = GPU T4 x2 (16GB)**, and run all cells.
@@ -221,17 +200,17 @@ instead of Groq:
 3. **Point the agent at it** in `config/config.yaml`:
    ```yaml
    sts:
-     provider: "qwen_kaggle"          # <-- was "mock"
+     provider: "qwen_kaggle"          # default (already set)
      qwen_kaggle:
-       url: "https://xxxx.tunnel.ai/sts"   # <-- your Kaggle URL
+       url: "https://xxxx.tunnel.ai/sts"   # <-- paste your Kaggle URL here
    ```
 4. **Run the whole project** as usual:
    ```bat
-   python run.py          :: GUI — click START; Qwen now powers the replies
+   python run.py          :: GUI — click START; Qwen powers the replies
    ```
    (or `python main.py --call`). The GUI/voice/call automatically use Qwen
-   whenever a real `sts.provider` is set. The greeting still uses free Edge TTS;
-   every reply comes straight from Qwen as audio.
+   whenever a real `sts.provider` is set (the default). The greeting still uses
+   free Edge TTS; every reply comes straight from Qwen as audio.
 
 > **Why 3B and not 1B/2B?** Qwen has **no 1B or 2B speech-to-speech model**.
 > The smallest native voice-in→voice-out Qwen is **Qwen2.5-Omni-3B**; 4-bit it
@@ -254,9 +233,9 @@ detects the person's language and replies in it: English, Hindi, Urdu, Telugu,
 Arabic, and more (as many as your chosen STT + LLM + TTS support). You can force
 a language in text mode with `/lang hi`.
 
-> **Rule of thumb for quality:** your STT, LLM, and TTS should all support the
-> languages you care about. The free stack (Groq Whisper + Groq Llama + Edge
-> TTS) already covers English, Hindi, Urdu, Telugu, Arabic and many more.
+> **Rule of thumb for quality:** Qwen2.5-Omni is natively multilingual
+> (English, Hindi, Urdu, Telugu, Arabic and more), so it understands and replies
+> in whatever language the person speaks — no per-language setup.
 
 ---
 

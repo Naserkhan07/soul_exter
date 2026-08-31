@@ -7,7 +7,7 @@ the person on the call — whether they're on your laptop (mic/speaker) or on a
 phone connected by USB cable.
 
 Usage:
-    python gui.py                  # free online stack (Groq + Edge)
+    python gui.py                  # Qwen on Kaggle (brain) + Edge TTS greeting
     python gui.py --mock           # fully offline (no keys, no internet)
 
 Audio source is chosen in the window:

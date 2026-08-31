@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """AI Voice Agent — entry point.
 
+PRIMARY BRAIN: Qwen Omni (Speech-to-Speech) on a free Kaggle GPU — one model
+hears the person and speaks the reply. No Groq, no paid provider.
+
 Run modes:
-  python main.py                       # text REPL (free Groq + Edge stack)
-  python main.py --mock                # force ALL providers to mock (fully offline, no keys)
-  python main.py --sts                 # Speech-to-Speech (one Qwen Omni model)
-  python main.py --sts --audio <file>  # send one real audio turn to a Qwen server
+  python main.py --sts --audio <file>  # send one real audio turn to the Qwen server
+  python main.py --sts                 # Speech-to-Speech text harness (mock offline)
+  python main.py                       # text REPL (mock/optional fallback providers)
   python main.py --voice               # real microphone + speaker (Windows, audio deps)
-  python main.py --call                # live phone call via the configured bridge
+  python main.py --call                # live call via the generic loopback bridge
+  python main.py --mock                # force ALL providers to mock (fully offline)
   python main.py --task my_business    # pick a task profile (default from config)
 
-Any model can be switched online in config/config.yaml (openai/groq/gemini for
-the LLM, openai/deepgram for STT, openai/edge/elevenlabs for TTS) + a .env with
-keys. Set every provider to "mock" to run fully offline.
+The GUI (run.py) and --call/--voice auto-use Qwen whenever sts.provider is a
+real provider (default). The greeting still uses free, keyless Edge TTS.
 """
 
 from __future__ import annotations
@@ -92,9 +94,9 @@ def build_active_controller(cfg: dict, mock: bool = False) -> Controller:
     """Pick the pipeline automatically.
 
     If a REAL speech-to-speech provider is configured (Qwen on Kaggle / local
-    Qwen), use the one-model STS path. Otherwise use the three-stage Groq stack.
-    This is what the GUI and --voice/--call use, so switching the 'brain' is
-    just a config change (sts.provider + url).
+    Qwen), use the one-model STS path. Otherwise use the fallback (mock/optional
+    paid) stack. This is what the GUI and --voice/--call use, so switching the
+    'brain' is just a config change (sts.provider + url).
     """
     if not mock and cfg.get("sts", {}).get("provider", "mock").lower() in ("qwen_omni", "qwen_kaggle"):
         return build_sts_controller(cfg, mock)
@@ -115,7 +117,7 @@ def process_audio_turn(ctrl: Controller, wav: bytes, sample_rate: int) -> tuple[
         person = users[-1]["text"] if users else ""
         reply = assists[-1]["text"] if assists else ""
         return person, reply, audio, ctrl.last_lead_changes
-    # Pipeline B: STT -> LLM -> TTS (e.g. Groq + Edge)
+    # Pipeline B: STT -> LLM -> TTS (optional fallback; not the default)
     text = (ctrl.stt.transcribe(wav) or "").strip()
     if not text:
         return "", "", b"", []

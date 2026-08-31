@@ -124,10 +124,6 @@ def build_stt(cfg: dict, keys: dict[str, str]) -> STTBase:
         from .stt.deepgram_stt import DeepgramSTT
         _require_keys({"deepgram": keys.get("deepgram", "")})
         return DeepgramSTT(cfg.get("deepgram", {}), keys["deepgram"])
-    if provider == "groq":
-        from .stt.groq_stt import GroqSTT
-        _require_keys({"groq": keys.get("groq", "")})
-        return GroqSTT(cfg.get("groq", {}), keys["groq"])
     if provider == "whisper_api":
         from .stt.openai_stt import OpenAIWhisperAPI
         _require_keys({"openai": keys.get("openai", "")})
@@ -144,10 +140,6 @@ def build_llm(cfg: dict, keys: dict[str, str]) -> LLMBase:
         from .llm.openai_llm import OpenAILLM
         _require_keys({"openai": keys.get("openai", "")})
         return OpenAILLM(cfg, keys["openai"])
-    if provider == "groq":
-        from .llm.groq_llm import GroqLLM
-        _require_keys({"groq": keys.get("groq", "")})
-        return GroqLLM(cfg, keys["groq"])
     if provider == "gemini":
         from .llm.gemini_llm import GeminiLLM
         _require_keys({"gemini": keys.get("gemini", "")})
