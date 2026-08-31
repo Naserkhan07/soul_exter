@@ -124,6 +124,10 @@ def build_stt(cfg: dict, keys: dict[str, str]) -> STTBase:
         from .stt.deepgram_stt import DeepgramSTT
         _require_keys({"deepgram": keys.get("deepgram", "")})
         return DeepgramSTT(cfg.get("deepgram", {}), keys["deepgram"])
+    if provider == "gemini":
+        from .stt.gemini_stt import GeminiSTT
+        _require_keys({"gemini": keys.get("gemini", "")})
+        return GeminiSTT(cfg.get("gemini", {}), keys["gemini"])
     if provider == "whisper_api":
         from .stt.openai_stt import OpenAIWhisperAPI
         _require_keys({"openai": keys.get("openai", "")})

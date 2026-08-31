@@ -41,11 +41,21 @@ sts:
     model: "Qwen/Qwen2.5-Omni-3B"      # NOTE: no "-Instruct" suffix (that ID doesn't exist)
 
 # ---------------- Speech-to-Text (optional fallback) ----------
-# Used ONLY by the old three-stage pipeline or text mode. With Qwen as the
-# brain (sts) these are ignored. No Groq.
-# paid: "openai" (whisper-1), "deepgram" (nova-3)   | offline: "mock"
+# Used when sts.provider is NOT qwen (i.e. the three-stage "Gemini hears ->
+# thinks -> Edge speaks" pipeline below). With Qwen as the brain these are
+# ignored. No Groq.
+#
+#   provider: "gemini"  -> FREE Google Gemini audio understanding (very good at
+#                          hearing/listening, many languages). Set keys.gemini
+#                          to a free key from https://aistudio.google.com/apikey
+#                          and switch sts.provider to "mock" to activate this.
+#   provider: "openai" (whisper-1), "deepgram" (nova-3) | offline: "mock"
 stt:
   provider: "mock"
+  gemini:
+    model: "gemini-1.5-flash"   # free tier supports audio input
+    mime_type: "audio/wav"      # what the capture produces
+    language: ""                # optional: force a language, e.g. "hi" / "en"
   openai:
     model: "whisper-1"
     language: null               # null = auto
@@ -149,7 +159,8 @@ memory:
 # Edge TTS needs no key. The other keys below are only for the optional paid/
 # free non-Qwen fallbacks.
 keys:
-  gemini: ""                     # free-tier Gemini (optional fallback)
+  gemini: ""                     # FREE Gemini key (aistudio.google.com/apikey) -
+                                 # used for hearing (stt.gemini) and/or thinking (llm.gemini)
   openai: ""
   deepgram: ""
   elevenlabs: ""
