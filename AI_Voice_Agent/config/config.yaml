@@ -123,12 +123,18 @@ phone:
     password: ""
 
 # ---------------- Speech-to-Speech (ONE-model path) ------------
-# Replaces the separate STT + LLM + TTS pipeline with a single Qwen Omni
-# model that takes speech in and speaks the reply directly.
-#   mock         : offline test (no audio/GPU)
-#   qwen_kaggle  : Qwen Omni hosted on a free Kaggle GPU (scripts/kaggle/)
-#   qwen_omni    : Qwen Omni on your own GPU server
-# You pick EITHER the sst pipeline (stt+llm+tts) OR this sts path via main.py.
+# Replaces the separate STT + LLM + TTS pipeline (Groq + Edge) with a single
+# Qwen Omni model that takes speech in and speaks the reply directly.
+#
+#   provider: "mock"        -> offline test (no audio/GPU)
+#   provider: "qwen_kaggle" -> Qwen Omni on a free Kaggle GPU. This makes the
+#                              GUI, --call and --voice use Qwen as the brain
+#                              INSTEAD of Groq. Set the URL below after
+#                              starting the Kaggle notebook (scripts/kaggle/).
+#   provider: "qwen_omni"   -> Qwen Omni on your own GPU server.
+#
+# The GUI/voice/call auto-pick this path whenever a real sts provider is set,
+# so switching Groq -> Qwen is just: sts.provider: "qwen_kaggle" + URL.
 sts:
   provider: "mock"
   qwen_omni:

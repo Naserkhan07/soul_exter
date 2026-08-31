@@ -68,6 +68,37 @@ The window shows everything live:
 
 On Linux/macOS the same commands work with `python3 -m venv venv` first.
 
+---
+
+## Manual steps (do these once on your Windows PC)
+
+1. **Install Python 3.10+** from https://python.org — tick **"Add Python to
+   PATH"** during install.
+2. **Create the project venv + install deps.** Open a Command Prompt in the
+   `AI_Voice_Agent` folder and run:
+   ```bat
+   scripts\setup_windows.bat
+   ```
+   (This makes `venv`, installs `requirements.txt` and the audio deps. If you
+   prefer by hand: `py -3 -m venv venv` → `venv\Scripts\activate` →
+   `pip install -r requirements.txt -r requirements-audio.txt`.)
+3. **Add your free AI key** (for the Groq stack):
+   - Copy `.env.example` to `.env`.
+   - Get a free key at https://console.groq.com/keys and paste it as
+     `GROQ_API_KEY=...`.
+   - *No key needed for Edge TTS (speaking) — it's free and keyless.*
+4. **(Optional) Use Qwen on a free Kaggle GPU instead of Groq** — see the
+   [Qwen-on-Kaggle section](#-qwen-on-kaggle-use-qwen-instead-of-groq) below.
+5. **Teach the agent YOUR business** — edit `tasks/my_business/` (already
+   pre-loaded with the Maqsusi business). See the section below.
+6. **Run it:** `python run.py` → press **START**. Choose **"Any app (system)"**
+   to talk with a person on any call, or **"Microphone"** to test with your own
+   voice.
+
+> **Real voice needs the audio deps + a working mic/speaker.** If audio fails,
+> run `python run.py --mock` to test the whole conversation logic with no
+> hardware/keys.
+
 ### Test it right now (no keys, no GPU)
 
 Run fully offline with zero keys:
@@ -163,30 +194,44 @@ To go live with the free stack:
 
 This project supports BOTH designs from your original spec.
 
-**Pipeline A — Speech-to-Speech, one model (`--sts`)**
-Your preferred architecture: a single Qwen Omni model takes the person's audio
-in and speaks the reply out (no separate STT/LLM/TTS). Hosted on a free Kaggle
-GPU so your PC does nothing heavy. See [the Kaggle guide below](#-kaggle-speech-to-speech-qwen-omni).
+**Pipeline B — three stages (default: Groq + Edge)**
+`STT → LLM → TTS` with the free online stack. Simplest to run, one free key.
+This is what you get out of the box.
 
-**Pipeline B — three stages (default `main.py`)**
-`STT → LLM → TTS` with the free online stack (Groq + Edge). Simpler to run,
-one free key.
+**Pipeline A — Speech-to-Speech, one model (Qwen on Kaggle)**
+A single Qwen Omni model takes the person's audio in and speaks the reply out
+(no separate STT/LLM/TTS). Hosted on a free Kaggle GPU so your PC does nothing
+heavy. You can make this the **primary brain** — the GUI, `--call` and `--voice`
+all auto-switch to Qwen when you configure it (see below).
 
-You don't rebuild anything — the controller handles both. Pick with the flag.
+You don't rebuild anything — the controller handles both. Switch with a config
+change.
 
 ---
 
-## 🔥 Kaggle Speech-to-Speech (Qwen Omni) — free GPU
+## 🔥 Qwen on Kaggle — use Qwen INSTEAD of Groq
 
-This is the "one model" idea, run on a **free Kaggle GPU** so your PC has no
-heavy AI and no Python speech latency.
+To make the Qwen Omni model (running on a **free Kaggle GPU**) the agent's brain
+instead of Groq:
 
-1. Open `scripts/kaggle/qwen_omni_server.ipynb` in Kaggle, set
-   **Accelerator = GPU T4 x2 (16GB)**, and run all cells.
+1. **Start the Kaggle server.** Open `scripts/kaggle/qwen_omni_server.ipynb` in
+   Kaggle, set **Accelerator = GPU T4 x2 (16GB)**, and run all cells.
 2. It loads **Qwen2.5-Omni-3B** (4-bit) and opens a public tunnel, printing:
    `STS: https://xxxx.tunnel.ai/sts`.
-3. Put that URL in `config/config.yaml` → `sts.qwen_kaggle.url`.
-4. On your PC: `python main.py --sts --audio person_speech.wav`.
+3. **Point the agent at it** in `config/config.yaml`:
+   ```yaml
+   sts:
+     provider: "qwen_kaggle"          # <-- was "mock"
+     qwen_kaggle:
+       url: "https://xxxx.tunnel.ai/sts"   # <-- your Kaggle URL
+   ```
+4. **Run the whole project** as usual:
+   ```bat
+   python run.py          :: GUI — click START; Qwen now powers the replies
+   ```
+   (or `python main.py --call`). The GUI/voice/call automatically use Qwen
+   whenever a real `sts.provider` is set. The greeting still uses free Edge TTS;
+   every reply comes straight from Qwen as audio.
 
 > **Why 3B and not 1B/2B?** Qwen has **no 1B or 2B speech-to-speech model**.
 > The smallest native voice-in→voice-out Qwen is **Qwen2.5-Omni-3B**; 4-bit it
@@ -194,8 +239,11 @@ heavy AI and no Python speech latency.
 > need a <3B model for speech-to-speech you'd use a different family (e.g.
 > Gemini-nano-class, or distilled systems) — none are 1B/2B today.
 
-The tunnel URL changes each session, so update the config whenever you restart
-Kaggle. For a stable URL you'd add your own ngrok token (free tier).
+The tunnel URL changes each session, so update `sts.qwen_kaggle.url` whenever
+you restart Kaggle. For a stable URL you'd add your own ngrok token (free tier).
+
+The `--sts` flags still work for a quick offline/file test:
+`python main.py --sts` (mock) or `python main.py --sts --audio person_speech.wav`.
 
 ---
 

@@ -28,7 +28,7 @@ import threading
 from pathlib import Path
 
 from config import load_config
-from main import build_controller, ROOT
+from main import build_active_controller, process_audio_turn, ROOT
 from phone.loopback import LoopbackBridge, LoopbackConfig, decode_audio_to_float32
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(name)s: %(message)s")
@@ -220,7 +220,7 @@ class VoiceAgentGUI:
     # ---------------- worker: runs the agent in a background thread ----
     def _run_agent(self, name: str, source: str):
         try:
-            ctrl = build_controller(self.cfg, self.mock)
+            ctrl = build_active_controller(self.cfg, self.mock)
             self.ctrl = ctrl
             opening = ctrl.start_call()
 
@@ -270,20 +270,18 @@ class VoiceAgentGUI:
                 try:
                     from main import _float32_to_wav
                     wav = _float32_to_wav(segment, loop_cfg.sample_rate)
-                    text = ctrl.stt.transcribe(wav)
-                    text = (text or "").strip()
-                    if not text:
+                    person, reply, audio, changes = process_audio_turn(ctrl, wav, loop_cfg.sample_rate)
+                    if not person:
                         return
-                    self._ui(self._log, f"Person: {text}")
-                    changes = ctrl.update_lead(text)
+                    self._ui(self._log, f"Person: {person}")
                     if changes:
                         self._ui(self._show_lead_changes, changes)
-                    reply = ctrl.handle_utterance(text)
-                    self._ui(self._log, f"Agent: {reply}")
+                    if reply:
+                        self._ui(self._log, f"Agent: {reply}")
                     self._ui(self._refresh_lead)
-                    audio = ctrl.speak(reply)
-                    samples, sr = decode_audio_to_float32(audio)
-                    bridge.play_samples(samples, sr)
+                    if audio:
+                        samples, sr = decode_audio_to_float32(audio)
+                        bridge.play_samples(samples, sr)
                 except Exception as e:  # pragma: no cover
                     log.exception("turn error: %s", e)
 

@@ -67,9 +67,13 @@ def build_sts_controller(cfg: dict, mock: bool = False) -> Controller:
     keys = resolve_keys(cfg)
     if mock:
         cfg["sts"] = {"provider": "mock"}
+        cfg["tts"] = {"provider": "mock"}
     task_name = cfg["agent"].get("task", "my_business")
     task = load_task(task_name, ROOT / "tasks")
     sts = build_sts(cfg.get("sts", {}), keys)
+    # Also keep a TTS so the greeting / opening line can still be spoken even
+    # though replies normally come straight from the Qwen STS model as audio.
+    tts = build_tts(cfg.get("tts", {}), keys)
     log.info("STS provider -> %s", sts.name)
     cc = ControllerConfig(
         language=cfg["agent"].get("language", "auto"),
@@ -80,8 +84,44 @@ def build_sts_controller(cfg: dict, mock: bool = False) -> Controller:
         summarize_after=cfg.get("memory", {}).get("summarize_after", 30),
         persist=cfg.get("memory", {}).get("persist", True),
     )
-    return Controller(task, sts=sts, cfg=cc,
+    return Controller(task, sts=sts, tts=tts, cfg=cc,
                       data_dir=ROOT / cfg.get("data", {}).get("dir", "data/conversations"))
+
+
+def build_active_controller(cfg: dict, mock: bool = False) -> Controller:
+    """Pick the pipeline automatically.
+
+    If a REAL speech-to-speech provider is configured (Qwen on Kaggle / local
+    Qwen), use the one-model STS path. Otherwise use the three-stage Groq stack.
+    This is what the GUI and --voice/--call use, so switching the 'brain' is
+    just a config change (sts.provider + url).
+    """
+    if not mock and cfg.get("sts", {}).get("provider", "mock").lower() in ("qwen_omni", "qwen_kaggle"):
+        return build_sts_controller(cfg, mock)
+    return build_controller(cfg, mock)
+
+
+def process_audio_turn(ctrl: Controller, wav: bytes, sample_rate: int) -> tuple[str, str, bytes, list[str]]:
+    """Run one full person-utterance through the active pipeline.
+
+    Returns (person_text, reply_text, reply_audio, lead_changes).
+    Works with BOTH pipelines so the GUI / --call / --voice don't care which
+    brain is configured.
+    """
+    if ctrl.uses_sts:
+        audio = ctrl.handle_audio(wav)          # Qwen: audio in -> audio out
+        users = [t for t in ctrl.memory.turns if t["role"] == "user"]
+        assists = [t for t in ctrl.memory.turns if t["role"] == "assistant"]
+        person = users[-1]["text"] if users else ""
+        reply = assists[-1]["text"] if assists else ""
+        return person, reply, audio, ctrl.last_lead_changes
+    # Pipeline B: STT -> LLM -> TTS (e.g. Groq + Edge)
+    text = (ctrl.stt.transcribe(wav) or "").strip()
+    if not text:
+        return "", "", b"", []
+    reply = ctrl.handle_utterance(text)
+    audio = ctrl.speak(reply)
+    return text, reply, audio, ctrl.last_lead_changes
 
 
 def run_text(cfg: dict, mock: bool = False) -> None:
@@ -224,7 +264,7 @@ def run_voice(cfg: dict, mock: bool = False) -> None:
         log.error("Audio mode needs sounddevice+numpy (see requirements-audio.txt). %s", e)
         raise SystemExit(1)
 
-    ctrl = build_controller(cfg, mock)
+    ctrl = build_controller(cfg, mock)   # run_voice is the Pipeline-B (mic) test
     opening = ctrl.start_call()
     print(f"AI Voice Agent | Task: {ctrl.task.name} | listening... (Ctrl+C to quit)")
     if opening:
@@ -295,7 +335,7 @@ def run_loopback_call(cfg: dict, mock: bool = False) -> None:
     from phone.loopback import LoopbackBridge, LoopbackConfig
     from audio.vad import EnergyVAD  # kept for reference; bridge does its own VAD
 
-    ctrl = build_controller(cfg, mock)
+    ctrl = build_active_controller(cfg, mock)
     opening = ctrl.start_call()
     print("\n" + "=" * 60)
     print("  AI VOICE AGENT — LIVE CALL (loopback bridge)")
@@ -321,16 +361,18 @@ def run_loopback_call(cfg: dict, mock: bool = False) -> None:
     def on_utterance(segment):
         try:
             wav = _float32_to_wav(segment, loop_cfg.sample_rate)
-            text = ctrl.stt.transcribe(wav)
-            text = (text or "").strip()
-            if not text:
+            person, reply, audio, changes = process_audio_turn(ctrl, wav, loop_cfg.sample_rate)
+            if not person:
                 log.info("(no speech recognised)")
                 return
-            log.info("Person: %s", text)
-            reply = ctrl.handle_utterance(text)
+            log.info("Person: %s", person)
+            for c in changes:
+                log.info("LEAD: %s", c)
             log.info("Agent: %s", reply)
-            audio = ctrl.speak(reply)   # Pipeline B TTS bytes
-            _play_into_call(loop_cfg, audio)
+            if audio:
+                _play_into_call(loop_cfg, audio)
+            else:
+                log.warning("No reply audio returned")
         except Exception as e:  # pragma: no cover
             log.exception("Loopback turn error: %s", e)
 

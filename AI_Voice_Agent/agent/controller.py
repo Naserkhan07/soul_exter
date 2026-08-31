@@ -54,6 +54,7 @@ class Controller:
         self.cfg = cfg or ControllerConfig()
         self.rules = SafetyRules()
         self.lead = Lead()
+        self.last_lead_changes: list[str] = []   # lead milestones from the last turn
         self.memory = ConversationMemory(
             max_context_turns=self.cfg.max_context_turns,
             summarize_after=self.cfg.summarize_after,
@@ -121,6 +122,7 @@ class Controller:
     def update_lead(self, text: str) -> list[str]:
         """Scan person speech for lead info; return new milestone messages."""
         changes = self.lead.update(text)
+        self.last_lead_changes = changes
         for c in changes:
             log.info("LEAD: %s", c)
         return changes
@@ -151,3 +153,8 @@ class Controller:
     @property
     def mock_sts(self):
         return self.sts if self.sts and getattr(self.sts, "name", "") == "mock" else None
+
+    @property
+    def uses_sts(self):
+        """True when a real (non-mock) speech-to-speech model is active."""
+        return self.sts is not None and getattr(self.sts, "name", "") not in ("mock", "")
