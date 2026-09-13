@@ -209,6 +209,10 @@ def test_ceo_can_veto_a_majority():
     brains = {c.key: FixedBrain(c, "APPROVE") for c in CABINS[:3]}
     brains["RISK"] = FixedBrain(CABINS[1], "REJECT")
     brains["MACRO"] = FixedBrain(CABINS[3], "REJECT")
+    # Every cabin must be named explicitly: any key left out falls back to the
+    # mock brain, whose verdict is seeded from the trade's random id, and the
+    # test then fails at random. (That is exactly how this one used to flake.)
+    brains["COMPLIANCE"] = FixedBrain(CABINS[4], "APPROVE")
     brains["CEO"] = FixedBrain(CEO_SPEC, "REJECT", confidence=81)
     council, bus = make_council(cfg, brains)
     result = asyncio.run(council.review(trade(), ctx_fn))

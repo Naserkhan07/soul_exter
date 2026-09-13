@@ -39,6 +39,7 @@ it costs almost nothing next to the LLM cabins.
 """
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -353,11 +354,21 @@ class FlyBrain:
         sharpens the winner the way MBON-MBON inhibition does in the fly.
         """
         drive = self.mbon_gain * (self.W_kc_mbon.T @ kc_activity) - self.mbon_bias
-        r = np.clip(drive, 0.0, 1.0)
+
+        # Soft saturation, not a hard clip. A hard clip is non-monotone in
+        # practice: a violent tape pins every output at the ceiling, the
+        # confirm-minus-contradict margin collapses to zero, and the strongest
+        # setups read as "no opinion". drive/(1+drive) is monotone everywhere,
+        # so the margin keeps growing with the evidence.
+        def act(d: np.ndarray) -> np.ndarray:
+            d = np.maximum(d, 0.0)
+            return d / (1.0 + d)
+
+        r = act(drive)
         for _ in range(max(0, self.readout_iters)):
-            nxt = np.clip(drive + self.W_mbon_mbon.T @ r, 0.0, 1.0)
+            nxt = act(drive + self.W_mbon_mbon.T @ r)
             r = 0.5 * r + 0.5 * nxt          # damped relaxation, so it converges
-        return r.astype(np.float32)
+        return np.clip(r, 0.0, 1.0).astype(np.float32)
 
     # ------------------------------------------------------------------
     # calibration
@@ -533,6 +544,11 @@ class FlyBrain:
         regime = float(features.get("regime", 0.0) or 0.0)
         ema_stack = float(features.get("ema_stack", 1.0) or 0.0)
 
+        # Channel 5 used to be built with `g(...) if v >= 0 else 1 - g(...)`,
+        # which encoded a strongly NEGATIVE relative strength as bullish (1 - 0.0
+        # = 1.0). A plain signed ramp over -6..6 is what the polarity wiring
+        # below assumes: 0.5 is neutral, 0 is maximally bearish, 1 maximally
+        # bullish. Every directional channel is built the same way.
         ch = [
             g("vol_z", -1.0, 4.0),                                    # 0 volume surprise
             g("atr_rank", 0.0, 100.0),                                # 1 volatility regime
@@ -540,9 +556,6 @@ class FlyBrain:
             1.0 if rsi < 45 else 0.0,                                 # 3 oversold flag
             1.0 if rsi > 55 else 0.0,                                 # 4 overbought flag
             g("rel_strength", -6.0, 6.0),                             # 5 relative strength
-            # (a branch here used to mirror the negative side, which encoded a
-            #  strongly negative relative strength as BULLISH — the single worst
-            #  bug this encoder has had. g() already maps -6..6 onto 0..1.)
             g("range_pos", 0.0, 1.0),                                 # 6 where in the 60-bar range
             g("bb_width_rank", 0.0, 100.0),                           # 7 compression
             g("atr_pct", 0.0, 3.0),                                   # 8 absolute volatility
@@ -588,18 +601,27 @@ class FlyBrain:
             reads.append(self.mirror(self.featurize(f), side_long))
         return reads
 
-    def _stimulus(self, vec: np.ndarray, t: int) -> np.ndarray:
+    def _stimulus(self, vec: np.ndarray, t: int,
+                  rng: Optional[np.random.Generator] = None) -> np.ndarray:
         """Poisson-ish sensory drive for one millisecond."""
         c = self.cfg
         pools = vec[: c.n_orn_pools] if vec.size >= c.n_orn_pools else np.pad(
             vec, (0, c.n_orn_pools - vec.size))
         rate = np.repeat(pools, c.orn_per_pool) * 55.0        # Hz-ish per ORN
-        spikes = (self.rng.random(rate.shape) < (rate / 1000.0) * self.lif.dt_ms)
+        rng = rng or self.rng
+        spikes = (rng.random(rate.shape) < (rate / 1000.0) * self.lif.dt_ms)
         return spikes.astype(np.float32)
 
     # ------------------------------------------------------------------
     # simulation
     # ------------------------------------------------------------------
+    def _stimulus_rng(self, vec: np.ndarray) -> np.random.Generator:
+        """Deterministic RNG keyed on the stimulus (see run())."""
+        key = np.round(np.asarray(vec, dtype=np.float32) * 4096.0).astype(np.int32).tobytes()
+        digest = hashlib.blake2b(key, digest_size=8,
+                                 key=str(self.cfg.seed).encode()[:16] or b"soul").digest()
+        return np.random.default_rng(int.from_bytes(digest, "little"))
+
     def run(self, vec: np.ndarray, ms: Optional[int] = None) -> Dict[str, Any]:
         """Integrate the network over one stimulus window and return firing rates."""
         c, p = self.cfg, self.lif
@@ -607,6 +629,13 @@ class FlyBrain:
         alpha = p.dt_ms / p.tau_m_ms
         trace_decay = math.exp(-p.dt_ms / p.tau_trace_ms)
         refr_steps = max(0, int(p.refractory_ms / p.dt_ms))
+
+        # Every stimulus gets its OWN background noise, seeded from the stimulus
+        # itself. Two consequences, both wanted: the same market read always
+        # gives the same verdict (the UI explains decisions, and tests assert
+        # them), and different reads are still independently noisy, so the
+        # network never becomes a lookup table.
+        rng = self._stimulus_rng(vec)
 
         self.v_ln[:] = 0.0
         self.v_pn[:] = 0.0
@@ -625,11 +654,11 @@ class FlyBrain:
         bg_pn = bg_ln * 0.6
 
         for t in range(T):
-            orn = self._stimulus(vec, t)
+            orn = self._stimulus(vec, t, rng)
 
             # ---- ORN -> LN (with lateral recurrent mixing) ---------------
             drive = self.W_orn_ln.T @ orn + self.W_ln_ln.T @ spk_ln
-            drive += (self.rng.random(self.n_ln) < bg_ln).astype(np.float32) * 0.55
+            drive += (rng.random(self.n_ln) < bg_ln).astype(np.float32) * 0.55
             self.v_ln += alpha * (-self.v_ln + drive)
             self.refractory = np.maximum(0.0, self.refractory - 1)
             fired = (self.v_ln >= p.v_thresh) & (self.refractory <= 0)
@@ -641,7 +670,7 @@ class FlyBrain:
 
             # ---- LN -> PN -----------------------------------------------
             pn_drive = self.W_ln_pn.T @ spk_ln
-            pn_drive += (self.rng.random(self.n_pn) < bg_pn).astype(np.float32) * 0.5
+            pn_drive += (rng.random(self.n_pn) < bg_pn).astype(np.float32) * 0.5
             self.v_pn += alpha * (-self.v_pn + pn_drive)
             fired_pn = self.v_pn >= p.v_thresh
             self.v_pn[fired_pn] = p.v_reset
@@ -694,7 +723,17 @@ class FlyBrain:
         features = {**features, "side_long": side_long}
         raw = self.featurize(features)
         vec = self.mirror(raw, bool(side_long))
-        out = self.run(vec)
+        return self.judge_vec(symbol, vec, threshold)
+
+    def judge_vec(self, symbol: str, vec: np.ndarray, threshold: float = 1.3,
+                  out: Optional[Dict[str, Any]] = None) -> FlySignal:
+        """Judge an already-encoded, already-mirrored stimulus.
+
+        Split out from judge() so the offline harnesses can push exact channel
+        vectors (and mirrored pairs) through the same decision path the server
+        uses -- one code path, no test-only branch.
+        """
+        out = self.run(vec) if out is None else out
         mb = out["mbon"]
 
         confirm = float(mb[MBON_CONFIRM]) if mb.size > MBON_CONFIRM else 0.0
@@ -718,17 +757,22 @@ class FlyBrain:
         z_margin = margin / scale
         winner_z = max(z_confirm, z_contradict)
 
-        # Act only when the margin clears ordinary variation AND the winning
-        # output is itself above its ordinary level. Otherwise stay put, which is
-        # the correct default for a filter whose job is to keep the desks empty.
-        if (z_margin >= threshold and winner_z >= 0.25):
+        # The decision reads BOTH pools against their own baselines, not just
+        # their difference. A difference-only rule is dominated by the market's
+        # overall liveliness: a violent tape lifts every output, the confirm pool
+        # rises faster (it is wired to five sensory channels against three), and
+        # the fly then "confirms" blow-off tops it should refuse. Requiring the
+        # winning pool to clear its OWN ordinary level by `threshold` removes
+        # that common mode.
+        if z_confirm >= threshold and z_confirm >= z_contradict:
             direction = "CONFIRM"
-        elif (z_margin <= -threshold and winner_z >= 0.25):
+        elif z_contradict >= threshold and z_contradict > z_confirm:
             direction = "CONTRADICT"
         else:
             direction = "WAIT"
 
-        conviction = float(np.clip(abs(z_margin) / 3.0, 0.0, 1.0))
+        conviction = float(np.clip(winner_z / 3.0, 0.0, 1.0)) if direction != "WAIT" \
+            else float(np.clip(max(0.0, winner_z) / 3.0, 0.0, 1.0))
         # salience = how far the mushroom-body code departs from an ordinary tape
         coverage = float((out["kc"] > 0).mean())
         surprise = (coverage - self.baseline_kc_coverage) / max(0.02, 3.0 * self.baseline_kc_coverage)

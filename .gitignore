@@ -25,3 +25,13 @@ cloudflared
 
 # rendered frames from tools/floor_smoke.mjs
 floor.png
+
+# front-end toolchain (the built bundle in web/assets IS committed: the server
+# serves it and the Kaggle path has no npm step)
+frontend/node_modules/
+node_modules/
+.vite/
+*.tsbuildinfo
+
+# ui smoke scratch
+web/.ui-smoke-ok

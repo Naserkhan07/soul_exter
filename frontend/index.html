@@ -24,8 +24,6 @@
       #boot .dots i:nth-child(4) { animation-delay: 0.45s; }
       @keyframes pulse { 0%, 100% { background: #1e293b; } 50% { background: #57b6ff; } }
     </style>
-    <script type="module" crossorigin src="/static/assets/app.js"></script>
-    <link rel="stylesheet" crossorigin href="/static/assets/app.css">
   </head>
   <body>
     <div id="root"></div>
@@ -44,5 +42,6 @@
         if (root && root.childElementCount > 0 && boot) { boot.remove(); obs.disconnect(); }
       }).observe(document.getElementById("root"), { childList: true });
     </script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -64,6 +64,8 @@ class ScoutPick:
             "conviction": round(self.signal.conviction, 3),
             "salience": round(self.signal.salience, 3),
             "z_margin": round(float(self.signal.rates.get("z_margin", 0.0)), 3),
+            "z_confirm": round(float(self.signal.rates.get("z_confirm", 0.0)), 3),
+            "z_contradict": round(float(self.signal.rates.get("z_contradict", 0.0)), 3),
             "kc_sparsity": round(self.signal.kc_sparsity, 3),
             "rank": self.rank,
             "ts": time.time(),
@@ -102,10 +104,10 @@ class FlyScout:
         confirmed ones with the strongest conviction are put forward — the
         council's attention is the scarce resource.
 
-        The gate has two parts: an absolute floor on the margin between the fly's
-        confirm and contradict outputs (``min_z``), and a budget (``top_n``). The
-        floor rejects setups the fly has no opinion about; the budget keeps a busy
-        scan from flooding the cabins.
+        The gate has two parts: an absolute floor on how far the confirm pool
+        stands above its ordinary-tape reading (``min_z``), and a budget
+        (``top_n``). The floor rejects setups the fly has no opinion about; the
+        budget keeps a busy scan from flooding the cabins.
         """
         picks: List[ScoutPick] = []
         batch: List[Dict[str, Any]] = []
@@ -119,6 +121,8 @@ class FlyScout:
                 "conviction": round(signal.conviction, 3),
                 "salience": round(signal.salience, 3),
                 "z_margin": round(float(signal.rates.get("z_margin", 0.0)), 3),
+                "z_confirm": round(float(signal.rates.get("z_confirm", 0.0)), 3),
+                "z_contradict": round(float(signal.rates.get("z_contradict", 0.0)), 3),
                 "kc_sparsity": round(signal.kc_sparsity, 3),
                 "admitted": False, "ts": time.time(),
             }

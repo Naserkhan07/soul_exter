@@ -181,26 +181,32 @@ class TrendPullback(Strategy):
     def evaluate(self, symbol, o, h, l, c, v, ctx):
         if len(c) < 120:
             return None
-        e20 = float(ema(c, 20)[-1])
-        e50 = float(ema(c, 50)[-1])
+        e20_series, e50_series = ema(c, 20), ema(c, 50)
+        e20, e50 = float(e20_series[-1]), float(e50_series[-1])
         e200 = float(ema(c, 200)[-1]) if len(c) >= 200 else float(ema(c, 120)[-1])
         close = float(c[-1])
         a = float(atr(h, l, c)[-1])
         up = e50 > e200 and close > e200
         dn = e50 < e200 and close < e200
         pull = (e20 - close) / (a + 1e-9)
+        # Normalised 20-bar slope of the EMA50 SERIES. (This used to be called as
+        # slope(e50, 20) with e50 a float, which raised TypeError — and because
+        # the scanner's per-symbol try/except swallows it, the strategy silently
+        # never fired and took every later strategy for that symbol down with it.)
+        trend_slope = slope(e50_series, 20)
+        common = {"ema20": e20, "ema50": e50, "ema200": e200,
+                  "pullback_atr": pull, "atr_pct": a / close * 100,
+                  "trend_slope": trend_slope, "rsi": float(rsi(c)[-1])}
         if up and 0.2 < pull < 1.6:
             return TradeCandidate(symbol, "LONG", self.name, close, close - 1.5 * a, close + 3.6 * a,
-                                  score=clamp(0.34 + 0.05 * min(3, pull) + 0.3 * clamp(slope(e50, 20) * 100, 0, 1), 0, 1),
-                                  features={"ema20": e20, "ema50": e50, "ema200": e200,
-                                            "pullback_atr": pull, "atr_pct": a / close * 100,
-                                            "trend_slope": slope(e50, 20), "rsi": float(rsi(c)[-1])})
+                                  score=clamp(0.34 + 0.05 * min(3, pull)
+                                              + 0.3 * clamp(trend_slope * 100, 0, 1), 0, 1),
+                                  features=dict(common))
         if dn and 0.2 < -pull < 1.6:
             return TradeCandidate(symbol, "SHORT", self.name, close, close + 1.5 * a, close - 3.6 * a,
-                                  score=clamp(0.34 + 0.05 * min(3, -pull) + 0.3 * clamp(-slope(e50, 20) * 100, 0, 1), 0, 1),
-                                  features={"ema20": e20, "ema50": e50, "ema200": e200,
-                                            "pullback_atr": pull, "atr_pct": a / close * 100,
-                                            "trend_slope": slope(e50, 20), "rsi": float(rsi(c)[-1])})
+                                  score=clamp(0.34 + 0.05 * min(3, -pull)
+                                              + 0.3 * clamp(-trend_slope * 100, 0, 1), 0, 1),
+                                  features=dict(common))
         return None
 
 

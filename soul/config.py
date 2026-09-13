@@ -119,7 +119,12 @@ class Config:
     # The fly scout: a spiking FlyWire-inspired network that screens scanner
     # candidates before they are allowed to cost the council any GPU time.
     scout_enabled: bool = _env_bool("SOUL_SCOUT", True)
-    scout_min_z: float = _env_float("SOUL_SCOUT_MIN_Z", 1.3)   # margin floor, in sigmas
+    #: Gate floor, in sigmas of the pool's own ordinary-tape reading. Measured
+    #: with tools/eval_scout.py over ~46k scanner candidates on simulated tape:
+    #: 0.0 -> 37.8% hit / +0.28% mean, 0.8 -> 39.9% / +0.38%, 1.3 -> 40.8% /
+    #: +0.41% but it keeps only a third as many setups. 0.8 is the knee of that
+    #: curve: nearly all of the quality for three times the flow.
+    scout_min_z: float = _env_float("SOUL_SCOUT_MIN_Z", 0.8)
     scout_top_n: int = _env_int("SOUL_SCOUT_TOP_N", 0)         # 0 -> MAX_CANDIDATES
     scout_learn: bool = _env_bool("SOUL_SCOUT_LEARN", True)    # learn from realised P&L
     scout_seed: int = _env_int("SOUL_SCOUT_SEED", 1337)

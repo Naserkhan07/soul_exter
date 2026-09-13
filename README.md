@@ -11,11 +11,15 @@ LLM that owns the final call.
 **No API keys. No paid endpoints. All weights are open and ungated** (they download anonymously).
 
 ```
-                    ┌──────────── the council ────────────┐
-   desk             │  QUANT   RISK   NEWS   MACRO   COMPL.│        CEO
-  (scanner) ───────▶│  Qwen     Mistral Zephyr Qwen    Phi │──────▶ Qwen-14B ──▶ ENTRY / EXIT
-   trade packet     │  7B       7B      7B     3B      mini │        (only if the council splits)
-                    └──────────────────────────────────────┘
+             ┌──────────┐     ┌──────────── the council ────────────┐
+  live tape  │ scanner  │     │  QUANT   RISK   NEWS   MACRO   COMPL.│        CEO
+  ──────────▶│ 5 setups │────▶│  Qwen     Mistral Zephyr Qwen    Phi │──────▶ Qwen-14B ──▶ ENTRY / EXIT
+             └────┬─────┘     │  7B       7B      7B     3B      mini │        (only if the council splits)
+                  │           └──────────────────────────────────────┘
+             ┌────▼─────┐
+             │  SCOUT   │  a spiking FlyWire-style brain (12k synapses) that reads the same
+             │ fly brain│  features and answers CONFIRM / WAIT / CONTRADICT. Only what it
+             └──────────┘  confirms is worth the council's time — and it learns from P&L.
 ```
 
 ---
@@ -155,27 +159,32 @@ tells you which is running.
 
 ## What is on screen
 
-- **The floor** — 64 desks in eight rows, each trader tagged with the pair it is trading. Idle desks
-  show dim tags; a trade lights up its desk, stands up and walks.
-- **The five cabins + CEO** — glass rooms on elevated platforms, connected by lit access shafts.
-  Each cabin has its own colour, its model name in the roster panel, and shows `thinking…` while it
-  reasons, then its verdict, confidence and one-line reason.
-- **The doors** — the green **ENTRY** door and the red **EXIT** door at the bottom of the floor.
-- **The HUD** — equity and equity curve, open positions with live P&L, realised P&L, win rate,
-  risk used, and the council tally (entry / exit / escalated).
-- **The roster** — which open-source model is sitting in which cabin, and its last verdict.
-- **Floor log** — a live event tape (spawns, verdicts, escalations, fills, closes, blocks).
-- **Click any trader or cabin** for the full council transcript: every verdict, confidence, flag,
-  latency and model name.
+The interface is a React + TypeScript app (`frontend/`) drawn over a full-bleed isometric canvas.
+Every pixel of the room comes from the engine's event stream; the UI holds no trading logic.
+
+- **The floor** — three blocks of desks on a travertine floor, each occupied desk carrying a trader
+  with **the pair it is trading written above its head**, plus the fly scout's read of that setup.
+- **The five cabins + CEO** — glass control rooms on an elevated deck, reached by a staircase. Each
+  cabin shows its model name, `DELIBERATING` while it reasons, then its verdict chip and confidence.
+- **The doors** — lit **WELCOME** (entry) and **EXIT** portals on the front edge, with a check-in
+  desk beside the entry; trades walk in through one and out through the other.
+- **Panels** — the council rail (per-cabin state), the **fly scout** panel (neurons, synapses,
+  judged / confirmed / waited / contradicted, admit rate, rewards, last batch), the equity spark,
+  the book (open positions with live P&L and closes), the market tape and the trade record.
+- **Trade drawer** — click any row or trader for the full audit: the scout's read, the market
+  snapshot the trade came from, all five cabin verdicts (model, confidence, reason, flags,
+  latency and sizing adjustment), the CEO's ruling when it was escalated, and the risk block.
 
 ![cabins](docs/cabin-closeup.png)
 
-Above: the six cabins mid-session — five desks holding their verdicts and the CEO's roof lit. Each
-cabin's operator sits inside, the access shaft below is the rail the trader rode up, and the light
-pool on the floor marks its landing spot.
+Above: the cabins mid-session. Below: the whole floor, with the ticker wall, the march of desks and
+the scout drone patrolling the aisle.
 
-The 3D view is a renderer of the engine's event stream only — it holds no trading logic. Pan by
-dragging, zoom with the wheel.
+![the floor](docs/floor-preview.png)
+
+The room is verified without a browser: `tools/floor_smoke.ts` steps the animation and dumps the
+renderer's drawing ops, `tools/render_floor.py` rasterises them to PNG, and `tools/ui_smoke.mjs`
+mounts the real React bundle in a DOM (fixture **or** live server) and asserts the panels render.
 
 ---
 
@@ -204,6 +213,8 @@ soul/
   models.py        TradeCandidate, Verdict, CouncilResult, Position
   market.py        ccxt public data + offline correlated simulator
   scanner.py       5 numpy strategies, shared feature block, scoring, cooldowns
+  flybrain.py      spiking FlyWire-inspired screen (ORN→LN→PN→KC→MBON, 12k synapses)
+  scout.py         the scout: gates and ranks candidates, learns from realised P&L
   council.py       the five cabins, wave scheduling, CEO escalation
   desk.py          paper fills, sizing, stops/targets, P&L
   engine.py        wires it together and publishes events
@@ -213,17 +224,22 @@ soul/
     base.py        cabin personas, prompt construction, verdict parsing
     local_hf.py    4-bit transformers models on GPU  (Kaggle path)
     mock.py        deterministic persona brains      (no-GPU path)
-web/
-  index.html       HUD markup
-  style.css        glass-panel styling
-  floor.js         isometric renderer (canvas 2D)
-  app.js           event stream -> floor + HUD binding
+frontend/
+  index.html       HUD shell (splash, theme, mount point)
+  src/floor/       isometric renderer: layout, geometry, actors, room, scene
+  src/state/       useSoul(): WS → SSE → polling transport, wire-shape normalising
+  src/components/  panels, trade drawer, canvas host
+  src/styles/      the control-room theme
+web/               build output served by the API (index.html, assets/app.js, assets/app.css)
 kaggle/
   soul_exter_kaggle.ipynb   the whole thing, cells in order
 tools/
-  floor_smoke.mjs  headless floor harness (no browser needed)
-  render_floor.py  rasterise a captured frame to PNG
+  floor_smoke.ts   headless floor harness: steps frames, dumps drawing ops
+  render_floor.py  rasterise those ops to a PNG
+  ui_smoke.mjs     mount the built UI in a DOM, check the panels (use --live for a real server)
+  eval_scout.py    does the fly scout actually pick winners? (measured, not asserted)
   tune_mock.py     calibrate the mock personas
+  tune_flybrain.py calibrate the spiking network
 tests/
   test_council.py  routing, parsing, prompts, cabins, desk, calibration
 ```
@@ -231,19 +247,47 @@ tests/
 ## Tests
 
 ```bash
-python -m pytest tests/ -q          # 29 tests
-python tools/tune_mock.py           # shows the outcome distribution of the mock council
-node tools/floor_smoke.mjs /tmp/f.json && python tools/render_floor.py /tmp/f.json floor.png
+python -m pytest tests/ -q                     # 29 tests: routing, parsing, desk, calibration
+node tools/ui_smoke.mjs                        # builds the UI and checks it against a fixture
+node tools/ui_smoke.mjs --live http://127.0.0.1:8000    # …and against a running server
+node tools/tune_flybrain.py                    # firing rates, sparsity, decision spread
+python tools/eval_scout.py --seeds 4 --bars 1000        # the scout's gate, measured
+cd frontend && npx esbuild ../tools/floor_smoke.ts --bundle --platform=node --format=esm \
+  --outfile=/tmp/smoke.mjs && node /tmp/smoke.mjs /tmp/f.json --focus all && \
+  python tools/render_floor.py /tmp/f.json floor.png
 ```
 
-`tools/floor_smoke.mjs` drives a whole trade — five cabins, CEO, both doors — through `web/floor.js`
-against a stubbed canvas, so the renderer is verified without a browser. `render_floor.py` rasterises
-the captured frame to a PNG for visual review.
+There is no browser in the build environment, so the UI is verified in two layers: the renderer is
+measured as a list of drawing ops (which the Python rasteriser turns into the PNG above), and the
+React tree is mounted in jsdom and asserted against the payload a real server returns.
+
+### Does the scout actually help?
+
+`tools/eval_scout.py` answers that with the simulator as ground truth: generate regime-switching
+paths, run the real strategies bar by bar, label every candidate by walking the price forward until
+it hits its stop, target or horizon, then ask the fly for its verdict. Over ~46,000 candidates:
+
+| what the gate admits | kept | hit rate | mean P&L |
+|---|---|---|---|
+| everything the scanner found | 46,000 | 35.6% | +0.19% |
+| fly confirms (z ≥ 0.0) | 10,741 | 37.8% | +0.28% |
+| fly confirms (z ≥ 0.8, default) | 6,368 | **39.9%** | **+0.38%** |
+| fly confirms (z ≥ 1.3) | 2,166 | 40.8% | +0.41% |
+
+The lift is monotone in the fly's confidence and survives every seed set tried; the default gate sits
+at the knee of that curve (nearly all the quality, three times the flow). Read it for what it is: a
+better filter over a mediocre signal, not an edge — the scanner is still the thing being filtered.
 
 ## Honest limitations
 
 - The scanner is a compact, readable quant stack — five classic strategies. It is the *subject* of
-  the floor, not a proven edge.
+  the floor, not a proven edge. Two of them (mean reversion, trend pullback) lose money on the
+  simulator outright, and the council is what is supposed to refuse them.
+- The fly scout's lift (35.6% → 39.9% hit rate) is measured **on the simulator**, which is where its
+  labels come from. It is a real, reproducible improvement in candidate selection; it is not
+  evidence of live profitability.
+- The default local run uses mock brains, so what you see locally is the *plumbing*: state machine,
+  doors, walk animations, panels. The reasoning is only real on the Kaggle GPU path.
 - A T4 generates ~10–25 tokens/second on a 7B model. Cabins answering in parallel gets you roughly
   **1–3 completed trades per minute**; strictly sequential mode is 3–4× slower.
 - The CEO is one model reading a transcript, not a committee of one — it can still be wrong.
