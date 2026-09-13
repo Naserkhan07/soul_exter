@@ -42,6 +42,17 @@ export class Projector {
   len(d: number): number {
     return d * this.scale;
   }
+
+  /** viewport size in CSS pixels (0 = unknown, in which case nothing is culled) */
+  vw = 0;
+  vh = 0;
+
+  /** is this world point anywhere near the visible area? */
+  visible(x: number, y: number, z = 0, pad = 160): boolean {
+    if (!this.vw || !this.vh) return true;
+    const [px, py] = this.p(x, y, z);
+    return px >= -pad && px <= this.vw + pad && py >= -pad && py <= this.vh + pad;
+  }
 }
 
 export interface Faces {
@@ -544,4 +555,126 @@ export function motes(
       alpha: alpha * (0.4 + hash01(seed + i * 29) * 0.6),
     });
   }
+}
+
+
+/**
+ * A speech card: name, role and what the person just said.
+ *
+ * Used above the cabins, where the requirement is explicit — the LLM has a
+ * name and the floor has to show *why* it agreed or disagreed on this specific
+ * trade. Same cheap per-character width estimate as the name plate, so the
+ * offline rasteriser lays it out identically to the browser.
+ */
+export function speechCard(
+  ops: Op[],
+  pr: Projector,
+  cx: number,
+  cy: number,
+  opts: {
+    name: string;
+    title?: string;
+    body: string;
+    accent: string;
+    tone?: string;
+    verdict?: string;
+    confidence?: number;
+    alpha?: number;
+    width?: number;
+    lines?: number;
+    mono?: boolean;
+  },
+): number {
+  const alpha = opts.alpha ?? 1;
+  if (alpha <= 0.02) return 0;
+  const s = Math.max(0.55, Math.min(1.35, pr.scale / 24));
+  // floors on the type size: a card that is technically inside the frame but
+  // set at 6px is not a readout, it is a smudge
+  const nameSize = Math.max(12, Math.round(13 * s));
+  const titleSize = Math.max(8, Math.round(8.6 * s));
+  const bodySize = Math.max(9, Math.round(10.4 * s));
+  const maxLines = opts.lines ?? 3;
+  const width = opts.width ?? Math.max(190 * s, pr.len(13));
+  const padX = 9 * s;
+  const bodyChars = Math.max(18, Math.floor((width - padX * 2) / (bodySize * 0.52)));
+  const bodyLines = wrapText(opts.body, bodyChars).slice(0, maxLines);
+  const headH = 27 * s + (opts.title ? 12 * s : 0) + (opts.verdict ? 16 * s : 0);
+  const bodyH = bodyLines.length * (bodySize + 3.4 * s);
+  const h = headH + bodyH + 14 * s;
+  const x = cx - width / 2;
+  const y = cy - h;
+
+  // a card that reads as a card: lighter than the room behind it, with a
+  // verdict-coloured spine and enough shadow to lift it off the floor
+  contactShadowish(ops, x + 4 * s, y + h + 3 * s, width - 8 * s, 12 * s, alpha);
+  ops.push({
+    op: "round", x, y, w: width, h, r: 7 * s,
+    fill: "#121b28", alpha: 0.95 * alpha,
+    stroke: rgba("#8fb2d8", 0.24 * alpha), lw: 1,
+  });
+  ops.push({
+    op: "round", x, y, w: width, h: Math.min(h, 26 * s), r: 7 * s,
+    fill: "#18232f", alpha: 0.95 * alpha,
+  });
+  // accent spine
+  ops.push({
+    op: "round", x, y: y + 3 * s, w: 3.2 * s, h: h - 6 * s, r: 1.6 * s,
+    fill: rgba(opts.accent, 0.95 * alpha),
+  });
+  // Every line of the header owns its own row. Name and verdict sharing a row
+  // meant the verdict ran through the name at small zoom, and there is no font
+  // metric here that can promise otherwise.
+  const chars = (px: number) => Math.max(8, Math.floor((width - padX * 2) / px));
+  const clip = (text: string, size: number) => {
+    const room = chars(size * 0.54);
+    return text.length > room ? `${text.slice(0, Math.max(4, room - 1))}…` : text;
+  };
+  ops.push({
+    op: "text", x: x + padX, y: y + 16 * s, text: clip(opts.name, nameSize),
+    fill: rgba("#f2f7ff", 0.97 * alpha), size: nameSize, weight: "700", align: "left",
+  });
+  let line = y + 28 * s;
+  if (opts.title) {
+    ops.push({
+      op: "text", x: x + padX, y: line, text: clip(opts.title.toUpperCase(), titleSize),
+      fill: rgba("#8fa3bb", 0.92 * alpha), size: titleSize, weight: "600", align: "left",
+    });
+    line += 12 * s;
+  }
+  if (opts.verdict) {
+    const vt = `${opts.verdict}${opts.confidence !== undefined ? `  ${Math.round(opts.confidence)}%` : ""}`;
+    ops.push({
+      op: "text", x: x + padX, y: line, text: vt,
+      fill: rgba(opts.accent, 0.98 * alpha), size: titleSize + 1.5, weight: "800", align: "left",
+    });
+  }
+  bodyLines.forEach((line, i) => {
+    ops.push({
+      op: "text", x: x + padX, y: y + headH + 4 * s + i * (bodySize + 3.4 * s),
+      text: line, fill: rgba("#cfdcec", 0.95 * alpha), size: bodySize,
+      weight: "400", align: "left",
+    });
+  });
+  return h;
+}
+
+function wrapText(text: string, chars: number): string[] {
+  const words = String(text ?? "").replace(/\s+/g, " ").trim().split(" ");
+  const out: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if (!w) continue;
+    if ((line + (line ? " " : "") + w).length <= chars) {
+      line += (line ? " " : "") + w;
+    } else {
+      if (line) out.push(line);
+      line = w.length > chars ? `${w.slice(0, chars - 1)}…` : w;
+    }
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+function contactShadowish(ops: Op[], x: number, y: number, w: number, h: number, alpha: number): void {
+  ops.push({ op: "ellipse", cx: x + w / 2, cy: y + h / 2, rx: w / 2, ry: h / 2, fill: "#000000", alpha: 0.28 * alpha });
 }

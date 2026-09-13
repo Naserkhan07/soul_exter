@@ -121,6 +121,34 @@ const fixture = {
       { trade_id: "T-A3", symbol: "HBAR/USDT", side: "LONG", verdict: "WAIT", conviction: 0.21, salience: 0.2, z_margin: 0.6, admitted: false },
     ],
   },
+  debate: {
+    rounds: 4,
+    topic: "SOL/USDT LONG (MOMENTUM_BREAKOUT) — the council passed it 4-1. Is that the right call?",
+    speakers: [
+      { key: "QUANT", name: "Dr. Amara Osei", title: "Head of Quantitative Research" },
+      { key: "RISK", name: "Viktor Hale", title: "Chief Risk Officer" },
+      { key: "NEWS", name: "Lina Marchetti", title: "Head of News Flow and Catalysts" },
+      { key: "MACRO", name: "Rahul Menon", title: "Global Macro Strategist" },
+      { key: "COMPLIANCE", name: "Sofia Bergman", title: "Head of Trading Compliance and Mandate" },
+      { key: "CEO", name: "Marcus Vale", title: "Managing Partner, Head of Desk" },
+    ],
+    transcript: [
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "QUANT", name: "Dr. Amara Osei",
+        label: "QUANT", model: "Qwen2.5-7B-Instruct", turn: "claim",
+        text: "A 2.4 R:R only pays if the win rate holds at 46% or better.", round: 3, ts: now - 40 },
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "RISK", name: "Viktor Hale",
+        label: "RISK", model: "Mistral-7B-Instruct-v0.3", turn: "challenge",
+        text: "Where is the loss capped if the venue gaps through your stop?", round: 3, ts: now - 30 },
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "CEO", name: "Marcus Vale",
+        label: "CEO", model: "Qwen2.5-14B-Instruct", turn: "lesson",
+        text: "Rule written: when a setup is extended, halve the size instead of skipping it.", round: 3, ts: now - 20 },
+    ],
+    lessons: [
+      { topic: "SOL/USDT LONG", speaker: "CEO", speaker_label: "Marcus Vale, Managing Partner",
+        text: "when a setup is extended, halve the size instead of skipping it", ts: now - 20, round: 3 },
+    ],
+  },
+  instruments: { selected: ["BTC/USDT", "ETH/USDT", "EUR/USD"], count: 3, classes: ["crypto", "forex"] },
   trade_log: [
     { trade_id: "T-9D0AC4", symbol: "ARB/USDT", side: "LONG", approvals: 4, rejections: 1, route: "ESCALATED", decision: "ENTER", opened: true, ts: now - 120 },
     { trade_id: "T-91B77E", symbol: "SOL/USDT", side: "SHORT", approvals: 2, rejections: 3, route: "ESCALATED", decision: "SKIP", opened: false, ts: now - 400 },
@@ -181,8 +209,44 @@ window.WebSocket = class {
   close() {}
   send() {}
 };
+const settingsFixture = {
+  roster: [
+    { key: "QUANT", name: "Dr. Amara Osei", title: "Head of Quantitative Research", role: "QUANT",
+      is_ceo: false, slot: 0, model: "Qwen/Qwen2.5-7B-Instruct", backend: "local-hf (4-bit)",
+      temperature: 0.2, expertise: ["statistical edge", "feature decay"], style: "Closes arguments with numbers.",
+      key_required: false, auth: "none — local weights, ungated download", license: "open weights, ungated" },
+    { key: "RISK", name: "Viktor Hale", title: "Chief Risk Officer", role: "RISK",
+      is_ceo: false, slot: 1, model: "mistralai/Mistral-7B-Instruct-v0.3", backend: "local-hf (4-bit)",
+      temperature: 0.15, expertise: ["tail risk"], style: "Asks what breaks first.",
+      key_required: false, auth: "none", license: "open weights, ungated" },
+    { key: "CEO", name: "Marcus Vale", title: "Managing Partner, Head of Desk", role: "CEO",
+      is_ceo: true, slot: 5, model: "Qwen/Qwen2.5-14B-Instruct", backend: "local-hf (4-bit)",
+      temperature: 0.3, expertise: ["portfolio construction"], style: "Pays for the risk.",
+      key_required: false, auth: "none", license: "open weights, ungated" },
+  ],
+  instruments: {
+    total: 6,
+    default: ["BTC/USDT"],
+    classes: [
+      { key: "crypto", label: "Crypto", source: "Binance public REST (keyless) → simulator fallback",
+        instrument: "spot pairs", count: 2,
+        symbols: [{ symbol: "BTC/USDT", name: "Bitcoin / Tether", kind: "venue" },
+                  { symbol: "ETH/USDT", name: "Ether / Tether", kind: "venue" }] },
+      { key: "forex", label: "Forex", source: "ECB/Frankfurter reference rates (keyless)",
+        instrument: "spot FX majors and crosses", count: 2,
+        symbols: [{ symbol: "EUR/USD", name: "Euro / US Dollar", kind: "rates" },
+                  { symbol: "USD/JPY", name: "US Dollar / Yen", kind: "rates" }] },
+    ],
+  },
+  selected: ["BTC/USDT", "ETH/USDT"],
+  engine: { llm_mode: "mock", model_profile: "standard", market_mode: "sim", desks: 64 },
+};
+
 window.fetch = async (url) => {
   const u = String(url);
+  if (u.includes("/api/settings")) {
+    return { ok: true, json: async () => settingsFixture };
+  }
   if (u.includes("/api/state") || u.includes("/api/trades")) {
     return { ok: true, json: async () => fixture };
   }
@@ -220,7 +284,55 @@ const checks = [
   ["trade record", q(".trade-row") > 0],
   ["fly verdicts", /CONFIRM|WAIT|CONTRADICT/.test(text)],
   ["equity panel", q(".spark") > 0],
+  ["debate room panel", q(".panel.debate") > 0],
+  ["debate names shown", /Amara Osei|Viktor Hale|Marcus Vale/.test(text)],
+  ["debate lesson on file", /halve the size|Rules this desk has agreed/i.test(text)],
 ];
+
+const buttons = [...window.document.querySelectorAll("button")];
+
+// ---- interactions: the trade drawer, then the settings drawer ------------
+// the first row in the book, whatever the desk happens to be trading today —
+// looking for a hard-coded symbol breaks the moment the universe changes
+const tradeButton = window.document.querySelector("button.trade-row")
+  ?? buttons.find((b) => (b.textContent ?? "").includes("ARB"));
+let drawerOk = false;
+if (tradeButton) {
+  tradeButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 200));
+  const drawer = window.document.querySelector(".drawer");
+  const drawerText = drawer?.textContent ?? "";
+  const stages = drawer ? drawer.querySelectorAll(".stage").length : 0;
+  drawerOk = !!drawer && stages >= 2 && /APPROVE|REJECT|not needed/i.test(drawerText);
+  // close it again so it cannot shadow the settings drawer
+  drawer?.querySelector("button")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 120));
+}
+checks.push(["trade drawer has the stages", drawerOk]);
+
+const settingsButton = buttons.find((b) => (b.textContent ?? "").trim() === "Settings");
+if (settingsButton) {
+  settingsButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 300));
+  const panel = window.document.querySelector(".drawer.settings");
+  const t = panel?.textContent ?? "";
+  checks.push(["settings drawer opens", !!panel]);
+  checks.push([
+    "settings roster names the desks",
+    /Amara Osei|Viktor Hale|Marcus Vale/.test(t) && /Qwen|Mistral/.test(t),
+  ]);
+  checks.push(["settings says there are no keys", /no API keys/i.test(t)]);
+  // and the market tree behind the second tab
+  const tab = [...(panel?.querySelectorAll("button.tab") ?? [])]
+    .find((b) => (b.textContent ?? "").includes("Markets"));
+  tab?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  const bookText = window.document.querySelector(".drawer.settings")?.textContent ?? "";
+  checks.push(["market book lists the classes", /Crypto/.test(bookText) && /Forex/.test(bookText)]);
+  checks.push(["market book lists forex pairs", /EUR\/USD/.test(bookText)]);
+} else {
+  checks.push(["settings drawer opens", false]);
+}
 
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
 const html_ = window.document.body.innerHTML.length;
@@ -234,51 +346,46 @@ const liveChecks = liveBase ? [
   ["live: scout read reported", /judged|confirm|wait|contradict/i.test(text)],
 ] : [];
 
+// the live API contract: the roster, the instrument book and the debate room
+const apiChecks = [];
+if (liveBase) {
+  const roster = await (await fetch(`${liveBase}/api/settings`)).json();
+  const debate = await (await fetch(`${liveBase}/api/debate`)).json();
+  const classes = roster?.instruments?.classes ?? [];
+  const forex = classes.find((c) => c.key === "forex")?.symbols ?? [];
+  apiChecks.push(
+    ["live api: six desks in the roster", (roster.roster ?? []).length === 6],
+    ["live api: every desk has a name and title", (roster.roster ?? []).every((r) => r.name && r.title)],
+    ["live api: no API keys anywhere", (roster.roster ?? []).every((r) => r.key_required === false)],
+    ["live api: seven asset classes offered", classes.length === 7],
+    ["live api: forex pairs are selectable", forex.length >= 10],
+    ["live api: debate room knows its speakers", (debate.speakers ?? []).length >= 6],
+  );
+}
+
 console.log(JSON.stringify({
   mounted: html_ > 2000,
   domBytes: html_,
   canvasOps: ops,
   checks: Object.fromEntries(checks),
   liveChecks: Object.fromEntries(liveChecks),
+  apiChecks: Object.fromEntries(apiChecks),
   consoleErrors: errors.slice(0, 6),
   consoleErrorCount: errors.length,
   failed,
 }, null, 2));
 
-// interaction: open a trade and make sure the drawer renders the stages
-const buttons = [...window.document.querySelectorAll("button")];
-const tradeButton = buttons.find((b) => (b.textContent ?? "").includes("ARB"));
-if (tradeButton) {
-  tradeButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 200));
-  const drawer = window.document.querySelector(".drawer");
-  const drawerText = drawer?.textContent ?? "";
-  const stages = drawer ? drawer.querySelectorAll(".stage").length : 0;
-  const drawerOk = !!drawer && stages >= 2 && /APPROVE|REJECT|not needed/i.test(drawerText);
-  // checks that only mean something against a real server payload
-const liveChecks = liveBase ? [
-  ["live: trade rows rendered", q(".trade-row") > 0],
-  ["live: rows carry a symbol", /[A-Z]{2,6}/.test(q(".trade-row") ? window.document.querySelector(".trade-row").textContent : "")],
-  ["live: equity is a number", /[0-9],[0-9]{3}/.test(text) || /\$[0-9]/.test(text)],
-  ["live: a cabin model shown", /Qwen|Mistral|zephyr|Phi|mock|gpt|Llama/i.test(text)],
-  ["live: scout read reported", /judged|confirm|wait|contradict/i.test(text)],
-] : [];
-
-console.log(JSON.stringify({ drawerOpened: !!drawer, drawerHasStages: drawerOk }, null, 2));
-  if (!drawer) process.exitCode = 1;
-}
-
 const liveFailed = liveChecks.filter(([, ok]) => !ok).map(([name]) => name);
+const apiFailed = apiChecks.filter(([, ok]) => !ok).map(([name]) => name);
 if (liveFailed.length) console.error("FAILED LIVE CHECKS:", liveFailed.join(", "));
+if (apiFailed.length) console.error("FAILED API CHECKS:", apiFailed.join(", "));
 
-if (failed.length || liveFailed.length) {
+if (failed.length || liveFailed.length || apiFailed.length) {
   if (failed.length) console.error("FAILED UI CHECKS:", failed.join(", "));
   process.exitCode = 1;
 } else {
   console.log("ui smoke: all checks passed");
 }
 
-writeFileSync(path.join(root, "web", ".ui-smoke-ok"), new Date().toISOString());
-// jsdom keeps a requestAnimationFrame loop and background timers alive forever,
-// so this test has to close the door behind itself.
+// jsdom holds the event loop open; the checks are done, so leave deliberately
 process.exit(process.exitCode ?? 0);

@@ -184,6 +184,40 @@ export interface SoulState {
   ticks: Tick[];
   scout?: ScoutStats;
   registry: RegistryEntry[];
+  debate: DebateSnapshot;
+  instruments: InstrumentState;
+}
+
+/** One turn of the debate room, exactly as the engine publishes it. */
+export interface DebateTurn {
+  room: string;
+  topic: string;
+  speaker: string;
+  name: string;
+  label: string;
+  model: string;
+  turn: string;
+  text: string;
+  round: number;
+  trade_id?: string | null;
+  ts: number;
+}
+
+export interface DebateSnapshot {
+  room?: string;
+  rounds?: number;
+  topic?: string | null;
+  transcript?: DebateTurn[];
+  lessons?: Array<{ topic: string; speaker: string; speaker_label: string; text: string; ts: number; round: number }>;
+  speakers?: Array<{ key: string; name: string; title: string }>;
+  queued?: number;
+  enabled?: boolean;
+}
+
+export interface InstrumentState {
+  selected?: string[];
+  count?: number;
+  classes?: string[];
 }
 
 const EMPTY: SoulState = {
@@ -203,6 +237,8 @@ const EMPTY: SoulState = {
   equityCurve: [],
   ticks: [],
   registry: [],
+  debate: { transcript: [], lessons: [] },
+  instruments: { selected: [] },
 };
 
 /** A new trade seen on the wire, ready for the renderer. */
@@ -219,9 +255,15 @@ export interface SoulEvents {
   spawns: SpawnEvent[];
   moves: Array<{ id: string; target: string }>;
   cabinThinking: Array<{ cabin: string }>;
-  cabinVerdicts: Array<{ cabin: string; verdict: "APPROVE" | "REJECT" | "ABSTAIN"; confidence: number; symbol?: string }>;
+  cabinVerdicts: Array<{
+    cabin: string; verdict: "APPROVE" | "REJECT" | "ABSTAIN"; confidence: number;
+    symbol?: string; reason?: string;
+  }>;
+
   ends: Array<{ id: string; decision: string; reason?: string }>;
   floats: Array<{ id: string; text: string; tone: "good" | "bad" | "info" }>;
+  /** turns as they are spoken, for the live debate panel and the cabins */
+  debate: Array<{ cabin: string; name: string; turn: string; text: string; topic: string }>;
 }
 
 export function useSoul(pollMs = 4000): {
@@ -234,7 +276,7 @@ export function useSoul(pollMs = 4000): {
 } {
   const [state, setState] = useState<SoulState>(EMPTY);
   const eventsRef = useRef<SoulEvents>({
-    spawns: [], moves: [], cabinThinking: [], cabinVerdicts: [], ends: [], floats: [],
+    spawns: [], moves: [], cabinThinking: [], cabinVerdicts: [], ends: [], floats: [], debate: [],
   });
   const [seq, setSeq] = useState(0);
   const firstState = useRef(true);
@@ -275,6 +317,8 @@ export function useSoul(pollMs = 4000): {
       })),
       scout: raw.scout,
       registry: raw.registry ? Object.values(raw.registry) as RegistryEntry[] : [],
+      debate: (raw.debate ?? { transcript: [], lessons: [], speakers: [] }) as DebateSnapshot,
+      instruments: (raw.instruments ?? { selected: [] }) as SoulState["instruments"],
       traders: [],
     };
     setState(next);
@@ -320,6 +364,7 @@ export function useSoul(pollMs = 4000): {
           push("cabinVerdicts", {
             cabin: p.cabin, verdict: p.verdict ?? "ABSTAIN",
             confidence: p.confidence ?? 0, symbol: p.symbol,
+            reason: p.reason ?? p.why ?? "",
           });
         }
         break;
@@ -344,6 +389,22 @@ export function useSoul(pollMs = 4000): {
           });
         }
         break;
+      case "debate_round":
+        push("debate", {
+          cabin: "__round__", name: "The desk", turn: "round",
+          text: String(p?.topic ?? ""), topic: String(p?.topic ?? ""),
+        });
+        break;
+      case "debate_message": {
+        if (p?.speaker && p?.text) {
+          push("debate", {
+            cabin: String(p.speaker), name: String(p.name ?? p.speaker),
+            turn: String(p.turn ?? "claim"), text: String(p.text),
+            topic: String(p.topic ?? ""),
+          });
+        }
+        break;
+      }
       case "state":
         adopt(p, transportRef.current === "none" ? "ws" : transportRef.current);
         break;

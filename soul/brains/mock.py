@@ -18,6 +18,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from ..models import TradeCandidate, Verdict, clamp
+from .base import _money
 from .base import CabinSpec, make_verdict
 
 PERSONA_LATENCY = {"QUANT": 1.0, "RISK": 0.75, "NEWS": 1.2, "MACRO": 1.05, "COMPLIANCE": 0.6, "CEO": 1.5}
@@ -46,6 +47,99 @@ class MockBrain:
         self.jitter = jitter
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # debate room
+    # ------------------------------------------------------------------
+    #: What each desk actually says when it is talking to the others. Written as
+    #: the professional, not as a template: concrete levels, conditions and
+    #: numbers, because that is what makes a debate room worth reading.
+    LINES: Dict[str, Dict[str, List[str]]] = {
+        "QUANT": {
+            "claim": [
+                "A {rr:.2f} R:R only pays if the win rate holds at {win:.0f}%+. On this feature set I would not underwrite better than that, so the edges here are thin.",
+                "The setup is {strategy} with {atr:.2f}% ATR: at that volatility the realistic fill is 6-10 bps worse than the mid, which eats a third of the edge.",
+            ],
+            "challenge": [
+                "You are quoting the narrative, not the distribution. Show me the sample: how many times has this exact pattern paid after a stretched RSI?",
+                "That assumes the entry fills. On a {atr:.2f}% ATR name in this tape, assume two ticks of slippage and re-run your number.",
+            ],
+            "question": ["What is the invalidation level you would actually accept — not the stop on the ticket, the level where the thesis dies?"],
+            "answer": ["Then size it as a coin flip with a payoff, not as a conviction. Half risk, and I will take the other side of your optimisim in the P&L."],
+            "ack": ["Fair. The pattern is real; my objection is only to paying full price for it."],
+        },
+        "RISK": {
+            "claim": [
+                "Stop is {risk:.2f}% away with ATR at {atr:.2f}%: that is roughly one normal bar of noise. This trade gets taken out by nothing happening.",
+                "We already carry correlated longs. Adding a sixth expression of the same bet is one position with six tickets.",
+            ],
+            "challenge": ["Where is the loss capped if the venue gaps through your stop? That is the number I need, not the R:R."],
+            "question": ["If this is wrong in the first 30 minutes, what do we do — cut, or hope the session saves us?"],
+            "answer": ["Half size, stop at {stop}, and no adding. That is the only version of this I will sign."],
+            "ack": ["Agreed, with a smaller number on the ticket."],
+        },
+        "NEWS": {
+            "claim": [
+                "There is no catalyst on the calendar supporting this. Price without a story is usually someone else's exit liquidity.",
+                "The move is already in the tape: by the time this prints on a 5m chart, the people who needed to know already traded it.",
+            ],
+            "challenge": ["You are treating an unexplained move as a signal. Unexplained is exactly what I refuse to pay for."],
+            "question": ["What headline would invalidate this in the next hour, and are we positioned for it?"],
+            "answer": ["If we take it, take it small and treat any unexplained spike as the exit, not as confirmation."],
+            "ack": ["Fine — the flow is real, the story is not, so trade it as flow."],
+        },
+        "MACRO": {
+            "claim": [
+                "Regime is {regime}, BTC 12-bar {btc:+.2f}%. Every alt long in this tape is the same bet at different leverage.",
+                "Correlation proxy at {corr:.2f} means this is a dollar-and-liquidity trade wearing a ticker.",
+            ],
+            "challenge": ["You are trading a chart while the regime is the actual driver. What happens to this if the index turns?"],
+            "question": ["Is the desk long risk here, or long this name? Those are different decisions."],
+            "answer": ["Then express it at index level, or accept that you are taking the whole regime with it."],
+            "ack": ["Consistent with the regime read. Not a hedge, just a smaller bet."],
+        },
+        "COMPLIANCE": {
+            "claim": [
+                "Position count is at {open} of the limit and planned risk is {planned:.2f}% against a {cap:.2f}% cap. Rule first, thesis second.",
+                "This duplicates exposure we already hold. Two tickets, one risk — that is how books die quietly.",
+            ],
+            "challenge": ["Which written rule lets this through at full size? Name it."],
+            "question": ["Who is accountable if this breaches the session cap — the desk or the trader?"],
+            "answer": ["Within mandate if we reduce size and keep the stop at {stop}. Outside it otherwise."],
+            "ack": ["Noted. On the record: this is allowed, and it is tight."],
+        },
+        "CEO": {
+            "claim": ["Let us be clear about what we are actually arguing: this is a {strategy} setup on {symbol}, not a bet on the world."],
+            "challenge": ["Your objection is real but it is priced: the stop already carries it. What is the version of it that is not?"],
+            "question": ["Which of these objections changes the size, and which one changes the decision? I only act on the second."],
+            "answer": ["Then it goes on the ticket smaller, and we judge the decision, not the outcome."],
+            "ack": ["That is the trade. Done."],
+            "lesson": ["Rule written: {rule}"],
+        },
+    }
+
+    async def debate(self, topic: str, transcript: List[Dict[str, Any]], kind: str,
+                     inner: Dict[str, Any]) -> str:
+        """One turn of the debate room, in this desk's voice."""
+        await asyncio.sleep(self.base_latency * 0.35 * (0.7 + 0.6 * random.random()))
+        bank = self.LINES.get(self.spec.key, {})
+        pool = bank.get(kind) or bank.get("ack") or ["Agreed."]
+        h = hashlib.sha256(f"{self.spec.key}|{topic}|{kind}|{len(transcript)}".encode()).digest()
+        rng = random.Random(int.from_bytes(h[:8], "big"))
+        text = rng.choice(pool)
+        rule = inner.get("rule") or "when a setup is extended, halve the size instead of skipping it"
+        try:
+            return text.format(
+                rr=float(inner.get("rr", 2.0)), win=float(inner.get("win", 45.0)),
+                strategy=inner.get("strategy", "trend"), atr=float(inner.get("atr", 1.0)),
+                risk=float(inner.get("risk", 1.2)), stop=_money(inner.get("stop", 0.0)),
+                regime=inner.get("regime", "mixed"), btc=float(inner.get("btc", 0.0)),
+                corr=float(inner.get("corr", 1.3)), open=int(inner.get("open", 0)),
+                planned=float(inner.get("planned", 0.0)), cap=float(inner.get("cap", 3.0)),
+                symbol=inner.get("symbol", "this name"), rule=rule,
+            )
+        except (KeyError, ValueError):
+            return text
+
     def _seed(self, trade: TradeCandidate) -> random.Random:
         h = hashlib.sha256(f"{trade.id}|{self.spec.key}|{trade.symbol}|{trade.side}".encode()).digest()
         return random.Random(int.from_bytes(h[:8], "big"))

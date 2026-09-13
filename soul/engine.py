@@ -13,7 +13,9 @@ from typing import Any, Dict, List, Optional
 from .brains import brain_registry, build_brains, vram_estimate
 from .bus import EventBus
 from .council import Council
+from . import universe as book
 from .config import Config
+from .debate import DebateRoom
 from .desk import PaperDesk
 from .market import MarketFeed
 from .models import TradeCandidate
@@ -39,6 +41,7 @@ class Engine:
                 log.warning("scout unavailable: %s", exc)
         self.desk = PaperDesk(cfg, self.bus)
         self.council: Optional[Council] = None
+        self.debate: Optional[DebateRoom] = None
         self.brains: Dict[str, Any] = {}
         self.registry: Dict[str, dict] = {}
         self.started_at = time.time()
@@ -102,6 +105,8 @@ class Engine:
         self.brains = await asyncio.to_thread(build_brains, self.cfg, self.cuda)
         self.council = Council(self.cfg, self.brains, self.bus)
         self.registry = brain_registry(self.brains, self.cfg.model_profile)
+        if self.cfg.debate_enabled:
+            self.debate = DebateRoom(self.cfg, self.brains, self.bus, self.registry)
         self.llm_mode = "mock" if all(getattr(b, "kind", "") == "mock" for b in self.brains.values()) else "local-hf"
 
         log.info("engine: market=%s brains=%s vram~%.1fGB", self.market.mode, self.llm_mode,
@@ -113,6 +118,8 @@ class Engine:
             asyncio.create_task(self._mark_loop(), name="mark"),
             asyncio.create_task(self._broadcast_loop(), name="broadcast"),
         ]
+        if self.debate is not None:
+            self._tasks.append(asyncio.create_task(self._debate_loop(), name="debate"))
         if self.scout is not None:
             self._tasks.append(asyncio.create_task(self._scout_listener(), name="scout-learner"))
         if seed is None:
@@ -205,11 +212,37 @@ class Engine:
                         entry["blocked"] = self.desk.blocked.get(trade.id, "not opened")
                 self.trade_log.append(entry)
                 self.trade_log = self.trade_log[-300:]
+                if self.debate is not None:
+                    self.debate.queue_trade(trade, result, extra={
+                        "open_positions": len(self.desk.positions),
+                        "equity": round(self.desk.equity(self.prices()), 2),
+                        "lesson": (result.ceo_verdict.reason[:180]
+                                   if result.ceo_verdict else ""),
+                    })
             except Exception as exc:                       # pragma: no cover
                 log.exception("trade %s failed: %s", trade.id, exc)
                 await self.bus.publish("error", trade_id=trade.id, message=str(exc))
             finally:
                 self.in_flight -= 1
+
+    async def _debate_loop(self) -> None:
+        """Run the debate room: a review of the last decision, then a lesson.
+
+        The desks talk on a timer rather than after every council: a review
+        meeting that follows every single trade is noise, and the whole point of
+        the room is that the conclusions outlive the trade they came from.
+        """
+        await asyncio.sleep(6.0)
+        while not self._stopping.is_set():
+            try:
+                if self.debate is not None and not self.paused:
+                    await self.debate.run_round()
+            except Exception as exc:                       # pragma: no cover
+                log.warning("debate round failed: %s", exc)
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=self.cfg.debate_seconds)
+            except asyncio.TimeoutError:
+                pass
 
     async def _mark_loop(self) -> None:
         while not self._stopping.is_set():
@@ -281,6 +314,16 @@ class Engine:
         self.market.inject_volatility()
         await self.bus.publish("market_shock", note="volatility injected by operator")
 
+    async def set_instruments(self, symbols: List[str]) -> List[str]:
+        """Point the scanner, the scout and the floor at a new instrument book."""
+        chosen = self.market.set_universe(symbols)
+        self.cfg.universe = chosen
+        classes = book.classes_of(chosen)
+        await self.bus.publish("universe_changed", symbols=chosen, classes=classes,
+                               count=len(chosen))
+        log.info("universe: %d instruments across %s", len(chosen), ", ".join(classes) or "none")
+        return chosen
+
     async def close_all(self) -> int:
         prices = {b["symbol"]: b["price"] for b in self.market.board()}
         return await self.desk.force_close_all(prices, "MANUAL")
@@ -322,4 +365,10 @@ class Engine:
             "trade_log": self.trade_log[-60:],
             "scan_index": self.scanner.scan_count,
             "scout": self.scout.stats() if self.scout else {"enabled": False},
+            "debate": self.debate.snapshot() if self.debate else {"enabled": False},
+            "instruments": {
+                "selected": list(self.cfg.universe),
+                "count": len(self.cfg.universe),
+                "classes": book.classes_of(list(self.cfg.universe)),
+            },
         }

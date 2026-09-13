@@ -76,6 +76,16 @@ export interface Trader {
 export interface Cabin {
   key: string;
   label: string;
+  /** the person at the desk: LLMs have names, titles and a house style */
+  name?: string;
+  title?: string;
+  expertise?: string[];
+  /** why they voted the way they did on the trade in front of them */
+  reason?: string;
+  /** what they are saying in the debate room right now */
+  said?: string;
+  turn?: string;
+  speakingSince?: number;
   model?: string;
   role?: string;
   isCeo?: boolean;

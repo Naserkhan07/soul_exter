@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from . import universe as book
 from .config import Config
 from .models import Tick
 
@@ -116,7 +117,9 @@ class MarketFeed:
             try:
                 if self.mode == "live":
                     await self._refresh_live()
-                else:
+                # sim-owned symbols advance either way: a live venue only ever
+                # supplies the crypto book
+                if self.mode != "live" or any(self.source_of(s) == "sim" for s in self.cfg.universe):
                     self._step_simulator()
             except Exception as exc:                       # pragma: no cover
                 log.warning("market: poll failed: %s", exc)
@@ -128,7 +131,8 @@ class MarketFeed:
                 pass
 
     async def _refresh_live(self) -> None:
-        syms = [s for s in self.cfg.universe if s in self._exchange.markets]
+        syms = [s for s in self.cfg.universe
+                if book.instrument(s).kind == "venue" and s in self._exchange.markets]
         tickers = await asyncio.to_thread(self._exchange.fetch_tickers, syms)
         for sym, t in tickers.items():
             last = t.get("last") or t.get("close")
@@ -150,26 +154,64 @@ class MarketFeed:
     # ------------------------------------------------------------------
     # simulator
     # ------------------------------------------------------------------
-    def _seed_simulator(self) -> None:
+    def source_of(self, symbol: str) -> str:
+        """Where a symbol's bars come from: the venue, the rates feed, or sim.
+
+        Selecting an instrument does not promise a live feed for it. Crypto
+        streams from the venue; FX/metal crosses come from the keyless reference
+        rates; everything else has no free keyless source, so the desk simulates
+        it — and says so, in the same sentence, everywhere it is shown.
+        """
+        inst = book.instrument(symbol)
+        if inst.kind == "venue" and self.mode == "live":
+            return "venue"
+        return inst.kind if inst.kind in ("rates", "venue") else "sim"
+
+    def set_universe(self, symbols: List[str]) -> List[str]:
+        """Point the desk at a new instrument book.
+
+        Existing history is kept for symbols that were already streaming; new
+        symbols get a freshly seeded tape. Nothing is deleted — a trader who
+        switches market keeps their open positions marked to the new book.
+        """
+        chosen = book.resolve(list(symbols))
+        self.cfg.universe = chosen
+        self._seed_simulator(only_missing=True)
+        return chosen
+
+    def _seed_simulator(self, only_missing: bool = False) -> None:
         """Correlated GBM with regime shifts — enough structure for the
         strategies to find real setups and for the cabins to argue about."""
         n = max(80, self.cfg.candle_limit)
         bar_s = self.cfg.sim_bar_seconds
         now = time.time() - n * bar_s
         for sym in self.cfg.universe:
-            base = SEED_PRICES.get(sym, 1.0)
-            beta = BETA.get(sym, DEFAULT_BETA) * (0.9 + 0.2 * self._rng.random())
+            if only_missing and sym in self._history:
+                continue
+            inst = book.instrument(sym)
+            base = SEED_PRICES.get(sym, inst.base)
+            beta = BETA.get(sym, inst.beta) * (0.9 + 0.2 * self._rng.random())
             rows = np.zeros((n, 6), dtype=float)
-            price = base * (0.9 + 0.2 * self._rng.random())
+            # start on the anchor and stay near it: the reversion below only has
+            # to cancel drift, not close a 10% opening gap (which used to make
+            # the seeded session look like a market crash)
+            price = base * (1.0 + self._rng.gauss(0, 0.004))
             drift, vol_mult = 0.0, 1.0
+            vs = max(0.02, inst.vol_scale)
             for i in range(n):
                 if i % 35 == 0:                       # regime shift
-                    drift = self._rng.gauss(0, 0.0011)
+                    drift = self._rng.gauss(0, 0.0011) * vs
                     vol_mult = 0.6 + 1.1 * self._rng.random()
-                sigma = 0.0042 * vol_mult
-                ret = drift + beta * self._rng.gauss(0, 0.0028) + self._rng.gauss(0, sigma)
+                sigma = 0.0042 * vol_mult * vs
+                ret = drift + beta * self._rng.gauss(0, 0.0028) * vs + self._rng.gauss(0, sigma)
                 openp = price
-                price = max(1e-8, price * (1.0 + ret))
+                # gentle pull back to the anchor price: a random walk left alone
+                # wanders 30% over the seeded window, which makes the ticker
+                # nonsense ("EUR/USD -9.3% today"). Mean reversion keeps the
+                # level honest while leaving the local structure the strategies
+                # actually read — trends, squeezes, pullbacks — untouched.
+                reversion = (base - price) / max(1e-9, base) * 0.06
+                price = max(1e-8, price * (1.0 + ret + reversion))
                 wick = abs(price) * sigma * (0.4 + 1.6 * self._rng.random())
                 hi = max(openp, price) + wick * self._rng.random()
                 lo = min(openp, price) - wick * self._rng.random()
@@ -199,8 +241,10 @@ class MarketFeed:
             hist = self._history.get(sym)
             if t is None or hist is None or len(hist) == 0:
                 continue
-            beta = BETA.get(sym, DEFAULT_BETA)
-            ret = beta * r_btc + self._rng.gauss(0, 0.0034)
+            inst = book.instrument(sym)
+            beta = BETA.get(sym, inst.beta)
+            vs = max(0.02, inst.vol_scale)
+            ret = (beta * r_btc + self._rng.gauss(0, 0.0034)) * vs
             bar_s = self.cfg.sim_bar_seconds
             price = max(1e-8, t.price * (1.0 + ret * (3.0 / max(1.0, self.cfg.poll_seconds))))
             if now >= self._new_bar_at.get(sym, now + bar_s):
@@ -296,8 +340,15 @@ class MarketFeed:
         return out
 
     def snapshot(self) -> Dict[str, Any]:
+        classes = book.classes_of(list(self.cfg.universe))
         return {
             "mode": self.mode,
+            "universes": [
+                {"klass": k, "label": book.CLASSES[k]["label"],
+                 "source": ("venue" if self.mode == "live" else book.CLASSES[k]["source"]),
+                 "symbols": sum(1 for s in self.cfg.universe if book.instrument(s).klass == k)}
+                for k in classes
+            ],
             "venue": self.cfg.venue,
             "timeframe": self.cfg.candle_timeframe,
             "updated": self.last_update,

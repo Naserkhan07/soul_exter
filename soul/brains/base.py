@@ -27,15 +27,63 @@ class CabinSpec:
     max_new_tokens: int = 320
     weight: float = 1.0
     is_ceo: bool = False
+    #: who sits in the room. The council is a table of named professionals, not
+    #: five anonymous prompts — the name is what the floor, the debate room and
+    #: the trade drawer show.
+    name: str = ""
+    title: str = ""
+    #: the desks they have actually run. These become competence claims in the
+    #: prompt, which is what makes a desk argue from a position instead of
+    #: agreeing with whatever it was handed.
+    expertise: List[str] = field(default_factory=list)
+    #: how this desk talks in the debate room
+    style: str = "direct, numerate, short sentences"
+
+    @property
+    def identity(self) -> str:
+        who = self.name or self.label
+        return f"{who}, {self.title or self.role}"
 
     @property
     def system_prompt(self) -> str:
+        skills = "\n".join(f"  - {e}" for e in self.expertise) or f"  - {self.role}"
         return (
-            f"You are {self.label}, the {self.role} on an autonomous crypto trading floor.\n"
+            f"You are {self.identity}. {self.label} on an autonomous multi-asset "
+            "trading floor, and a working professional: you have spent your career "
+            "on this desk and you are judged on the desk's P&L, not on how agreeable "
+            "you are.\n"
             f"Your mandate: {self.mandate}\n"
-            "You are one of five independent risk desks. Be blunt, numerate and skeptical. "
-            "You do not have to be polite and you must not rubber-stamp.\n"
+            "What you are trusted for:\n"
+            f"{skills}\n"
+            f"House style: {self.style}.\n"
+            "How you work: read the numbers before the story; size the loss before the "
+            "win; treat every backtest as guilty until proven innocent; and say plainly "
+            "when a setup is not worth the risk. Disagreement is the job — a desk that "
+            "approves everything has no information in it.\n"
             "Reply with ONE JSON object and nothing else."
+        )
+
+    # ------------------------------------------------------------------
+    def debate_prompt(self, topic: str, transcript: List[Dict[str, Any]], kind: str) -> str:
+        """Prompt for one turn in the debate room (the desks training each other)."""
+        said = "\n".join(f"{m.get('name') or m['speaker']} [{m['kind']}]: {m['text']}"
+                          for m in transcript[-6:]) or "(nobody has spoken yet)"
+        asks = {
+            "claim": "Open the discussion with the sharpest thing you know about this.",
+            "challenge": "Attack the weakest part of what was just said. Be specific.",
+            "question": "Ask the question nobody has asked yet. One question only.",
+            "answer": "Answer the question that is on the table, from your desk's experience.",
+            "lesson": "Close the round: state the rule the desk should carry from this.",
+            "ack": "Add one concrete nuance, then stop.",
+        }
+        return (
+            f"{self.system_prompt}\n\n"
+            f"You are now in the DESK DEBATE ROOM with the other cabins. Topic: {topic}\n"
+            f"Transcript so far:\n{said}\n\n"
+            f"Your turn: {asks.get(kind, asks['ack'])}\n"
+            "Speak as this professional, in 1-3 sentences, concrete and specific "
+            "(levels, conditions, numbers). No JSON, no bullet lists, no preamble: "
+            "just what you would actually say across the table."
         )
 
 
@@ -43,7 +91,16 @@ CABINS: List[CabinSpec] = [
     CabinSpec(
         key="QUANT",
         label="QUANT DESK",
+        name="Dr. Amara Osei",
+        title="Head of Quantitative Research",
         role="statistical edge analyst",
+        expertise=[
+            "market microstructure, execution costs and realistic fill assumptions",
+            "signal decay: which patterns still work after they are widely known",
+            "backtest hygiene — look-ahead bias, survivorship, sample size, regime splits",
+            "expected value arithmetic: win rate x payoff, and what R:R has to be to pay",
+        ],
+        style="precise, evidence-first, allergic to hand-waving",
         mandate=("Judge whether the numbers actually carry an edge: signal strength, sample "
                  "quality, R:R realism, slippage/fees, and whether the pattern is a known trap "
                  "(breakout into exhaustion, RSI divergence, squeeze that never expands)."),
@@ -52,7 +109,16 @@ CABINS: List[CabinSpec] = [
     CabinSpec(
         key="RISK",
         label="RISK DESK",
+        name="Viktor Hale",
+        title="Chief Risk Officer",
         role="downside and position-sizing officer",
+        expertise=[
+            "stop placement against realised volatility, not against round numbers",
+            "tail risk, gap risk and what a stop does not protect you from",
+            "position sizing from risk budget (fractional Kelly, fixed-fractional)",
+            "correlation clustering: five longs in a risk-off tape are one position",
+        ],
+        style="blunt, numbers-only, refuses first and asks later",
         mandate=("Judge the downside: stop distance vs volatility, tail risk, correlation to what "
                  "we already hold, event risk, and whether the stop would survive normal noise. "
                  "You are the desk that says NO by default."),
@@ -62,17 +128,35 @@ CABINS: List[CabinSpec] = [
     CabinSpec(
         key="NEWS",
         label="NEWS DESK",
+        name="Lina Marchetti",
+        title="Head of News Flow and Catalysts",
         role="narrative and catalyst analyst",
+        expertise=[
+            "event calendars and positioning into scheduled catalysts",
+            "reading whether a move is explained by news or is unexplained (and suspect)",
+            "funding, listings, unlocks, regulation and exchange flows",
+            "crowd narratives: when the story is already fully priced",
+        ],
+        style="story-led but hard-nosed about what is already priced in",
         mandate=("Judge the story: is there a catalyst or a narrative that supports this direction, "
                  "or is price moving against the prevailing narrative? Flag anything that looks "
                  "like a news-driven whipsaw, and treat unexplained moves with suspicion."),
-        model_prefs=["meta-llama/Meta-Llama-3.1-8B-Instruct", "Qwen/Qwen2.5-7B-Instruct"],
+        model_prefs=["HuggingFaceH4/zephyr-7b-beta", "Qwen/Qwen2.5-7B-Instruct"],
         temperature=0.35,
     ),
     CabinSpec(
         key="MACRO",
         label="MACRO DESK",
+        name="Rahul Menon",
+        title="Global Macro Strategist",
         role="top-down regime and correlation analyst",
+        expertise=[
+            "regime classification: trend, range, risk-on/risk-off, liquidity stress",
+            "cross-asset signals — dollar, yields, breadth and their read-through",
+            "correlation and beta: what the book is really long or short",
+            "carry, funding and the cost of being early",
+        ],
+        style="top-down, comparative, always asking what the tape is discounting",
         mandate=("Judge the regime: BTC trend, risk-on/risk-off posture, correlation crowding, "
                  "liquidity/spread conditions, and whether this trade is fighting the tape or "
                  "riding it."),
@@ -82,11 +166,20 @@ CABINS: List[CabinSpec] = [
     CabinSpec(
         key="COMPLIANCE",
         label="COMPLIANCE DESK",
+        name="Sofia Bergman",
+        title="Head of Trading Compliance and Mandate",
         role="mandate and exposure-control officer",
+        expertise=[
+            "position limits, exposure caps and mandate fit",
+            "duplicate and offsetting exposure across instruments",
+            "best execution, venue and instrument eligibility",
+            "rule enforcement: the desk's own written policy outranks any thesis",
+        ],
+        style="procedural, unemotional, quotes the rule that decides it",
         mandate=("Judge the book, not the thesis: position limits, total exposure, duplicate or "
                  "correlated positions, cash available, and whether this trade violates the "
                  "desk's own rules. Rules beat opinions."),
-        model_prefs=["google/gemma-2-9b-it", "microsoft/Phi-3.5-mini-instruct"],
+        model_prefs=["microsoft/Phi-3.5-mini-instruct", "Qwen/Qwen2.5-3B-Instruct"],
         temperature=0.15,
         max_new_tokens=280,
     ),
@@ -95,7 +188,16 @@ CABINS: List[CabinSpec] = [
 CEO_SPEC = CabinSpec(
     key="CEO",
     label="CEO / HEAD OF DESK",
+    name="Marcus Vale",
+    title="Managing Partner, Head of Desk",
     role="final decision maker",
+    expertise=[
+        "weighing specialist objections and knowing which ones are material",
+        "opportunity cost: the trades you do not take and the ones you must",
+        "owning P&L across a book, not a single position",
+        "running a table: getting dissent on the record, then deciding",
+    ],
+    style="decisive, weighs dissent out loud, owns the outcome",
     mandate=("Weigh the five desk verdicts, resolve the disagreement, and make the final call. "
              "You own the P&L. A split council is not automatically a veto and not automatically "
              "a pass: decide which desks' objections are material for THIS trade."),
@@ -161,6 +263,24 @@ def portfolio_block(ctx: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def desk_memory_block(ctx: Dict[str, Any]) -> str:
+    """What the desk taught itself in the debate room, most recent last.
+
+    This is the loop that makes the six brains a table rather than six oracles:
+    every debated round ends in a written rule, and those rules are read back
+    into the next verdict.
+    """
+    mem = ctx.get("memory") or {}
+    lessons = mem.get("lessons") or []
+    if not lessons:
+        return "DESK MEMORY: nothing written down yet this session."
+    out = ["DESK MEMORY (rules this table has already agreed on):"]
+    for lesson in lessons[-6:]:
+        who = lesson.get("speaker_label") or lesson.get("speaker", "")
+        out.append(f"  - [{who}] {lesson.get('text', '')}")
+    return "\n".join(out)
+
+
 def prior_verdicts_block(prior: List[Verdict]) -> str:
     if not prior:
         return "EARLIER DESKS: none yet — you are first to speak."
@@ -200,6 +320,7 @@ def build_cabin_prompt(spec: CabinSpec, trade: TradeCandidate, ctx: Dict[str, An
         f"=== LIVE MARKET ===\n{market_block(ctx)}\n\n"
         f"=== DESK BOOK ===\n{portfolio_block(ctx)}\n\n"
         f"=== COUNCIL SO FAR ===\n{prior_verdicts_block(prior)}\n\n"
+        f"=== {desk_memory_block(ctx)} ===\n\n"
         f"Rules:\n"
         f"- 'verdict' must be APPROVE, REJECT or ABSTAIN (ABSTAIN only if the packet is too thin to judge).\n"
         f"- 'confidence' is YOUR confidence in YOUR verdict, 0-100. Do not use 100 unless the case is airtight.\n"
@@ -230,6 +351,7 @@ def build_ceo_prompt(spec: CabinSpec, trade: TradeCandidate, verdicts: List[Verd
         f"=== TRADE PACKET ===\n{trade_block(trade)}\n\n"
         f"=== LIVE MARKET ===\n{market_block(ctx)}\n\n"
         f"=== DESK BOOK ===\n{portfolio_block(ctx)}\n\n"
+        f"=== {desk_memory_block(ctx)} ===\n\n"
         f"=== COUNCIL TRANSCRIPT ({approves} approve / {rejects} reject / {abstains} abstain) ===\n"
         + "\n".join(tally_lines) +
         "\n\nDecide on the merits of THIS trade. Do not split the difference; do not defer to majority "

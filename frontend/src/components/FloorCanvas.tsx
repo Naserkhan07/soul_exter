@@ -65,11 +65,18 @@ export function FloorCanvas({
     let raf = 0;
     let last = performance.now();
     let reportAt = 0;
+    let painted = 0;
     const loop = (now: number) => {
       const dt = now - last;
       last = now;
       floor.frame(dt);
-      floor.draw();
+      // Filling the floor is the expensive half of a frame. When nobody is
+      // walking and no cabin is deliberating, 30 fps is indistinguishable from
+      // 60 and costs half as much.
+      if (!floor.idle || now - painted > 32) {
+        painted = now;
+        floor.draw();
+      }
       if (onTradersRef.current && now - reportAt > 1000) {
         reportAt = now;
         onTradersRef.current([...floor.traders.values()]);
@@ -122,7 +129,12 @@ export function FloorCanvas({
     for (const s of events.spawns.splice(0)) floor.spawn(s);
     for (const m of events.moves.splice(0)) floor.moveTo(m.id, m.target);
     for (const c of events.cabinThinking.splice(0)) floor.cabinThinking(c.cabin);
-    for (const v of events.cabinVerdicts.splice(0)) floor.cabinVote(v.cabin, v.verdict, v.confidence, v.symbol);
+    for (const v of events.cabinVerdicts.splice(0)) {
+      floor.cabinVote(v.cabin, v.verdict, v.confidence, v.symbol, v.reason);
+    }
+    for (const d of events.debate.splice(0)) {
+      floor.cabinSpeak(d.cabin, d.turn, d.text);
+    }
     for (const e of events.ends.splice(0)) floor.endTrade(e.id, e.decision, e.reason);
     for (const f of events.floats.splice(0)) floor.float(f.id, f.text, f.tone);
 
@@ -133,7 +145,7 @@ export function FloorCanvas({
       if (now - autoRef.current.lastFocus > 7000) {
         autoRef.current.lastFocus = now;
         const next =
-          events.cabinVerdicts.length || events.cabinThinking.length ? "cabins"
+          events.cabinVerdicts.length || events.cabinThinking.length || events.debate.length ? "cabins"
             : events.ends.length ? "doors" : "desks";
         if (next !== autoRef.current.mode) {
           autoRef.current.mode = next;

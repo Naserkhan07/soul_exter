@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import universe as book
 from .bus import EventBus
 from .config import Config, load_config
 from .engine import Engine
@@ -43,6 +44,22 @@ class ControlPayload(BaseModel):
 
 class SeedPayload(BaseModel):
     count: int = 3
+
+
+class InstrumentsPayload(BaseModel):
+    """Which markets the desk is allowed to trade.
+
+    The panel sends the full set of ticked symbols; anything the catalogue does
+    not know is dropped rather than trusted, so a stale client cannot quietly
+    widen the book.
+    """
+
+    symbols: list[str] = []
+
+
+class DebatePayload(BaseModel):
+    rounds: int = 1
+    topic: Optional[str] = None
 
 
 def create_app(cfg: Optional[Config] = None) -> FastAPI:
@@ -98,6 +115,70 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             if t["trade_id"] == trade_id:
                 return t
         raise HTTPException(status_code=404, detail="unknown trade")
+
+    @app.get("/api/settings")
+    async def settings() -> Dict[str, Any]:
+        """Everything the settings drawer draws: the model roster and the book.
+
+        Note what is *not* here: there is no API key field, no token, no
+        endpoint credential — the roster runs on local weights, and the market
+        sources are keyless. `key_required: false` is the whole point of the
+        design, so the panel shows model ids and backends instead of secrets.
+        """
+        return {
+            "roster": [
+                {
+                    "key": r["key"], "name": r.get("name", r["label"]),
+                    "title": r.get("title", r["role"]), "role": r["role"],
+                    "is_ceo": r["is_ceo"], "slot": r["slot"], "model": r["model"],
+                    "backend": r["backend"], "temperature": r["temperature"],
+                    "expertise": r.get("expertise", []), "style": r.get("style", ""),
+                    "key_required": False, "auth": r.get("auth", "none"),
+                    "license": r.get("license", "open weights"),
+                }
+                for r in engine.registry.values()
+            ],
+            "instruments": book.catalogue(),
+            "selected": list(engine.cfg.universe),
+            "debate": {
+                "enabled": engine.debate is not None,
+                "rounds": engine.debate.rounds if engine.debate else 0,
+                "seconds": engine.cfg.debate_seconds,
+            },
+            "engine": {
+                "llm_mode": engine.llm_mode,
+                "model_profile": engine.cfg.model_profile,
+                "market_mode": engine.market.mode,
+                "desks": engine.cfg.desks,
+            },
+        }
+
+    @app.post("/api/settings/instruments")
+    async def set_instruments(payload: InstrumentsPayload) -> Dict[str, Any]:
+        chosen = await engine.set_instruments(payload.symbols)
+        return {"ok": True, "selected": chosen, "count": len(chosen),
+                "classes": book.classes_of(chosen)}
+
+    @app.get("/api/debate")
+    async def debate(limit: int = 40) -> Dict[str, Any]:
+        if engine.debate is None:
+            return {"enabled": False, "transcript": [], "lessons": []}
+        snap = engine.debate.snapshot()
+        snap["transcript"] = snap["transcript"][-max(1, min(200, limit)):]
+        return {"enabled": True, **snap}
+
+    @app.post("/api/debate/round")
+    async def debate_round(payload: DebatePayload) -> Dict[str, Any]:
+        """Hold a review meeting now — used by the UI's 'convene' button."""
+        if engine.debate is None:
+            raise HTTPException(status_code=409, detail="debate disabled")
+        topic = {"topic": payload.topic, "inner": {}, "trade_id": None} if payload.topic else None
+        said = []
+        for _ in range(max(1, min(3, payload.rounds))):
+            said = await engine.debate.run_round(topic)
+            topic = None
+        return {"ok": True, "turns": len(said), "rounds": engine.debate.rounds,
+                "topic": engine.debate.current_topic, "said": said}
 
     @app.post("/api/scan")
     async def force_scan() -> Dict[str, Any]:

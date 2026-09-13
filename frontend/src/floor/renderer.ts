@@ -61,7 +61,7 @@ interface RT {
   atDesk: boolean;
 }
 
-const WALK_SPEED = 2.55; // world units per second
+const WALK_SPEED = 3.35; // world units per second — a working floor, not a promenade
 
 export interface CameraFocus {
   mode: "all" | "cabins" | "desks" | "doors";
@@ -83,14 +83,21 @@ export class SoulFloor {
   cabins: Cabin[] = [];
   traders = new Map<string, Trader>();
   private rt = new Map<string, RT>();
-  private pops: Array<{ x: number; y: number; text: string; born: number; tone: string }> = [];
+  /** cabins still to be visited, and how long the trader stays inside one */
+  private visits = new Map<string, string[]>();
+  private dwell = new Map<string, number>();
+  private pops: Array<{ x: number; y: number; text: string; born: number; tone: string; scale?: number }> = [];
+  /** the scene grew (a card, a person): the camera has to re-fit */
+  private needsFit = true;
+  private lastFit = -4000;
   private ticks: Tick[] = [];
   private positions = new Map<string, { pnl_pct: number }>();
   private doorActive = { entry: 0, exit: 0 };
   private focus: CameraFocus = { mode: "all" };
   private pickHandler: ((id: string, ev: { x: number; y: number }) => void) | null = null;
-  private staticCanvas: HTMLCanvasElement | null = null;
-  private staticFor = "";
+  private layerBack: HTMLCanvasElement | null = null;
+  private layerFront: HTMLCanvasElement | null = null;
+  private layerFor = "";
   private hintPoints: Array<{ id: string; x: number; y: number }> = [];
   /** the scout drone: a little glowing fly that patrols the room */
   private fly = { x: 22, y: 28, z: 4.4, tx: 22, ty: 26, tz: 4.4, wings: 0 };
@@ -115,17 +122,33 @@ export class SoulFloor {
       this.canvas.style.width = `${this.width}px`;
       this.canvas.style.height = `${this.height}px`;
     }
+    this.markFit();
     this.fitCamera();
   }
 
   setZoom(z: number): void {
     this.zoom = Math.max(0.28, Math.min(2.6, z));
+    this.markFit();
     this.fitCamera();
   }
 
   focusOn(focus: CameraFocus): void {
     this.focus = focus;
     if (focus.zoom) this.zoom = focus.zoom;
+    this.markFit();
+    this.fitCamera();
+  }
+
+  /** Remember that the camera has just been framed, restarting the debounce. */
+  private markFit(): void {
+    this.needsFit = false;
+    this.lastFit = this.time;
+  }
+
+  /** Re-frame the room on demand (the offline harness and the fit checker). */
+  refit(): void {
+    this.needsFit = false;
+    this.lastFit = this.time;
     this.fitCamera();
   }
 
@@ -169,6 +192,7 @@ export class SoulFloor {
       });
     }
     if (state.ticks) this.ticks = state.ticks;
+    this.needsFit = true;
     if (state.paused !== undefined) this.paused = state.paused;
     if (state.positions) {
       for (const p of state.positions) {
@@ -217,6 +241,7 @@ export class SoulFloor {
       pops: [],
     };
     this.traders.set(brief.id, tr);
+    this.needsFit = true;
     this.rt.set(brief.id, { z: 0, heading: { dx: 0, dy: -1 }, speed: WALK_SPEED, atDesk: false });
     this.doorActive.entry = 1.4;
     // the scout drone meets the trade at the welcome door, then leads it in
@@ -230,25 +255,49 @@ export class SoulFloor {
   }
 
   /** Send a trader somewhere. `target` matches the engine's door/cabin keys. */
+  /**
+   * Send someone somewhere.
+   *
+   * The council asks cabins in parallel waves, so three `trader_walks` events
+   * can land in the same tick. A trader can only be in one place at a time, so
+   * the extra legs are queued: the visitor walks into a cabin, stands there
+   * while the desk is talking, then moves on to the next one — which is what
+   * the brief asks for (visit every cabin, not just the first).
+   */
   moveTo(id: string, target: string): void {
     const tr = this.traders.get(id);
+    if (!tr) return;
+    if (tr.state === "walking" && tr.path.length > 0) {
+      const q = this.visits.get(id) ?? [];
+      if (q[q.length - 1] !== target) q.push(target);
+      this.visits.set(id, q);
+      return;
+    }
+    this.routeTo(tr, target);
+  }
+
+  private routeTo(tr: Trader, target: string): void {
+    const id = tr.id;
     const rt = this.rt.get(id);
-    if (!tr || !rt) return;
+    if (!rt) return;
     const desk = DESK_SLOTS[tr.desk % DESK_SLOTS.length];
+    const from = { x: tr.x, y: tr.y, z: rt.z ?? 0, cabin: tr.cabin };
     let path: Pt[] | null = null;
     if (target === "CEO" || CABINS.some((c) => c.key === target)) {
-      path = pathToCabin(desk, target);
+      path = pathToCabin(desk, target, from);
       tr.destination = { kind: "cabin", cabin: target };
       tr.state = "walking";
       tr.cabin = target;
     } else if (target === "entry_door" || target === "entry") {
-      path = pathToDoor(desk, "entry");
+      path = pathToDoor(desk, "entry", from);
       tr.destination = { kind: "entry" };
+      tr.cabin = undefined;
       tr.state = "walking";
       this.doorActive.entry = 1.2;
     } else if (target === "exit_door" || target === "exit") {
-      path = pathToDoor(desk, "exit");
+      path = pathToDoor(desk, "exit", from);
       tr.destination = { kind: "exit" };
+      tr.cabin = undefined;
       tr.state = "walking";
       this.doorActive.exit = 1.2;
     } else if (target === "desk") {
@@ -256,9 +305,10 @@ export class SoulFloor {
       tr.destination = { kind: "desk" };
       tr.state = "walking";
     }
-    if (path) {
-      tr.path = path;
+    if (path && path.length) {
+      tr.path = path.slice();
       rt.atDesk = false;
+      tr.state = "walking";
     }
   }
 
@@ -271,7 +321,8 @@ export class SoulFloor {
     }
   }
 
-  cabinVote(cabin: string, verdict: Verdict, confidence?: number, symbol?: string): void {
+  cabinVote(cabin: string, verdict: Verdict, confidence?: number, symbol?: string,
+            reason?: string): void {
     const c = this.cabins.find((x) => x.key === cabin);
     if (c) {
       c.thinking = false;
@@ -279,12 +330,33 @@ export class SoulFloor {
       c.confidence = confidence;
       c.calls = (c.calls ?? 0) + 1;
       if (symbol) c.symbol = symbol;
+      if (reason) {
+        // the card above the cabin answers "why did this one agree?" — it is
+        // the cabin's own words, not a summary we invented here
+        c.reason = reason;
+        c.said = "";
+        this.needsFit = true;
+      }
     }
     const slot = cabin === "CEO" ? CEO : CABINS.find((x) => x.key === cabin);
     if (slot) {
       const [sx, sy] = this.pr.p(slot.x + slot.w / 2, slot.y + slot.d / 2, slot.z + 2.2);
       this.pops.push({ x: sx, y: sy, text: `${cabin} ${verdict}`, born: this.time, tone: verdict === "APPROVE" ? "good" : "bad" });
     }
+  }
+
+  /** A turn in the debate room. The cabin lights up and holds the floor. */
+  cabinSpeak(cabin: string, turn: string, text: string): void {
+    const c = this.cabins.find((x) => x.key === cabin);
+    if (!c) return;
+    c.speakingSince = this.time;
+    c.turn = turn;
+    const prefix =
+      turn === "lesson" ? "RULE" : turn === "challenge" ? "→" : turn === "question" ? "?" : "";
+    c.said = `${prefix ? prefix + " " : ""}${text}`.slice(0, 320);
+    this.needsFit = true;
+    this.pop(c, `${c.name ?? cabin} ${turn === "lesson" ? "sets the rule" : turn + "s"}`,
+      turn === "lesson" ? "good" : "info", 1.1);
   }
 
   endTrade(id: string, decision: string, reason?: string): void {
@@ -296,6 +368,8 @@ export class SoulFloor {
   }
 
   remove(id: string): void {
+    this.visits.delete(id);
+    this.dwell.delete(id);
     this.traders.delete(id);
     this.rt.delete(id);
   }
@@ -305,7 +379,18 @@ export class SoulFloor {
     if (tr) this.pop(tr, text, tone);
   }
 
-  private pop(tr: Trader, text: string, tone: "good" | "bad" | "info"): void {
+  /** Float a line of text off a trader's head, or off a cabin. */
+  private pop(target: Trader | Cabin, text: string, tone: "good" | "bad" | "info",
+              scale = 1): void {
+    if (!("pops" in target)) {
+      const key = (target as Cabin).key;
+      const slot = key === "CEO" ? CEO : CABINS.find((c) => c.key === key);
+      if (!slot) return;
+      const [px, py] = this.pr.p(slot.x + slot.w / 2, slot.y + slot.d / 2, slot.z + 4.9);
+      this.pops.push({ x: px, y: py, text, born: this.time, tone, scale });
+      return;
+    }
+    const tr = target;
     tr.pops.push({ text, born: this.time, tone });
     if (tr.pops.length > 2) tr.pops.shift();
   }
@@ -318,6 +403,14 @@ export class SoulFloor {
   // animation
   // ------------------------------------------------------------------
   frame(dtMs: number): void {
+    // Cards and nameplates grow the scene as the desk works, so the "whole
+    // room" view re-fits itself — debounced, because a camera that re-frames on
+    // every arriving verdict is unwatchable.
+    if (this.needsFit && this.focus.mode === "all" && this.time - this.lastFit > 2500) {
+      this.needsFit = false;
+      this.lastFit = this.time;
+      this.fitCamera();
+    }
     const dt = Math.max(0, Math.min(120, dtMs));
     this.time += this.paused ? dt * 0.25 : dt;
     const seconds = (this.paused ? dt * 0.25 : dt) / 1000;
@@ -365,6 +458,10 @@ export class SoulFloor {
         }
         if (tr.path.length === 0) {
           rt.atDesk = tr.destination?.kind === "desk" || !tr.destination;
+          // stand inside the cabin while its desk talks, then move on; a desk
+          // arrival sits down for a beat before the first cabin calls
+          this.dwell.set(tr.id, this.time +
+            (tr.destination?.kind === "cabin" ? 1200 : 900));
           tr.state = tr.destination?.kind === "cabin" ? "in_cabin"
             : tr.destination?.kind === "entry" || tr.destination?.kind === "exit" ? "at_door" : "seated";
           if (tr.destination?.kind === "cabin") {
@@ -375,6 +472,14 @@ export class SoulFloor {
               this.pops.push({ x: px, y: py, text: tr.symbol, born: this.time, tone: "info" });
             }
           }
+        }
+      } else if ((tr.state === "in_cabin" || tr.state === "seated")
+                 && (this.dwell.get(tr.id) ?? 0) <= this.time) {
+        // the desk has had its say: on to the next cabin, or out to a door
+        const q = this.visits.get(tr.id);
+        if (q && q.length) {
+          this.routeTo(tr, q.shift()!);
+          this.dwell.set(tr.id, this.time + 400);
         }
       } else if (tr.state === "at_door") {
         // walked out: fade, then forget
@@ -436,7 +541,17 @@ export class SoulFloor {
     return Number.isFinite(x0) ? { x0, y0, x1, y1 } : null;
   }
 
+  /** let the projector cull anything that is off-screen */
+  private syncViewport(): void {
+    this.pr.vw = this.width;
+    this.pr.vh = this.height;
+  }
+
   private fitCamera(): void {
+    // The fitter measures the true scene box, so culling stays off while the
+    // camera is being solved and is switched back on for the paint pass.
+    this.pr.vw = 0;
+    this.pr.vh = 0;
     // Frame whatever the room actually draws, measured from its own ops, rather
     // than from a hand-maintained bounding box. The hand-maintained box drifted
     // every time a wall, a ceiling beam or a cabin grew, and the scene started
@@ -561,7 +676,13 @@ export class SoulFloor {
     for (const c of this.cabins) {
       if (c.thinking && c.key) active[c.key] = c.symbol ?? "";
     }
-    drawCabins(ops, pr, this.cabins, t, active);
+    // whoever is standing inside a cabin right now, so they are drawn behind
+    // the cabin glass instead of floating on top of it
+    const occupants: Partial<Record<string, Trader>> = {};
+    for (const tr of this.traders.values()) {
+      if (tr.state === "in_cabin" && tr.cabin) occupants[tr.cabin] = tr;
+    }
+    drawCabins(ops, pr, this.cabins, t, active, occupants);
 
     // ---- desks, row by row, with the people at them ----------------------
     let deskIdx = 0;
@@ -591,6 +712,7 @@ export class SoulFloor {
           void seated;
           break target;
         }
+        if (!pr.visible(d.x + 1.6, d.y + 1.0, 0, 300)) continue;
         drawDesk(ops, pr, d, t, seatTraders.length > 0);
         for (const tr of seatTraders) {
           if (tr.state === "seated") {
@@ -608,9 +730,12 @@ export class SoulFloor {
     drawNearSide(ops, pr, t, this.doorActive);
 
     // ---- everyone who is not sitting down --------------------------------
-    const movers = [...this.traders.values()].filter((tr) => !drawn.has(tr.id));
+    const movers = [...this.traders.values()]
+      .filter((tr) => !drawn.has(tr.id) && tr.state !== "in_cabin");
     movers.sort((a, b) => (a.y + a.x * 0.5) - (b.y + b.x * 0.5));
-    for (const tr of movers) this.drawOne(ops, tr, false);
+    for (const tr of movers) {
+      if (pr.visible(tr.x, tr.y, 0, 240)) this.drawOne(ops, tr, false);
+    }
 
     // ---- the scout drone --------------------------------------------------
     this.drawFly(ops);
@@ -639,7 +764,7 @@ export class SoulFloor {
     // ---- vignette ---------------------------------------------------------
     // Four edge bands with linear falloff. A single big ellipse leaves a
     // visible circular rim inside the corners, which looks like a mistake.
-    const band = Math.max(140, Math.min(this.width, this.height) * 0.42);
+    const band = Math.max(90, Math.min(this.width, this.height) * 0.2);
     const vig = (x: number, y: number, w: number, h: number, from: [number, number], to: [number, number]) =>
       ops.push({
         op: "round", x, y, w, h, r: 0,
@@ -647,8 +772,8 @@ export class SoulFloor {
         grad: {
           from, to,
           stops: [
-            [0, "rgba(0,0,0,0.62)"],
-            [0.55, "rgba(0,0,0,0.22)"],
+            [0, "rgba(0,0,0,0.46)"],
+            [0.55, "rgba(0,0,0,0.13)"],
             [1, "rgba(0,0,0,0)"],
           ],
         },
@@ -686,8 +811,11 @@ export class SoulFloor {
       sublabel: sub,
       accent,
       alpha,
-      compactPlate: this.pr.scale < 15,
-      badge: tr.scout
+      // at neighbourhood zoom the plate is the asset and a side stripe; pulling
+      // in closer adds the strategy/P&L line. Dense floors are unreadable with
+      // two-line plates on every head.
+      compactPlate: this.pr.scale < 19,
+      badge: tr.scout && this.pr.scale > 18
         ? {
             text: `FLY ${tr.scout.verdict} ${(tr.scout.conviction * 100).toFixed(0)}%`,
             color: tr.scout.verdict === "CONFIRM" ? "#7fd6ff" : palette.abstainColor,
@@ -739,9 +867,76 @@ export class SoulFloor {
 
   /** Rasterise an op list. Shared with the offline rasteriser's contract. */
   draw(): void {
+    this.syncViewport();               // paint passes cull what is off-screen
     const ops = this.buildFrame();
-    if (!this.ctx) return;
-    paint(this.ctx, ops, this.dpr);
+    const ctx = this.ctx;
+    if (!ctx) return;
+
+    // The backdrop and the vignette only depend on the canvas size and are by
+    // far the most expensive thing to fill (two full-screen gradients at the
+    // device pixel ratio, four edge bands). Bake them once per size and blit.
+    const isBg = (o: Op) => !!(o as { bg?: boolean }).bg;
+    const bg = ops.filter(isBg);
+    const rest = ops.filter((o) => !isBg(o));
+    if (!bg.length) {
+      paint(ctx, rest, this.dpr);
+      return;
+    }
+    const key = `${this.width}x${this.height}@${this.dpr}`;
+    if (!this.layerBack || this.layerFor !== key) {
+      this.layerFor = key;
+      this.layerBack = this.bake(key, bg.slice(0, 1));       // hall
+      this.layerFront = this.bake(key, bg.slice(1));         // vignette, on top
+    }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    if (this.layerBack) ctx.drawImage(this.layerBack, 0, 0);
+    ctx.restore();
+    paint(ctx, rest, this.dpr, false);   // canvas already carries the backdrop
+    if (this.layerFront) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(this.layerFront, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  /** Render a background layer into an offscreen canvas of the same size. */
+  private bake(key: string, ops: Op[]): HTMLCanvasElement | null {
+    if (!ops.length || typeof document === "undefined") return null;
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.floor(this.width * this.dpr));
+    c.height = Math.max(1, Math.floor(this.height * this.dpr));
+    const cx = c.getContext("2d");
+    if (!cx) return null;
+    paint(cx, ops, this.dpr);
+    void key;
+    return c;
+  }
+
+  /**
+   * The op list exactly as a paint pass would build it (off-screen culling on).
+   * The offline harness uses this so it renders the scene that actually ships.
+   */
+  paintOps(): Op[] {
+    this.syncViewport();
+    const ops = this.buildFrame();
+    this.pr.vw = 0;                    // never leave culling on for the fitter
+    this.pr.vh = 0;
+    return ops;
+  }
+
+  /** True when nothing on the floor is animating — the host may paint less often. */
+  get idle(): boolean {
+    if (this.paused) return false;
+    for (const tr of this.traders.values()) {
+      if (tr.state === "walking" || tr.pops.length) return false;
+    }
+    for (const c of this.cabins) {
+      if (c.thinking) return false;
+    }
+    return true;
   }
 
   get camera(): Projector {
@@ -770,10 +965,12 @@ function gradFor(ctx: CanvasRenderingContext2D, g: Grad): CanvasGradient {
 }
 
 /** Draw a list of ops onto a 2D context. */
-export function paint(ctx: CanvasRenderingContext2D, ops: Op[], dpr = 1): void {
+export function paint(ctx: CanvasRenderingContext2D, ops: Op[], dpr = 1, clear = true): void {
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, ctx.canvas.width / dpr, ctx.canvas.height / dpr);
+  // `clear` is false when the caller has already set the canvas up (the baked
+  // backdrop is blitted first, and clearing after that would erase it).
+  if (clear) ctx.clearRect(0, 0, ctx.canvas.width / dpr, ctx.canvas.height / dpr);
   let clipDepth = 0;
   for (const op of ops) {
     const prevAlpha = ctx.globalAlpha;

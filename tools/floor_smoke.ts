@@ -31,19 +31,22 @@ floor.resize(w, h, 1);
 floor.setZoom(zoom);
 floor.focusOn({ mode: focus });
 
-const ROSTER: Array<[string, string, string]> = [
-  ["QUANT", "Qwen2.5-7B-Instruct", "quant"],
-  ["RISK", "Mistral-7B-Instruct-v0.3", "risk"],
-  ["NEWS", "zephyr-7b-beta", "news"],
-  ["MACRO", "Qwen2.5-3B-Instruct", "macro"],
-  ["COMPLIANCE", "Phi-3.5-mini-instruct", "compliance"],
-  ["CEO", "Qwen2.5-14B-Instruct", "ceo"],
+// the desk as it is rostered in soul/brains/base.py: names, titles, local model
+const ROSTER: Array<[string, string, string, string, string]> = [
+  ["QUANT", "Qwen2.5-7B-Instruct", "quant", "Dr. Amara Osei", "Head of Quantitative Research"],
+  ["RISK", "Mistral-7B-Instruct-v0.3", "risk", "Viktor Hale", "Chief Risk Officer"],
+  ["NEWS", "zephyr-7b-beta", "news", "Lina Marchetti", "Head of News Flow and Catalysts"],
+  ["MACRO", "Qwen2.5-14B-Instruct", "macro", "Rahul Menon", "Global Macro Strategist"],
+  ["COMPLIANCE", "Phi-3.5-mini-instruct", "compliance", "Sofia Bergman", "Head of Trading Compliance"],
+  ["CEO", "Qwen2.5-14B-Instruct", "ceo", "Marcus Vale", "Managing Partner, Head of Desk"],
 ];
-const cabins: Cabin[] = ROSTER.map(([key, model, role]) => ({
+const cabins: Cabin[] = ROSTER.map(([key, model, role, name, title]) => ({
   key,
   label: key,
   model,
   role,
+  name,
+  title,
   isCeo: key === "CEO",
   thinking: false,
   since: 0,
@@ -76,8 +79,10 @@ for (let i = 0; i < N; i++) {
 floor.setBoard(ticks);
 floor.setState({ cabins, ticks });
 floor.cabinThinking("NEWS");
-floor.cabinVote("QUANT", "APPROVE", 72, "SOL/USDT");
-floor.cabinVote("RISK", "REJECT", 61, "TIA/USDT");
+floor.cabinVote("QUANT", "APPROVE", 72, "SOL/USDT",
+  "The 24-bar drift and volume z-score are both in the top decile, and the pullback held the 20 EMA. Edge is real, size is fine at 0.75%.");
+floor.cabinVote("RISK", "REJECT", 61, "TIA/USDT",
+  "Correlation to the book is 1.6 and the stop sits inside the noise band. I will not underwrite this at any size.");
 
 // step the animation deterministically, in the order the engine would do it:
 // trades walk in and sit, then get called up to the cabins, then a couple leave
@@ -97,12 +102,20 @@ for (let i = 0; i < N; i++) {
 step(760);
 
 // verdicts landing while people are still walking
-floor.cabinVote("NEWS", "REJECT", 58, "TIA/USDT");
+floor.cabinVote("NEWS", "REJECT", 58, "TIA/USDT",
+  "No catalyst behind the move and the funding print is stretched. This is a chase, not a setup.");
+// a debate turn landing while the floor is live: the cabins do not only vote,
+// they argue with each other and the conclusion becomes a rule
+floor.cabinSpeak("MACRO", "claim",
+  "If the front end is repricing, express the short at index level rather than in a single high-beta name.");
+floor.cabinSpeak("CEO", "lesson",
+  "Rule written: when the trade is a regime call, take the index, not the single name.");
 floor.float("DEMO-8", "+1.84%", "good");
 floor.float("DEMO-9", "-0.62%", "bad");
 step(Math.max(40, frames));
 
-const ops = floor.buildFrame();
+floor.refit();                       // frame whatever the scene has become
+const ops = floor.paintOps();
 const traders = [...floor.traders.values()] as Trader[];
 const stats = {
   ops: ops.length,

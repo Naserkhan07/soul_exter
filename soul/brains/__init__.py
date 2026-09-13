@@ -127,6 +127,8 @@ def brain_registry(brains: Dict[str, Brain], profile: str = "standard") -> Dict[
         out[spec.key] = {
             "key": spec.key,
             "label": spec.label,
+            "name": spec.name or spec.label,
+            "title": spec.title or spec.role,
             "role": spec.role,
             "is_ceo": spec.is_ceo,
             "slot": i,
@@ -134,5 +136,10 @@ def brain_registry(brains: Dict[str, Brain], profile: str = "standard") -> Dict[
             "backend": b.kind,
             "temperature": spec.temperature,
             "license": "open weights, ungated",
+            # there is no key to show: that is the point of the roster
+            "key_required": False,
+            "auth": "none — local weights, ungated download",
+            "expertise": list(spec.expertise),
+            "style": spec.style,
         }
     return out

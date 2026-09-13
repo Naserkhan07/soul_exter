@@ -16,6 +16,9 @@
  */
 export const FLOOR = { w: 50, d: 36 };
 
+/** The middle of the room: an information plaza between the two desk blocks. */
+export const PLAZA = { x: 24.4, y: 22.0 };
+
 export const PLATFORM = { x: 2.5, y: 0.2, w: 45.0, d: 9.4, z: 2.4 };
 
 export interface CabinSlot {
@@ -54,7 +57,9 @@ export const CEO: CabinSlot = {
 
 /** Staircase from the promenade up to the cabin platform. */
 export const STAIR = {
-  x: 17.35 - 1.25, // centred in the walk aisle between desk blocks 1 and 2
+  // centred in the walk aisle between desk blocks 1 and 2: blockRight(0) = 16.5,
+  // next block starts at 19.4, so the aisle runs 16.5 .. 19.4
+  x: 17.95 - 1.25,
   w: 2.5,
   yBottom: 13.6,
   yTop: PLATFORM.y + PLATFORM.d,
@@ -76,7 +81,7 @@ export const DESKS = {
   colPitch: 2.65,
   rowPitch: 2.8,
   /** Left edge of each column block. The gaps between blocks are walk aisles. */
-  blockX: [3.2, 18.6, 34.0],
+  blockX: [3.2, 19.4, 35.6],
   colsPerBlock: 5,
   y0: 15.0,
   rows: 5,
@@ -176,16 +181,77 @@ export const NODES = {
 
 export type Pt = [number, number, number?];
 
+/** Standing room inside a cabin — where a trader goes when it is being judged. */
+export function cabinInterior(cabinKey: string): Pt {
+  const cabin = cabinKey === "CEO" ? CEO : CABINS.find((c) => c.key === cabinKey);
+  if (!cabin) return [NODES.platform[0], NODES.platform[1], PLATFORM.z];
+  return [cabin.x + cabin.w / 2, cabin.y + cabin.d * 0.62, cabin.z];
+}
+
+/** The strip of platform in front of the cabin row that people walk along. */
+export const PLATFORM_WALK = PLATFORM.y + PLATFORM.d - 0.7;
+
 /**
  * Path from a desk to a cabin: out into the row gap, along the promenade, up
  * the stairs, then across the platform to the cabin door.
  */
-export function pathToCabin(desk: DeskSlot, cabinKey: string): Pt[] {
+/**
+ * Path from where a trader is standing to the inside of a cabin.
+ *
+ * The last leg matters: the trader walks *through the door and stands inside*
+ * the cabin, not on the platform outside it. If they are already up on the
+ * platform — which is the normal case, because a council runs cabin to cabin —
+ * the path starts from the cabin they are standing in and goes straight along
+ * the platform, instead of walking back down the stairs and up again.
+ */
+export function pathToCabin(
+  desk: DeskSlot,
+  cabinKey: string,
+  from?: { x: number; y: number; z: number; cabin?: string },
+): Pt[] {
   const cabin = cabinKey === "CEO" ? CEO : CABINS.find((c) => c.key === cabinKey);
   if (!cabin) return pathToDoor(desk, "entry");
   const zf = cabin.z;
+  const inside = cabinInterior(cabinKey);
   const ax = nearestAisle(desk.seat[0]);
-  const apron = STAIR.yBottom - 1.3;          // clear strip in front of the deck
+  const apron = STAIR.yBottom + 0.9;          // on the floor, in front of the stairs
+
+  const onPlatform = !!from && from.z >= PLATFORM.z - 0.05;
+  if (onPlatform) {
+    const start: Pt = from!.cabin
+      ? cabinInterior(from!.cabin)
+      : [from!.x, from!.y, from!.z];
+    const out: Pt[] = [start, [start[0], PLATFORM_WALK, PLATFORM.z]];
+    if (cabinKey === "CEO" || (from?.cabin === "CEO" && cabinKey !== "CEO")) {
+      // the penthouse has its own two steps; outsiders use the console stair
+      if (cabinKey === "CEO") {
+        out.push(
+          [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
+          [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
+          [cabin.doorX, PLATFORM_WALK, CEO.z],
+          inside,
+        );
+      } else {
+        out.push(
+          [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
+          [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
+          [cabin.doorX, PLATFORM_WALK, PLATFORM.z],
+          [cabin.doorX, cabin.y + cabin.d - 0.35, PLATFORM.z],
+          inside,
+        );
+      }
+      return out;
+    }
+    out.push(
+      [cabin.doorX, PLATFORM_WALK, PLATFORM.z],
+      [cabin.doorX, cabin.y + cabin.d - 0.35, PLATFORM.z],
+      inside,
+    );
+    return out;
+  }
+
+  // ground floor: out of the desk, along the row gap, down an aisle, across the
+  // front of the stair well, up the stairs, then in through the cabin door
   const out: Pt[] = [
     desk.seat,
     [desk.seat[0], desk.gapY, 0],
@@ -193,37 +259,52 @@ export function pathToCabin(desk: DeskSlot, cabinKey: string): Pt[] {
     [ax, apron, 0],
     [PROMENADE.centre, apron, 0],
     NODES.stairBase,
+    [NODES.stairTop[0], NODES.stairTop[1], PLATFORM.z],
   ];
   if (cabinKey === "CEO") {
     out.push(
-      [NODES.stairTop[0], NODES.stairTop[1], PLATFORM.z],
       [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
       [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
-      NODES.ceoFront,
-      [cabin.doorX, cabin.y + cabin.d - 0.2, CEO.z],
+      [cabin.doorX, PLATFORM_WALK, CEO.z],
+      inside,
     );
   } else {
     out.push(
-      [NODES.stairTop[0], NODES.stairTop[1], PLATFORM.z],
-      [cabin.doorX, PLATFORM.y + PLATFORM.d + 0.45, zf],
-      [cabin.doorX, cabin.y + cabin.d - 0.15, zf],
+      [cabin.doorX, PLATFORM_WALK, PLATFORM.z],
+      [cabin.doorX, cabin.y + cabin.d - 0.35, PLATFORM.z],
+      inside,
     );
   }
   return out;
 }
 
-export function pathToDoor(desk: DeskSlot, door: "entry" | "exit"): Pt[] {
+export function pathToDoor(
+  desk: DeskSlot,
+  door: "entry" | "exit",
+  from?: { x: number; y: number; z: number; cabin?: string },
+): Pt[] {
   const d = door === "entry" ? DOORS.entry : DOORS.exit;
   const ax = nearestAisle(desk.seat[0]);
   const front: [number, number] = [d.x + d.w / 2, PROMENADE.front];
-  return [
-    desk.seat,
-    [desk.seat[0], desk.gapY, 0],
-    [ax, desk.gapY, 0],
-    [ax, PROMENADE.front, 0],
-    front,
-    [d.x + d.w / 2, FLOOR.d + 0.6, 0],
-  ];
+  const out: Pt[] = [];
+  if (from && from.z >= PLATFORM.z - 0.05) {
+    // coming down from the cabins: along the platform, down the stairs, then
+    // across the floor to the door — the same route in reverse
+    out.push(
+      from.cabin ? cabinInterior(from.cabin) : [from.x, from.y, from.z],
+      [NODES.stairTop[0], NODES.stairTop[1], PLATFORM.z],
+      NODES.stairBase,
+      [PROMENADE.centre, STAIR.yBottom + 0.9, 0],
+    );
+  } else {
+    out.push(
+      desk.seat,
+      [desk.seat[0], desk.gapY, 0],
+      [ax, desk.gapY, 0],
+    );
+  }
+  out.push([ax, PROMENADE.front, 0], front, [d.x + d.w / 2, FLOOR.d + 0.6, 0]);
+  return out;
 }
 
 export function pathFromEntry(desk: DeskSlot): Pt[] {

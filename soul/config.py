@@ -128,6 +128,13 @@ class Config:
     scout_top_n: int = _env_int("SOUL_SCOUT_TOP_N", 0)         # 0 -> MAX_CANDIDATES
     scout_learn: bool = _env_bool("SOUL_SCOUT_LEARN", True)    # learn from realised P&L
     scout_seed: int = _env_int("SOUL_SCOUT_SEED", 1337)
+
+    # The debate room: the six desks review trades and teach each other between
+    # councils. Lessons are written to desk memory and read back into every
+    # following verdict.
+    debate_enabled: bool = _env_bool("SOUL_DEBATE", True)
+    debate_seconds: float = _env_float("SOUL_DEBATE_SECONDS", 30.0)
+    debate_seed: int = _env_int("SOUL_DEBATE_SEED", 20240914)
     desks: int = _env_int("SOUL_DESKS", 64)
 
     # ---- council ------------------------------------------------------

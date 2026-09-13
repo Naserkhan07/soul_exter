@@ -331,3 +331,112 @@ button.ghost.active { border-color: var(--accent); color: var(--accent); backgro
   .scout-batch { max-height: 120px; }
   .trade-rows { max-height: 140px; }
 }
+
+/* ------------------------------------------------------- settings drawer */
+.drawer.settings {
+  position: fixed; right: 16px; top: 74px; bottom: 16px; height: auto; z-index: 45;
+  width: min(600px, 94vw); display: flex; flex-direction: column; padding-bottom: 14px;
+  border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: var(--shadow);
+}
+.drawer.settings .drawer-head { align-items: flex-start; }
+.drawer.settings .scroll { flex: 1; overflow-y: auto; padding-right: 4px; margin-top: 10px; }
+.tabs { display: flex; gap: 6px; margin-top: 12px; }
+.tab {
+  border: 1px solid var(--line); background: transparent; color: var(--text-dim);
+  padding: 7px 12px; border-radius: 9px; cursor: pointer; display: flex; gap: 8px; align-items: center;
+}
+.tab.on { color: var(--text); border-color: var(--line-strong); background: var(--accent-soft); }
+.pill {
+  font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+  background: rgba(126, 162, 205, 0.12); border-radius: 20px; padding: 1px 7px;
+}
+.note {
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  background: rgba(87, 182, 255, 0.06); border-radius: 10px;
+  padding: 10px 12px; margin: 12px 0; color: var(--text-dim); line-height: 1.5;
+}
+.note.small, .small { font-size: 11px; }
+.note code { font-family: var(--mono); color: var(--text); }
+.warn {
+  border: 1px solid rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.08);
+  color: #ffd0d0; border-radius: 10px; padding: 8px 11px; margin: 10px 0;
+}
+.roster-card {
+  border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; margin-bottom: 10px;
+  background: var(--panel-2);
+}
+.roster-card.ceo { border-color: rgba(255, 212, 121, 0.36); background: rgba(255, 212, 121, 0.06); }
+.roster-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.roster-top .who b { font-size: 14px; }
+.roster-top .who i { display: block; font-style: normal; color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+.roster-top .slot {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--text-faint);
+}
+.roster-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.badge {
+  font-family: var(--mono); font-size: 10px; border: 1px solid var(--line);
+  border-radius: 6px; padding: 1px 6px; color: var(--text-dim);
+}
+.badge.ok { color: var(--good); border-color: rgba(62, 224, 138, 0.35); }
+.mono { font-family: var(--mono); font-size: 11px; color: var(--text); }
+.style { margin: 9px 0 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; font-style: italic; }
+.expertise { margin: 8px 0 0 16px; padding: 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.6; }
+.book-class { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.book-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.check.strong > span { font-weight: 700; }
+.check.sym { font-size: 11px; color: var(--text-dim); }
+.check.sym em { font-style: normal; color: var(--text-faint); font-size: 10px; }
+.book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 10px; margin-top: 9px; }
+.drawer-foot {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  border-top: 1px solid var(--line); padding-top: 11px; margin-top: 8px;
+}
+button.primary {
+  background: var(--accent-soft); border: 1px solid rgba(87, 182, 255, 0.45); color: var(--text);
+  padding: 8px 14px; border-radius: 9px; cursor: pointer;
+}
+button.primary:disabled, button.ghost:disabled { opacity: 0.5; cursor: default; }
+button.ghost.accent { border-color: rgba(87, 182, 255, 0.5); color: #cfe6ff; }
+button.ghost.tiny { padding: 3px 8px; font-size: 11px; }
+
+/* ---------------------------------------------------------- debate room */
+.panel.debate { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; }
+.panel.debate .head-actions { display: flex; gap: 6px; }
+.speakers { display: flex; flex-wrap: wrap; gap: 5px; }
+.speaker-chip {
+  border: 1px solid var(--line); border-radius: 8px; padding: 3px 7px;
+  display: flex; flex-direction: column; line-height: 1.15;
+}
+.speaker-chip b { font-size: 11px; }
+.speaker-chip em { font-style: normal; font-size: 9.5px; color: var(--text-faint); }
+.feed {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 7px;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 8px 2px;
+  min-height: 120px;
+}
+.turn { border-left: 2px solid var(--line-strong); padding-left: 8px; }
+.turn.lesson { border-left-color: var(--gold); background: rgba(255, 212, 121, 0.05); border-radius: 0 8px 8px 0; padding: 5px 8px; }
+.turn.challenge { border-left-color: var(--bad); }
+.turn.question { border-left-color: var(--accent); }
+.turn.answer { border-left-color: var(--good); }
+.turn-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.turn-head b { font-size: 11.5px; }
+.turn-head em { font-style: normal; font-size: 10px; color: var(--text-faint); }
+.turn-head .turn-model { margin-left: auto; color: var(--text-faint); font-size: 9.5px; }
+.turn-head time { color: var(--text-faint); font-size: 9.5px; }
+.turn p { margin: 3px 0 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; }
+.turn-icon { color: var(--accent); font-size: 11px; }
+.round-line {
+  display: flex; gap: 8px; align-items: baseline; color: var(--text);
+  font-size: 11.5px; font-weight: 600; padding-top: 4px;
+}
+.round-tag {
+  font-family: var(--mono); font-size: 9.5px; color: var(--text-faint);
+  border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; white-space: nowrap;
+}
+.lessons h4 { margin: 0 0 5px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+.lessons ul { margin: 0; padding-left: 16px; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; }
+.lessons li { margin-bottom: 3px; }
+.lessons em { font-style: normal; color: var(--text-faint); }
+.topic-line { margin: 0; }

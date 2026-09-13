@@ -31,6 +31,7 @@ export function Chip({ text, tone }: { text: string; tone?: string }) {
 // ---------------------------------------------------------------------------
 export function TopBar({
   state, paused, onPause, onScan, onRefresh, zoom, onZoom, focusMode, onFocus, autoCamera, onAuto,
+  onSettings, onDebate,
 }: {
   state: ReturnType<typeof import("../state/useSoul").useSoul>["state"];
   paused: boolean;
@@ -43,6 +44,8 @@ export function TopBar({
   onFocus: (m: "all" | "cabins" | "desks" | "doors") => void;
   autoCamera: boolean;
   onAuto: () => void;
+  onSettings: () => void;
+  onDebate: () => void;
 }) {
   const desk = state.desk as any;
   const engine = state.engine as any;
@@ -96,6 +99,12 @@ export function TopBar({
           Scan now
         </button>
         <button className="ghost" onClick={onRefresh}>Sync</button>
+        <button className="ghost" onClick={onDebate} title="Hold a debate round now">
+          Debate
+        </button>
+        <button className="ghost accent" onClick={onSettings} title="Models and markets">
+          Settings
+        </button>
       </div>
     </header>
   );
@@ -261,7 +270,8 @@ export function BookPanel({ positions, closed }: { positions: PositionView[]; cl
 }
 
 // ---------------------------------------------------------------------------
-export function MarketTape({ ticks }: { ticks: Tick[] }) {
+export function MarketTape({ ticks, book }: { ticks: Tick[]; book?: string[] }) {
+  void book;
   if (!ticks.length) return null;
   const loop = [...ticks, ...ticks];
   return (
@@ -269,7 +279,7 @@ export function MarketTape({ ticks }: { ticks: Tick[] }) {
       <div className="tape-track">
         {loop.map((t, i) => (
           <span key={`${t.symbol}-${i}`} className="tape-cell">
-            <b>{t.symbol.replace("/USDT", "")}</b>
+            <b>{t.symbol}</b>
             <span className="num">{t.price.toFixed(t.price > 100 ? 2 : 4)}</span>
             <span className={`num ${t.change_pct >= 0 ? "good" : "bad"}`}>{pct(t.change_pct)}</span>
           </span>

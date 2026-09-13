@@ -19,6 +19,8 @@ import {
   shadeFaces,
   shaft,
   slab,
+  namePlate,
+  speechCard,
   woodGrain,
 } from "./geom";
 import { hash01, palette, rgba, shade, tint } from "./palette";
@@ -35,8 +37,8 @@ import {
   type CabinSlot,
   type DeskSlot,
 } from "./layout";
-import { drawCabinAgent, drawChair, type Facing } from "./actors";
-import type { Cabin, Op, Tick, Verdict } from "./types";
+import { drawCabinAgent, drawChair, drawTrader, type Facing } from "./actors";
+import type { Cabin, Op, Tick, Trader, Verdict } from "./types";
 
 export const WALL_X = -1.6;
 export const WALL_Y = CEO.y - 2.2;
@@ -320,7 +322,7 @@ function drawTicker(ops: Op[], pr: Projector, ticks: Tick[], mode: string, t: nu
   const [hx, hy] = pr.p(x0 + 0.6, y0 + 0.8, z + h - 1.0);
   ops.push({ op: "text", x: hx, y: hy, text: "SOUL EXTER", fill: palette.text, size: Math.max(10, pr.len(0.42)), weight: "800", align: "left" });
   ops.push({
-    op: "text", x: hx, y: hy + pr.len(0.5), text: `COUNCIL FLOOR  ·  ${mode.toUpperCase()}  ·  LIVE`,
+    op: "text", x: hx, y: hy + Math.max(13, pr.len(0.55)), text: `COUNCIL FLOOR  ·  ${mode.toUpperCase()}  ·  LIVE`,
     fill: rgba(palette.cabinAccent, 0.85), size: Math.max(8, pr.len(0.3)), weight: "600", align: "left",
   });
   // rows of market data, two columns, scrolled by time
@@ -506,12 +508,14 @@ export function drawCabins(
   cabins: Cabin[],
   t: number,
   activeSymbol: Partial<Record<string, string>>,
+  occupants: Partial<Record<string, Trader>> = {},
 ): void {
   for (const slot of CABINS) {
     const state = cabins.find((c) => c.key === slot.key);
-    drawCabin(ops, pr, slot, state, t, activeSymbol[slot.key], false);
+    drawCabin(ops, pr, slot, state, t, activeSymbol[slot.key], false, occupants[slot.key]);
   }
-  drawCabin(ops, pr, CEO, cabins.find((c) => c.key === "CEO"), t, activeSymbol.CEO, true);
+  drawCabin(ops, pr, CEO, cabins.find((c) => c.key === "CEO"), t, activeSymbol.CEO, true,
+    occupants.CEO);
 }
 
 function drawCabin(
@@ -522,7 +526,10 @@ function drawCabin(
   t: number,
   activeSymbol: string | undefined,
   isCeo: boolean,
+  occupant?: Trader,
 ): void {
+  // off-screen cabins (and their cards) are not painted at all
+  if (!pr.visible(slot.x + slot.w / 2, slot.y + slot.d * 0.4, slot.z, 760)) return;
   const accent = isCeo ? palette.ceoAccent : palette.cabinAccent;
   const thinking = !!state?.thinking;
   const vote = state?.lastVote;
@@ -589,6 +596,55 @@ function drawCabin(
     });
   }
   drawCabinAgent(ops, pr, slot.x + slot.w - 3.1, slot.y + 2.5, deskZ, "-x", accent, thinking, t);
+
+  // ---- the trader who walked in -------------------------------------------
+  // Drawn here, not with the walkers, so the glass wall in front of them is
+  // painted afterwards: a trade that is being reviewed is *inside* the cabin,
+  // which is where the brief says it has to go. The plate above their head
+  // still carries the asset, so nobody in the room is anonymous.
+  if (occupant) {
+    const [ix, iy, iz] = [slot.x + slot.w / 2 - 1.5, slot.y + slot.d * 0.5, deskZ];
+    drawTrader(ops, pr, { ...occupant, x: ix, y: iy } as Trader, t, {
+      label: occupant.symbol,
+      sublabel: occupant.side,
+      accent: occupant.side === "SHORT" ? palette.shortColor : palette.longColor,
+      side: occupant.side,
+      plateScale: 0.8,
+    });
+  }
+
+  // ---- who is in there, and what they think ------------------------------
+  // Two cards above the roof: the desk's name and title, and the argument they
+  // just made. The verdict card is the answer to "why did this one agree?" —
+  // it stays up until the next trade replaces it, so the floor is readable
+  // without opening anything.
+  // One card per cabin: who is in there, how they voted, and why — in their
+  // own words. It sits above the roof, staggered so five of them across the
+  // back of the room do not stack on top of each other.
+  const cxm = slot.x + slot.w / 2;
+  const cym = slot.y + slot.d * 0.35;
+  // Two ranks, alternating, so five cards across the back of the room do not
+  // cover each other: even cabins sit low and push left, odd ones sit high and
+  // push right.
+  const idx = isCeo ? -1 : CABINS.findIndex((c) => c.key === slot.key);
+  const rank = idx < 0 ? 0 : idx % 2;
+  const stagger = idx < 0 ? 1.5 : rank * 4.1;
+  const dx = idx < 0 ? 0 : (rank ? 1.5 : -1.5);
+  const topZ = z + (isCeo ? 5.6 : 4.4) + stagger;
+  const [nx, ny] = pr.p(cxm + dx, cym, topZ);
+  const body = (state?.said || state?.reason || "").trim();
+  speechCard(ops, pr, nx, ny, {
+    name: state?.name ?? state?.label ?? slot.key,
+    title: thinking ? "DELIBERATING" : state?.title ? state.title.split(",")[0] : "",
+    body: body || (thinking ? "reading the tape…" : "waiting for a trade"),
+    accent: voteAccent(state?.lastVote, accent),
+    verdict: state?.lastVote,
+    confidence: state?.confidence,
+    tone: state?.said ? "live" : "idle",
+    width: Math.max(142, pr.len(6.6)),
+    lines: state?.said ? 4 : 3,
+    alpha: state ? 0.97 : 0.72,
+  });
   // a plant, because every floor has one
   cylinder(ops, pr, slot.x + slot.w - 0.7, slot.y + slot.d - 0.7, deskZ, 0.26, 0.36, "#3a3327");
   for (let i = 0; i < 5; i++) {
@@ -707,6 +763,7 @@ function drawCabin(
 // desks
 // ---------------------------------------------------------------------------
 export function drawDesk(ops: Op[], pr: Projector, desk: DeskSlot, t: number, occupied: boolean): void {
+  if (!pr.visible(desk.x + 1.6, desk.y + 1.0, 0, 300)) return;
   const { x, y } = desk;
   const z = 0.0;
   const h = 0.74;
@@ -954,4 +1011,9 @@ export function drawReception(ops: Op[], pr: Projector, t: number): void {
   }
   lightPool(ops, pr, r.x + r.w / 2, r.y + r.d + 1.2, 3.4, palette.entryDoor, 0.09);
   void t;
+}
+
+
+function voteAccent(vote: string | undefined, fallback: string): string {
+  return (vote && VERDICT_COLOR[vote]) || fallback;
 }

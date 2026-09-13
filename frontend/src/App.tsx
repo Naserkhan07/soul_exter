@@ -10,8 +10,10 @@ import { FloorCanvas, type FloorHandle } from "./components/FloorCanvas";
 import {
   BookPanel, CouncilRail, EquitySpark, MarketTape, ScoutPanel, TopBar, TradeList, TraderList,
 } from "./components/Panels";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { DebateRoomPanel } from "./components/DebateRoom";
 import { TradeDrawer } from "./components/TradeDrawer";
-import { useSoul, type ScoutRead, type TradeRow } from "./state/useSoul";
+import { useSoul, type DebateTurn, type ScoutRead, type TradeRow } from "./state/useSoul";
 import type { Trader } from "./floor/types";
 import "./styles/app.css";
 
@@ -23,6 +25,10 @@ export default function App() {
   const [paused, setPaused] = useState(false);
   const [selected, setSelected] = useState<TradeRow | null>(null);
   const [scoutBatch, setScoutBatch] = useState<ScoutRead[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [liveTurns, setLiveTurns] = useState<
+    Array<{ cabin: string; name: string; turn: string; text: string; topic: string }>
+  >([]);
   const handleRef = useRef<FloorHandle | null>(null);
 
   // the scout's last batch, newest first, for the panel and the drawer
@@ -34,6 +40,34 @@ export default function App() {
   useEffect(() => {
     setPaused(Boolean(state.engine?.paused));
   }, [state.engine?.paused]);
+
+  // The debate panel shows the engine's history plus whatever has been spoken
+  // since the last snapshot, so a turn appears the moment it is said.
+  useEffect(() => {
+    const fresh = events.debate.splice(0);
+    if (!fresh.length) return;
+    setLiveTurns((prev) => [...prev, ...fresh].slice(-80));
+  }, [seq, events.debate]);
+
+  const debateTurns = useMemo<DebateTurn[]>(() => {
+    const hist = (state.debate?.transcript ?? []) as DebateTurn[];
+    const key = (speaker: string, turn: string, text: string) =>
+      `${speaker}|${turn}|${text.length}`;
+    const seen = new Set(hist.map((t) => key(t.speaker, t.turn, t.text)));
+    const extra: DebateTurn[] = liveTurns
+      .filter((t) => !seen.has(key(t.cabin, t.turn, t.text)))
+      .map((t) => ({
+        room: "desk", topic: t.topic, speaker: t.cabin, name: t.name, label: "",
+        model: "", turn: t.turn, text: t.text, round: 0,
+        ts: Date.now() / 1000, trade_id: null,
+      }));
+    return [...hist, ...extra].slice(-80);
+  }, [state.debate?.transcript, liveTurns]);
+
+  const convene = useCallback(async () => {
+    await send("/api/debate/round", { rounds: 1 });
+    refresh();
+  }, [refresh, send]);
 
   const onPick = useCallback((id: string | null) => {
     if (!id) return;
@@ -103,10 +137,21 @@ export default function App() {
           onFocus={onFocus}
           autoCamera={autoCamera}
           onAuto={() => setAutoCamera((v) => !v)}
+          onSettings={() => setSettingsOpen(true)}
+          onDebate={convene}
         />
 
         <div className="left-rail">
           <CouncilRail cabins={state.cabins} ceo={state.ceo} council={state.council} />
+          <DebateRoomPanel
+            transcript={debateTurns}
+            lessons={state.debate?.lessons ?? []}
+            speakers={state.debate?.speakers ?? []}
+            rounds={state.debate?.rounds ?? 0}
+            topic={state.debate?.topic ?? null}
+            onConvene={convene}
+            hours24
+          />
           <TraderList traders={traders} onSelect={(id) => onPick(id)} />
         </div>
 
@@ -121,6 +166,12 @@ export default function App() {
       </div>
 
       <TradeDrawer trade={selected} onClose={() => setSelected(null)} />
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onApplied={() => refresh()}
+      />
     </div>
   );
 }
