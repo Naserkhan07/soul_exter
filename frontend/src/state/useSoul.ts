@@ -257,7 +257,7 @@ export interface SpawnEvent {
 export interface SoulEvents {
   spawns: SpawnEvent[];
   moves: Array<{ id: string; target: string }>;
-  cabinThinking: Array<{ cabin: string }>;
+  cabinThinking: Array<{ cabin: string; name?: string }>;
   cabinVerdicts: Array<{
     cabin: string; verdict: "APPROVE" | "REJECT" | "ABSTAIN"; confidence: number;
     symbol?: string; reason?: string;
@@ -275,6 +275,8 @@ export function useSoul(pollMs = 4000): {
   events: SoulEvents;
   /** bumps on every event, so components can drain the buffers in an effect */
   seq: number;
+  /** the desk that is composing a turn right now, for the room's thinking line */
+  thinking: { key: string; name: string } | null;
   refresh: () => void;
   send: (path: string, body?: unknown) => Promise<void>;
 } {
@@ -283,6 +285,7 @@ export function useSoul(pollMs = 4000): {
     spawns: [], moves: [], cabinThinking: [], cabinVerdicts: [], ends: [], floats: [], debate: [],
   });
   const [seq, setSeq] = useState(0);
+  const [thinking, setThinking] = useState<{ key: string; name: string } | null>(null);
   const firstState = useRef(true);
   const seenTrades = useRef(new Set<string>());
   const transportRef = useRef<SoulState["transport"]>("none");
@@ -361,8 +364,18 @@ export function useSoul(pollMs = 4000): {
       case "trader_walks":
         if (p?.trade_id) push("moves", { id: p.trade_id, target: String(p.to ?? "desk") });
         break;
+      case "debate_thinking": {
+        // the desk is composing: the room says so, and so does its cabin
+        if (p?.speaker) {
+          const key = String(p.speaker);
+          push("cabinThinking", { cabin: key, name: String(p.name ?? "") });
+          setThinking({ key, name: String(p.name ?? key) });
+        }
+        break;
+      }
       case "cabin_verdict": {
         if (p?.cabin) {
+          setThinking((t) => (t && t.key === String(p.cabin) ? null : t));
           // a walk event lands first; by the time a verdict arrives the cabin
           // has been thinking, so the card flips straight to the answer
           push("cabinVerdicts", {
@@ -401,6 +414,7 @@ export function useSoul(pollMs = 4000): {
         break;
       case "debate_message": {
         if (p?.speaker && p?.text) {
+          setThinking((t) => (t && t.key === String(p.speaker) ? null : t));
           push("debate", {
             cabin: String(p.speaker), name: String(p.name ?? p.speaker),
             turn: String(p.turn ?? "claim"), text: String(p.text),
@@ -569,5 +583,5 @@ export function useSoul(pollMs = 4000): {
     } as SoulState;
   }, [state]);
 
-  return { state: withCabins, events: eventsRef.current, seq, refresh, send };
+  return { state: withCabins, events: eventsRef.current, seq, thinking, refresh, send };
 }

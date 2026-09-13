@@ -408,6 +408,48 @@ button.ghost.accent { border-color: rgba(87, 182, 255, 0.5); color: #cfe6ff; }
 button.ghost.tiny { padding: 3px 8px; font-size: 11px; }
 
 /* ---------------------------------------------------------- debate room */
+/* The room itself: the read-only panel sits in the rail, the full chat room
+   opens over the floor from the top bar, and both are the same component. */
+.room-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(4, 7, 11, 0.66);
+  display: grid; place-items: center;
+  padding: 22px;
+}
+.room-shell { width: min(1000px, 96vw); height: min(780px, 92vh); }
+.panel.debate.room {
+  height: 100%; max-height: none;
+  background: rgba(12, 18, 26, 0.98);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 14px 16px 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+.panel.debate.room .feed { flex: 1; max-height: none; }
+.room-intro { margin: 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.55; }
+.speaker-record { font-style: normal; font-size: 9px; color: var(--text-faint); letter-spacing: 0.02em; }
+.composer { display: flex; gap: 6px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
+.composer select, .composer input {
+  background: rgba(10, 15, 21, 0.9); color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 6px 8px; font-size: 11.5px; font-family: inherit;
+}
+.composer select { max-width: 168px; }
+.composer input { flex: 1; min-width: 0; }
+.composer input::placeholder { color: var(--text-faint); }
+.composer button.send { white-space: nowrap; }
+.turn.you { border-left-color: var(--gold); }
+.turn.you b { color: var(--gold); }
+.thinking-line {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--text-dim); font-size: 11px; padding: 2px 0 0 8px;
+}
+.thinking-line b { color: var(--text); }
+.thinking-line .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); animation: think 1.1s ease-in-out infinite;
+}
+@keyframes think { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 .panel.debate { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; }
 .panel.debate .head-actions { display: flex; gap: 6px; }
 .speakers { display: flex; flex-wrap: wrap; gap: 5px; }

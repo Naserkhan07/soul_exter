@@ -12,14 +12,14 @@ import {
 } from "./components/Panels";
 import { CabinChat } from "./components/CabinChat";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { DebateRoomPanel } from "./components/DebateRoom";
+import { DebateRoomPanel, type DeskRecord } from "./components/DebateRoom";
 import { TradeDrawer } from "./components/TradeDrawer";
 import { useSoul, type DebateTurn, type ScoutRead, type TradeRow } from "./state/useSoul";
 import type { Trader } from "./floor/types";
 import "./styles/app.css";
 
 export default function App() {
-  const { state, events, seq, refresh, send } = useSoul(4000);
+  const { state, events, seq, thinking, refresh, send } = useSoul(4000);
   const [zoom, setZoom] = useState(1);
   const [focusMode, setFocusMode] = useState<"all" | "cabins" | "desks" | "doors">("all");
   const [autoCamera, setAutoCamera] = useState(false);
@@ -27,12 +27,20 @@ export default function App() {
   const [selected, setSelected] = useState<TradeRow | null>(null);
   const [scoutBatch, setScoutBatch] = useState<ScoutRead[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [roomOpen, setRoomOpen] = useState(false);
   const [cabinChat, setCabinChat] = useState<string | null>(null);
   // what this desk's settled calls have been worth, straight from the council's
   // scoreboard: a desk with no record says so instead of implying one
   const deskRecord = (key: string) =>
     (state.council as any)?.scoreboard?.desks?.[key] ?? null;
   const [fps, setFps] = useState<number | undefined>(undefined);
+  // what the room shows about each desk: its settled record (the training
+  // channel's scoreboard) and whoever is composing a turn right now
+  const records = useMemo<Record<string, DeskRecord>>(
+    () => ((state.council as { scoreboard?: { desks?: Record<string, DeskRecord> } })?.scoreboard?.desks ?? {}),
+    [state.council],
+  );
+
   const [liveTurns, setLiveTurns] = useState<
     Array<{ cabin: string; name: string; turn: string; text: string; topic: string }>
   >([]);
@@ -60,6 +68,8 @@ export default function App() {
     const hist = (state.debate?.transcript ?? []) as DebateTurn[];
     const key = (speaker: string, turn: string, text: string) =>
       `${speaker}|${turn}|${text.length}`;
+    // "you" is a distinct speaker on both sides of the wire, so a question asked
+    // from the floor is not mistaken for a desk's line
     const seen = new Set(hist.map((t) => key(t.speaker, t.turn, t.text)));
     const extra: DebateTurn[] = liveTurns
       .filter((t) => !seen.has(key(t.cabin, t.turn, t.text)))
@@ -91,11 +101,9 @@ export default function App() {
   const askDesk = useCallback(
     async (key: string, question: string) => {
       const tradeId = tradeRowsRef.current[0]?.id ?? null;
+      // the question becomes a turn on the server, so everybody in the room
+      // sees it in order and a refresh keeps it; no local echo needed
       await send("/api/debate/ask", { cabin: key, question, trade_id: tradeId });
-      setLiveTurns((prev) => [
-        ...prev,
-        { cabin: key, name: "", turn: "you", text: question, topic: "" },
-      ].slice(-80));
       refresh();
     },
     [refresh, send],
@@ -181,7 +189,7 @@ export default function App() {
           autoCamera={autoCamera}
           onAuto={() => setAutoCamera((v) => !v)}
           onSettings={() => setSettingsOpen(true)}
-          onDebate={convene}
+          onDebate={() => setRoomOpen(true)}
           fps={fps}
         />
 
@@ -199,6 +207,9 @@ export default function App() {
             rounds={state.debate?.rounds ?? 0}
             topic={state.debate?.topic ?? null}
             onConvene={convene}
+            onOpenRoom={() => setRoomOpen(true)}
+            records={records}
+            thinking={thinking}
             hours24
           />
           <TraderList traders={traders} onSelect={(id) => onPick(id)} />
@@ -225,6 +236,27 @@ export default function App() {
           onAsk={askDesk}
           onClose={() => setCabinChat(null)}
         />
+      )}
+
+      {roomOpen && (
+        <div className="room-overlay" onMouseDown={() => setRoomOpen(false)}>
+          <div className="room-shell" onMouseDown={(e) => e.stopPropagation()}>
+            <DebateRoomPanel
+              variant="room"
+              transcript={debateTurns}
+              lessons={state.debate?.lessons ?? []}
+              speakers={state.debate?.speakers ?? []}
+              rounds={state.debate?.rounds ?? 0}
+              topic={state.debate?.topic ?? null}
+              onConvene={convene}
+              onAsk={askDesk}
+              records={records}
+              thinking={thinking}
+              hours24
+              onClose={() => setRoomOpen(false)}
+            />
+          </div>
+        </div>
       )}
 
       <SettingsPanel

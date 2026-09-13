@@ -1,5 +1,5 @@
 /**
- * The debate room.
+ * The debate room — the chat room where the cabins talk to each other.
  *
  * The cabins vote; this is where they *talk*. Every round has a topic, a claim
  * from one desk, a challenge, a question, an answer, an acknowledgement and a
@@ -8,10 +8,17 @@
  * not a log of chatter: it is the training channel, and the rules at the bottom
  * are the ones the desk will judge the next trade against.
  *
+ * Two shapes, one room:
+ *   - `rail`   the compact panel in the left rail, always on screen;
+ *   - `room`   the full chat room, opened from the top bar, with the composer
+ *              that lets the user ask any desk a question and watch the answer
+ *              land in the same transcript.
+ *
  * Turns stream in over the bus as they are spoken (`debate_message`), so the
  * transcript is live; the REST endpoint fills the history on load.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import type { DebateTurn } from "../state/useSoul";
 
 const TURN_STYLE: Record<string, { icon: string; label: string; cls: string }> = {
@@ -22,7 +29,24 @@ const TURN_STYLE: Record<string, { icon: string; label: string; cls: string }> =
   answer: { icon: "→", label: "answers", cls: "answer" },
   ack: { icon: "✓", label: "agrees", cls: "ack" },
   lesson: { icon: "★", label: "writes the rule", cls: "lesson" },
+  you: { icon: "✎", label: "asks", cls: "you" },
 };
+
+/** What the scoreboard knows about one desk: its settled calls and its R. */
+export interface DeskRecord {
+  calls: number;
+  right: number;
+  hit_rate: number | null;
+  r_sum: number;
+  proven: boolean;
+  weight?: number;
+}
+
+export interface Speaker {
+  key: string;
+  name: string;
+  title: string;
+}
 
 export function DebateRoomPanel({
   transcript,
@@ -31,29 +55,64 @@ export function DebateRoomPanel({
   rounds,
   topic,
   onConvene,
+  onAsk,
+  records,
+  thinking,
   hours24,
+  variant = "rail",
+  onClose,
+  onOpenRoom,
 }: {
   transcript: DebateTurn[];
   lessons: Array<{ topic: string; speaker_label: string; text: string; round: number }>;
-  speakers: Array<{ key: string; name: string; title: string }>;
+  speakers: Speaker[];
   rounds: number;
   topic?: string | null;
   onConvene: () => void;
+  /** ask one desk a question; its answer arrives in the same transcript */
+  onAsk?: (cabin: string, question: string) => void | Promise<void>;
+  records?: Partial<Record<string, DeskRecord>>;
+  /** the desk currently composing a turn, if any */
+  thinking?: { key: string; name: string } | null;
   hours24?: boolean;
+  variant?: "rail" | "room";
+  onClose?: () => void;
+  /** the rail panel's shortcut into the full room */
+  onOpenRoom?: () => void;
 }) {
   const feedRef = useRef<HTMLDivElement | null>(null);
   const [pinned, setPinned] = useState(true);
+  const [draft, setDraft] = useState("");
+  const [to, setTo] = useState("");
 
-  // newest first for reading, but the auto-scroll follows the newest turn
-  const turns = useMemo(() => transcript.slice(-60), [transcript]);
+  const nameOf = useMemo(() => {
+    const map = new Map(speakers.map((s) => [s.key, s.name]));
+    return (key?: string | null) => (key ? map.get(key) ?? key : "");
+  }, [speakers]);
+
+  const turns = useMemo(() => transcript.slice(-80), [transcript]);
+
+  useEffect(() => {
+    if (!to && speakers.length) setTo(speakers[0].key);
+  }, [speakers, to]);
 
   useEffect(() => {
     const el = feedRef.current;
     if (el && pinned) el.scrollTop = el.scrollHeight;
-  }, [turns.length, pinned]);
+  }, [turns.length, pinned, thinking?.key]);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const text = draft.trim();
+    if (!text || !to || !onAsk) return;
+    setDraft("");
+    void onAsk(to, text);
+  };
+
+  const room = variant === "room";
 
   return (
-    <section className="panel debate">
+    <section className={`panel debate${room ? " room" : ""}`}>
       <header className="panel-head">
         <h3>
           Debate room <span className="pill">{rounds} rounds</span>
@@ -63,18 +122,46 @@ export function DebateRoomPanel({
             {pinned ? "following" : "paused"}
           </button>
           <button className="ghost tiny" onClick={onConvene}>
-            convene
+            convene round
           </button>
+          {!room && onOpenRoom && (
+            <button className="ghost tiny open-room" onClick={onOpenRoom} title="open the room">
+              open
+            </button>
+          )}
+          {room && onClose && (
+            <button className="ghost tiny" onClick={onClose}>
+              close
+            </button>
+          )}
         </div>
       </header>
 
+      {room && (
+        <p className="room-intro">
+          Six desks in one room: they claim, challenge, ask, answer, agree — and the
+          head of desk writes down the rule they agreed. Every rule is fed back into
+          each desk's prompt before the next trade, which is how this desk gets
+          trained as it works.
+        </p>
+      )}
+
       <div className="speakers">
-        {speakers.map((s) => (
-          <span className="speaker-chip" key={s.key} title={s.title}>
-            <b>{s.name}</b>
-            <em>{s.title}</em>
-          </span>
-        ))}
+        {speakers.map((s) => {
+          const rec = records?.[s.key];
+          const record = rec && rec.proven
+            ? `${rec.right}/${rec.calls} right · ${rec.r_sum >= 0 ? "+" : ""}${rec.r_sum.toFixed(1)}R`
+            : rec
+              ? `${rec.calls} settled · not proven`
+              : "";
+          return (
+            <span className="speaker-chip" key={s.key} title={s.title}>
+              <b>{s.name}</b>
+              <em>{s.title}</em>
+              {record && <i className="speaker-record">{record}</i>}
+            </span>
+          );
+        })}
         {!speakers.length && <span className="muted small">waiting for the desk…</span>}
       </div>
 
@@ -82,7 +169,7 @@ export function DebateRoomPanel({
         {!turns.length && (
           <p className="muted small">
             The room is quiet. The next review meeting opens after the council
-            closes its current trade.
+            closes its current trade — or press <b>convene round</b>.
           </p>
         )}
         {turns.map((m, i) => {
@@ -93,6 +180,19 @@ export function DebateRoomPanel({
                 <span className="round-tag">round {m.round}</span>
                 <span>{m.text}</span>
               </div>
+            );
+          }
+          if (m.turn === "you") {
+            return (
+              <article className="turn you" key={`${m.ts}-${i}`}>
+                <div className="turn-head">
+                  <span className="turn-icon">{st.icon}</span>
+                  <b>you</b>
+                  <span className="turn-to">→ {nameOf(m.speaker)}</span>
+                  <em>asks</em>
+                </div>
+                <p>{m.text}</p>
+              </article>
             );
           }
           return (
@@ -109,7 +209,40 @@ export function DebateRoomPanel({
             </article>
           );
         })}
+        {thinking && (
+          <div className="thinking-line">
+            <span className="dot" />
+            <b>{thinking.name}</b> is thinking…
+          </div>
+        )}
       </div>
+
+      {onAsk && (
+        <form className="composer" onSubmit={submit}>
+          <select
+            className="composer-to"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            title="which desk to ask"
+          >
+            {speakers.map((s) => (
+              <option value={s.key} key={s.key}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <input
+            className="composer-text"
+            placeholder="ask the room — why did you take that trade, and what would change your mind?"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onFocus={() => setPinned(true)}
+          />
+          <button className="ghost tiny send" type="submit" disabled={!draft.trim()}>
+            send
+          </button>
+        </form>
+      )}
 
       <div className="lessons">
         <h4>
@@ -123,7 +256,7 @@ export function DebateRoomPanel({
         )}
         <ul>
           {lessons
-            .slice(-4)
+            .slice(-(room ? 8 : 4))
             .reverse()
             .map((l, i) => (
               <li key={`${l.round}-${i}`}>

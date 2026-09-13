@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import random
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -123,9 +124,14 @@ class MockBrain:
         await asyncio.sleep(self.base_latency * 0.35 * (0.7 + 0.6 * random.random()))
         bank = self.LINES.get(self.spec.key, {})
         pool = bank.get(kind) or bank.get("ack") or ["Agreed."]
-        h = hashlib.sha256(f"{self.spec.key}|{topic}|{kind}|{len(transcript)}".encode()).digest()
+        # No transcript length in the seed: it grows with every turn, which made
+        # the per-round rotation below land on the same line two rounds running.
+        h = hashlib.sha256(f"{self.spec.key}|{topic}|{kind}".encode()).digest()
         rng = random.Random(int.from_bytes(h[:8], "big"))
-        text = rng.choice(pool)
+        # rotate with the round: a desk that has two ways of saying something
+        # should not say the same one two rounds running
+        base = rng.randrange(len(pool))
+        text = pool[(base + int(inner.get("round", 0))) % len(pool)]
         rule = inner.get("rule") or "when a setup is extended, halve the size instead of skipping it"
         try:
             text = text.format(
@@ -142,6 +148,27 @@ class MockBrain:
         # `return` inside try would have returned before this ran: a turn that is
         # addressed to somebody has to *say* so, or the room reads like six
         # broadcasts and the floor card cannot show who was answered.
+        # Quote the turn being answered. Two desks having the same argument in
+        # the same words round after round is what a mock deck does by nature;
+        # quoting the actual turn keeps consecutive rounds legibly different —
+        # and it is what a person in a room does anyway.
+        if kind in ("challenge", "answer", "ack"):
+            prev = next(
+                (" ".join(str(m.get("text", "")).split()) for m in reversed(transcript or [])
+                 if m.get("speaker") != self.spec.key
+                 and m.get("turn") in ("claim", "challenge", "question", "answer")),
+                "",
+            )
+            if prev:
+                # strip an addressee prefix and any earlier quote, so quotes
+                # never nest into gibberish
+                prev = re.sub(r"^[A-Za-z][^—]{0,40}—\s*", "", prev)
+                while prev.startswith('To "'):
+                    end = prev.find('" — ')
+                    prev = prev[end + 4:].lstrip() if end >= 0 else prev[4:]
+                words = prev.split()
+                snippet = " ".join(words[:9]) + ("…" if len(words) > 9 else "")
+                text = f'To "{snippet}" — {text}'
         who = str(inner.get("to_name") or "").strip()
         if who and not text.lstrip().startswith(who):
             text = f"{who} — {text}"

@@ -48,7 +48,16 @@ const html = readFileSync(path.join(root, "web", "index.html"), "utf8")
 const now = Date.now() / 1000;
 const fixture = {
   engine: { llm_mode: "mock", cuda: false, paused: false, scan_seconds: 18, uptime_s: 642, model_profile: "standard" },
-  council: { reviews: 39, escalations: 35, ceo_approvals: 9, ceo_rejections: 8 },
+  council: {
+    reviews: 39, escalations: 35, ceo_approvals: 9, ceo_rejections: 8,
+    scoreboard: {
+      min_evidence: 4,
+      desks: {
+        QUANT: { calls: 16, right: 10, hit_rate: 0.625, approvals: 9, wins: 6, losses: 3, r_sum: 11.07, pnl: 613.59, streak: 0, weight: 1.062, proven: true },
+        RISK: { calls: 16, right: 5, hit_rate: 0.313, approvals: 12, wins: 5, losses: 7, r_sum: 4.23, pnl: 169.21, streak: 0, weight: 0.906, proven: true },
+      },
+    },
+  },
   desk: { equity: 15694.14, starting_cash: 15000, realised: 589.85, win_rate: 62, open: 3, leverage: 0.6 },
   market: {
     mode: "sim",
@@ -378,6 +387,29 @@ if (settingsButton) {
 window.document.querySelector(".drawer.settings .drawer-head button")
   ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 await new Promise((r) => setTimeout(r, 120));
+
+// ---- the debate room: the top-bar button opens the full chat room --------
+const roomButton = buttons.find((b) => (b.textContent ?? "").trim() === "Debate");
+if (roomButton) {
+  roomButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 30));
+  const room = window.document.querySelector(".room-overlay .panel.debate.room");
+  checks.push(["debate room opens over the floor", !!room]);
+  const rtext = room?.textContent ?? "";
+  checks.push(["room names every speaker", /Amara Osei/.test(rtext) && /Marcus Vale/.test(rtext)]);
+  checks.push(["room shows each desk's record", new RegExp("10/16 right|not proven", "i").test(rtext)]);
+  checks.push([
+    "room has a composer aimed at a desk",
+    !!room?.querySelector(".composer input") && !!room?.querySelector(".composer select"),
+  ]);
+  checks.push(["room lists the rules it agreed", /Rules this desk has agreed/.test(rtext)]);
+  const close = [...(room?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "close");
+  close?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  checks.push(["room closes again", !window.document.querySelector(".room-overlay")]);
+} else {
+  checks.push(["debate room opens over the floor", false]);
+}
 
 const cabinCard = window.document.querySelector(".panel.rail .cabin-card")
   ?? window.document.querySelector(".cabin-card");

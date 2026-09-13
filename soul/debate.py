@@ -24,6 +24,7 @@ transcript is published on the event bus and the lessons are visible in the UI.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import random
 import time
@@ -155,6 +156,10 @@ class DebateRoom:
         if to_name:
             # the brain is told who it is talking to, so it answers *that desk*
             inner["to_name"] = to_name
+        # the turn number goes in too: without it a persona with a small bank of
+        # lines (mock, and any model that latches onto the transcript length)
+        # answers every round with the same sentence
+        inner["round"] = self.rounds + 1
         # note: `turn`, not `kind` — publish() already owns that keyword
         await self.bus.publish("debate_thinking", room="desk", speaker=key,
                                name=spec.name or spec.label, turn=kind, topic=topic,
@@ -175,11 +180,19 @@ class DebateRoom:
         self.transcript.append(msg)
         self.transcript = self.transcript[-160:]
         if kind == "lesson":
-            self.lessons.append({
+            entry = {
                 "topic": topic, "speaker": key,
                 "speaker_label": f"{spec.name or spec.label}, {spec.title or spec.role}",
                 "text": text[:400], "ts": msg["ts"], "round": msg["round"],
-            })
+            }
+            # The same rule re-agreed in a later round is not a second rule: the
+            # list is what the desk has agreed, so restate the one on file.
+            same = next((l for l in self.lessons if l["text"] == entry["text"]), None)
+            if same is not None:
+                same.update({"ts": entry["ts"], "round": entry["round"],
+                             "topic": entry["topic"]})
+            else:
+                self.lessons.append(entry)
             self.lessons = self.lessons[-40:]
         await self.bus.publish("debate_message", **msg)
         return msg
@@ -193,6 +206,10 @@ class DebateRoom:
             text, inner = agenda["topic"], dict(agenda.get("inner") or {})
             inner.setdefault("trade_id", agenda.get("trade_id"))
             self.rounds += 1
+            # The room closes every round by writing a rule. The CEO phrases it,
+            # but the rule has to come out of *this* trade — a fixed sentence
+            # repeated every round is not training, it is a slogan.
+            inner.setdefault("rule", self._rule_for(text, inner))
             self.current_topic = text
             await self.bus.publish("debate_round", room="desk", round=self.rounds,
                                    topic=text, trade_id=agenda.get("trade_id"))
@@ -241,6 +258,33 @@ class DebateRoom:
     def ceo_key(self) -> str:
         return "CEO"
 
+    # ------------------------------------------------------------------
+    # The rules the room can write. Each one is a sentence a desk could act on
+    # tomorrow, and the pick is a hash of the trade plus the round, so the
+    # training channel does not repeat itself on consecutive meetings.
+    RULES = (
+        "when a setup is extended, halve the size instead of skipping it",
+        "a {strategy} entry that needs a catalyst waits for the level to be reclaimed",
+        "when the council splits, the smaller size is the decision and the opinion is not",
+        "a stop inside the noise band is a coin flip, so it gets coin-flip risk",
+        "correlated tickets are one risk: the second one pays half",
+        "no new risk into a session that has already spent its budget",
+        "if the regime and the setup disagree, the regime wins and the trade waits",
+        "a thesis with no invalidation level is a story, so it is not sized",
+    )
+
+    def _rule_for(self, topic: str, inner: Dict[str, Any]) -> str:
+        seed = f"{topic}|{inner.get('trade_id')}|{self.rounds}"
+        idx = int.from_bytes(hashlib.sha256(seed.encode()).digest()[:4], "big") % len(self.RULES)
+        rule = self.RULES[idx]
+        try:
+            return rule.format(
+                strategy=str(inner.get("strategy", "trend")).lower() or "trend",
+                symbol=inner.get("symbol", "this name"),
+            )
+        except (KeyError, ValueError):
+            return rule
+
     async def ask(self, key: str, question: str,
                   trade_id: Optional[str] = None,
                   inner: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -259,6 +303,18 @@ class DebateRoom:
         payload = dict(inner or {})
         if trade_id:
             payload["trade_id"] = trade_id
+        # The question is a turn too. Written into the transcript first, so the
+        # desk sees it, every client renders it in order, and a refresh does not
+        # lose what was asked.
+        asked = DebateMessage(
+            room="desk", topic=self.current_topic or text, speaker="YOU", name="you",
+            label="the person on the floor", model="", turn="you", text=text,
+            round=self.rounds, trade_id=trade_id,
+            to=key, to_name=self._name_of(key),
+        ).as_dict()
+        self.transcript.append(asked)
+        self.transcript = self.transcript[-160:]
+        await self.bus.publish("debate_message", **asked)
         return await self._say(key, "answer", text, payload)
 
     # ------------------------------------------------------------------
