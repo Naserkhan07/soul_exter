@@ -25,6 +25,10 @@ interface Props {
   paused: boolean;
   autoCamera: boolean;
   onPick: (tradeId: string | null) => void;
+  /** a click on a cabin's reasoning card */
+  onCabin?: (key: string) => void;
+  /** frames per second, so the floor can be seen to be smooth */
+  onStats?: (s: { fps: number; ops: number }) => void;
   onHandle?: (h: FloorHandle) => void;
   /** a throttled snapshot of everyone on the floor, for the side panel */
   onTraders?: (traders: Trader[]) => void;
@@ -32,6 +36,7 @@ interface Props {
 
 export function FloorCanvas({
   state, events, seq, zoom, focusMode, paused, autoCamera, onPick, onHandle, onTraders,
+  onCabin, onStats,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -41,6 +46,12 @@ export function FloorCanvas({
   });
   const onTradersRef = useRef(onTraders);
   onTradersRef.current = onTraders;
+  const onCabinRef = useRef(onCabin);
+  onCabinRef.current = onCabin;
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+  const onStatsRef = useRef(onStats);
+  onStatsRef.current = onStats;
 
   // ---- create the renderer, size it, and run the frame loop --------------
   useEffect(() => {
@@ -70,10 +81,13 @@ export function FloorCanvas({
     let last = performance.now();
     let reportAt = 0;
     let painted = 0;
+    let frames = 0;
+    let fpsAt = performance.now();
     const loop = (now: number) => {
       const dt = now - last;
       last = now;
       floor.frame(dt);
+      frames += 1;
       // Filling the floor is the expensive half of a frame. When nobody is
       // walking and no cabin is deliberating, 30 fps is indistinguishable from
       // 60 and costs half as much.
@@ -85,14 +99,27 @@ export function FloorCanvas({
         reportAt = now;
         onTradersRef.current([...floor.traders.values()]);
       }
+      if (now - fpsAt > 1000) {
+        const fps = Math.round((frames * 1000) / (now - fpsAt));
+        frames = 0;
+        fpsAt = now;
+        onStatsRef.current?.({ fps, ops: floor.lastOpCount });
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
 
     const onClick = (ev: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const id = floor.pick(ev.clientX - rect.left, ev.clientY - rect.top);
-      onPick(id);
+      const [x, y] = [ev.clientX - rect.left, ev.clientY - rect.top];
+      // A card sits on top of the room, so it wins the click: clicking a desk's
+      // argument opens that desk's chat rather than the trader walking behind it.
+      const cabin = floor.pickCabin(x, y);
+      if (cabin) {
+        onCabinRef.current?.(cabin);
+        return;
+      }
+      onPickRef.current(floor.pick(x, y));
     };
     canvas.addEventListener("click", onClick);
     return () => {

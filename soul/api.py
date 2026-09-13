@@ -62,6 +62,13 @@ class DebatePayload(BaseModel):
     topic: Optional[str] = None
 
 
+class AskPayload(BaseModel):
+    """A question aimed at one desk about one trade."""
+    cabin: str
+    question: str
+    trade_id: Optional[str] = None
+
+
 def create_app(cfg: Optional[Config] = None) -> FastAPI:
     cfg = cfg or load_config()
     bus = EventBus()
@@ -179,6 +186,16 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
             topic = None
         return {"ok": True, "turns": len(said), "rounds": engine.debate.rounds,
                 "topic": engine.debate.current_topic, "said": said}
+
+    @app.post("/api/debate/ask")
+    async def debate_ask(payload: AskPayload) -> Dict[str, Any]:
+        """Ask a cabin why it agreed or disagreed. The cabin answers in the room."""
+        if engine.debate is None:
+            raise HTTPException(status_code=409, detail="debate disabled")
+        msg = await engine.ask_desk(payload.cabin, payload.question, payload.trade_id)
+        if msg is None:
+            raise HTTPException(status_code=404, detail=f"no such desk: {payload.cabin}")
+        return {"ok": True, "said": msg, "rounds": engine.debate.rounds}
 
     @app.post("/api/scan")
     async def force_scan() -> Dict[str, Any]:

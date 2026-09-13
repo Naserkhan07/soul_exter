@@ -580,7 +580,7 @@ export function cardSize(
   const maxLines = opts.lines ?? 3;
   const w = opts.width ?? Math.max(190 * s, pr.len(13));
   const padX = 9 * s;
-  const bodyChars = Math.max(18, Math.floor((w - padX * 2) / (bodySize * 0.52)));
+  const bodyChars = Math.max(18, Math.floor((w - padX * 2) / (bodySize * 0.62)));
   const bodyLines = wrapText(opts.body ?? "", bodyChars).slice(0, maxLines);
   const headH = 27 * s + (opts.title ? 12 * s : 0) + (opts.verdict ? 16 * s : 0);
   const bodyH = bodyLines.length * (bodySize + 3.4 * s);
@@ -619,7 +619,7 @@ export function speechCard(
   const h = sized.h;
   const maxLines = opts.lines ?? 3;
   const padX = 9 * s;
-  const bodyChars = Math.max(18, Math.floor((width - padX * 2) / (bodySize * 0.52)));
+  const bodyChars = Math.max(18, Math.floor((width - padX * 2) / (bodySize * 0.62)));
   const wrapped = wrapText(opts.body, bodyChars);
   const bodyLines = wrapped.slice(0, maxLines);
   if (wrapped.length > maxLines && bodyLines.length) {
@@ -659,7 +659,7 @@ export function speechCard(
   // metric here that can promise otherwise.
   const chars = (px: number) => Math.max(8, Math.floor((width - padX * 2) / px));
   const clip = (text: string, size: number) => {
-    const room = chars(size * 0.54);
+    const room = chars(size * 0.62);
     return text.length > room ? `${text.slice(0, Math.max(4, room - 1))}…` : text;
   };
   ops.push({

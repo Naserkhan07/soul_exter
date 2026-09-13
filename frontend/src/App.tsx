@@ -10,6 +10,7 @@ import { FloorCanvas, type FloorHandle } from "./components/FloorCanvas";
 import {
   BookPanel, CouncilRail, EquitySpark, MarketTape, ScoutPanel, TopBar, TradeList, TraderList,
 } from "./components/Panels";
+import { CabinChat } from "./components/CabinChat";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { DebateRoomPanel } from "./components/DebateRoom";
 import { TradeDrawer } from "./components/TradeDrawer";
@@ -26,6 +27,8 @@ export default function App() {
   const [selected, setSelected] = useState<TradeRow | null>(null);
   const [scoutBatch, setScoutBatch] = useState<ScoutRead[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [cabinChat, setCabinChat] = useState<string | null>(null);
+  const [fps, setFps] = useState<number | undefined>(undefined);
   const [liveTurns, setLiveTurns] = useState<
     Array<{ cabin: string; name: string; turn: string; text: string; topic: string }>
   >([]);
@@ -64,6 +67,36 @@ export default function App() {
     return [...hist, ...extra].slice(-80);
   }, [state.debate?.transcript, liveTurns]);
 
+  // The cabin whose card was clicked. Both rails and the card list carry the
+  // same object, so the chat is fed by whatever the floor already knows.
+  const chatCabin = useMemo(() => {
+    if (!cabinChat) return null;
+    const all = [...state.cabins, ...(state.ceo ? [state.ceo] : [])];
+    return all.find((c) => c.key === cabinChat) ?? null;
+  }, [cabinChat, state.cabins, state.ceo]);
+
+  const chatQuestion = useMemo(() => {
+    if (!chatCabin) return "";
+    const fromTurn = [...(state.debate?.transcript ?? [])]
+      .reverse()
+      .find((t) => t.speaker === chatCabin.key && t.turn !== "answer");
+    if (fromTurn?.topic) return fromTurn.topic;
+    return state.debate?.topic ?? "";
+  }, [chatCabin, state.debate?.topic, state.debate?.transcript]);
+
+  const askDesk = useCallback(
+    async (key: string, question: string) => {
+      const tradeId = tradeRowsRef.current[0]?.id ?? null;
+      await send("/api/debate/ask", { cabin: key, question, trade_id: tradeId });
+      setLiveTurns((prev) => [
+        ...prev,
+        { cabin: key, name: "", turn: "you", text: question, topic: "" },
+      ].slice(-80));
+      refresh();
+    },
+    [refresh, send],
+  );
+
   const convene = useCallback(async () => {
     await send("/api/debate/round", { rounds: 1 });
     refresh();
@@ -96,6 +129,8 @@ export default function App() {
 
   const [traders, setTraders] = useState<Trader[]>([]);
 
+  const tradeRowsRef = useRef<TradeRow[]>([]);
+
   const tradeRows = useMemo<TradeRow[]>(() => {
     // The engine uses `trade_id` in the trade log and `id` in the council
     // records; normalise both so every row has one stable identity.
@@ -109,6 +144,8 @@ export default function App() {
     return [...seen.values()].filter((r) => r.id);
   }, [state.recentCouncils, state.tradeLog]);
 
+  tradeRowsRef.current = tradeRows;
+
   return (
     <div className="app">
       <FloorCanvas
@@ -120,6 +157,8 @@ export default function App() {
         paused={paused}
         autoCamera={autoCamera}
         onPick={onPick}
+        onCabin={(key) => setCabinChat(key)}
+        onStats={(s) => setFps(s.fps)}
         onHandle={(h) => { handleRef.current = h; }}
         onTraders={setTraders}
       />
@@ -139,10 +178,16 @@ export default function App() {
           onAuto={() => setAutoCamera((v) => !v)}
           onSettings={() => setSettingsOpen(true)}
           onDebate={convene}
+          fps={fps}
         />
 
         <div className="left-rail">
-          <CouncilRail cabins={state.cabins} ceo={state.ceo} council={state.council} />
+          <CouncilRail
+            cabins={state.cabins}
+            ceo={state.ceo}
+            council={state.council}
+            onPick={(key) => setCabinChat(key)}
+          />
           <DebateRoomPanel
             transcript={debateTurns}
             lessons={state.debate?.lessons ?? []}
@@ -166,6 +211,16 @@ export default function App() {
       </div>
 
       <TradeDrawer trade={selected} onClose={() => setSelected(null)} />
+
+      {chatCabin && (
+        <CabinChat
+          cabin={chatCabin}
+          turns={debateTurns}
+          question={chatQuestion}
+          onAsk={askDesk}
+          onClose={() => setCabinChat(null)}
+        />
+      )}
 
       <SettingsPanel
         open={settingsOpen}

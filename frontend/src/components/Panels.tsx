@@ -31,7 +31,7 @@ export function Chip({ text, tone }: { text: string; tone?: string }) {
 // ---------------------------------------------------------------------------
 export function TopBar({
   state, paused, onPause, onScan, onRefresh, zoom, onZoom, focusMode, onFocus, autoCamera, onAuto,
-  onSettings, onDebate,
+  onSettings, onDebate, fps,
 }: {
   state: ReturnType<typeof import("../state/useSoul").useSoul>["state"];
   paused: boolean;
@@ -46,6 +46,8 @@ export function TopBar({
   onAuto: () => void;
   onSettings: () => void;
   onDebate: () => void;
+  /** frames per second, as measured by the canvas host */
+  fps?: number;
 }) {
   const desk = state.desk as any;
   const engine = state.engine as any;
@@ -102,6 +104,11 @@ export function TopBar({
         <button className="ghost" onClick={onDebate} title="Hold a debate round now">
           Debate
         </button>
+        {fps !== undefined && (
+          <span className={`fps ${fps >= 45 ? "good" : fps >= 24 ? "mid" : "bad"}`} title="painted frames per second">
+            {fps} fps
+          </span>
+        )}
         <button className="ghost accent" onClick={onSettings} title="Models and markets">
           Settings
         </button>
@@ -120,10 +127,12 @@ function Stat({ label, value, tone, sub }: { label: string; value: string; tone?
 }
 
 // ---------------------------------------------------------------------------
-export function CouncilRail({ cabins, ceo, council }: {
+export function CouncilRail({ cabins, ceo, council, onPick }: {
   cabins: Cabin[];
   ceo?: Cabin | null;
   council: Record<string, any>;
+  /** open that desk's chat — the same thing a click on its card does */
+  onPick?: (key: string) => void;
 }) {
   const rows = useMemo(() => [...cabins].sort((a, b) => a.key.localeCompare(b.key)), [cabins]);
   return (
@@ -131,7 +140,13 @@ export function CouncilRail({ cabins, ceo, council }: {
       <PanelHead title="Council" sub={`${council?.reviews ?? 0} reviews · ${council?.escalations ?? 0} escalated`} />
       <div className="cabins">
         {rows.map((c) => (
-          <div key={c.key} className={`cabin-card ${c.thinking ? "thinking" : ""} ${c.lastVote ? `v-${c.lastVote.toLowerCase()}` : ""}`}>
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => onPick?.(c.key)}
+            title={`${c.name ?? c.key} — open the desk chat`}
+            className={`cabin-card ${c.thinking ? "thinking" : ""} ${c.lastVote ? `v-${c.lastVote.toLowerCase()}` : ""}`}
+          >
             <div className="cabin-top">
               <span className="cabin-key">{c.key}</span>
               {c.thinking
@@ -147,10 +162,15 @@ export function CouncilRail({ cabins, ceo, council }: {
               <span>{c.latency ? `${Math.round(c.latency)}ms` : "—"}</span>
               {c.confidence !== undefined ? <span>{Math.round(c.confidence)}%</span> : null}
             </div>
-          </div>
+          </button>
         ))}
         {ceo ? (
-          <div className={`cabin-card ceo ${ceo.thinking ? "thinking" : ""}`}>
+          <button
+            type="button"
+            onClick={() => onPick?.("CEO")}
+            title={`${ceo.name ?? "CEO"} — open the desk chat`}
+            className={`cabin-card ceo ${ceo.thinking ? "thinking" : ""}`}
+          >
             <div className="cabin-top">
               <span className="cabin-key">CEO</span>
               {ceo.thinking ? <Chip text="reasoning" tone="warn" /> : <Chip text="on call" tone="warn" />}
@@ -160,7 +180,7 @@ export function CouncilRail({ cabins, ceo, council }: {
               <span className="dim">breaks split councils</span>
               <span>{ceo.calls ?? 0} calls</span>
             </div>
-          </div>
+          </button>
         ) : null}
       </div>
       <div className="legend">

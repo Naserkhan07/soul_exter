@@ -236,7 +236,7 @@ export function pathToCabin(
           [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
           [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
           [cabin.doorX, PLATFORM_WALK, PLATFORM.z],
-          [cabin.doorX, cabin.y + cabin.d - 0.35, PLATFORM.z],
+          [cabin.doorX, cabin.y + cabin.d * 0.52, PLATFORM.z],
           inside,
         );
       }
@@ -244,7 +244,7 @@ export function pathToCabin(
     }
     out.push(
       [cabin.doorX, PLATFORM_WALK, PLATFORM.z],
-      [cabin.doorX, cabin.y + cabin.d - 0.35, PLATFORM.z],
+      [cabin.doorX, cabin.y + cabin.d * 0.52, PLATFORM.z],
       inside,
     );
     return out;
@@ -271,7 +271,7 @@ export function pathToCabin(
   } else {
     out.push(
       [cabin.doorX, PLATFORM_WALK, PLATFORM.z],
-      [cabin.doorX, cabin.y + cabin.d - 0.35, PLATFORM.z],
+      [cabin.doorX, cabin.y + cabin.d * 0.52, PLATFORM.z],
       inside,
     );
   }

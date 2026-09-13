@@ -510,7 +510,7 @@ export function drawCabins(
   t: number,
   activeSymbol: Partial<Record<string, string>>,
   occupants: Partial<Record<string, Trader>> = {},
-): void {
+): CardRect[] {
   // The six cards are packed as one newspaper page, not six independent
   // balloons: cabins sit close together along the back wall, so their screen
   // anchors land within a card's width of each other and a per-cabin stagger
@@ -523,7 +523,7 @@ export function drawCabins(
   const boxes = wanted.map((w) => {
     const anchor = cabinCardAnchor(pr, w.slot, w.isCeo, w.i);
     const card = cabinCardContent(w.state, w.isCeo ? palette.ceoAccent : palette.cabinAccent);
-    const size = cardSize(pr, { ...card, lines: w.state?.said ? 4 : 3, width: cardWidth(pr) });
+    const size = cardSize(pr, { ...card, lines: CARD_LINES, width: cardWidth(pr) });
     return { key: w.slot.key, anchor, w: size.w, h: size.h };
   });
   const packed = packCards(boxes);
@@ -535,11 +535,26 @@ export function drawCabins(
   }
   // every roof is up by now: the cards go on top of the room, not inside it
   for (const paint of cards) paint();
+
+  // Where each card ended up, so a click on a card can open that desk's chat.
+  return boxes.map((b) => {
+    const [px, py] = packed.get(b.key) ?? b.anchor;
+    return { key: b.key, x: px - b.w / 2, y: py - b.h, w: b.w, h: b.h };
+  });
+}
+
+/** A painted council card: enough to hit-test a click against. */
+export interface CardRect {
+  key: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 /** Card width in screen px — the same number the painter uses. */
 function cardWidth(pr: Projector): number {
-  return Math.max(142, pr.len(6.6));
+  return Math.max(168, pr.len(8.2));
 }
 
 /** Where a cabin would like its card: above the roof, staggered by rank. */
@@ -552,11 +567,17 @@ function cabinCardAnchor(pr: Projector, slot: CabinSlot, isCeo: boolean, idx: nu
   return pr.p(slot.x + slot.w / 2 + dx, slot.y + slot.d * 0.35, slot.z + (isCeo ? 6.8 : 5.6) + stagger);
 }
 
+/** How much of the argument a card shows. The rest is one click away. */
+const CARD_LINES = 2;
+
 function cabinCardContent(state: Cabin | undefined, base: string): { name: string; title: string; body: string; verdict?: string; confidence?: number; accent: string } {
   const thinking = !!state?.thinking;
   return {
     name: state?.name ?? state?.label ?? "",
-    title: thinking ? "DELIBERATING" : state?.title ? state.title.split(",")[0] : "",
+    // No job title on the card: the desk's title and expertise live in its chat,
+    // and a shorter card lets all six arguments sit close to their own cabin
+    // instead of being pushed up the screen into a ladder.
+    title: "",
     body: (state?.said || state?.reason || "").trim() || (thinking ? "reading the tape…" : "waiting for a trade"),
     verdict: state?.lastVote,
     confidence: state?.confidence,
@@ -690,7 +711,10 @@ function drawCabin(
   // which is where the brief says it has to go. The plate above their head
   // still carries the asset, so nobody in the room is anonymous.
   if (occupant) {
-    const [ix, iy, iz] = [slot.x + slot.w / 2 - 1.5, slot.y + slot.d * 0.5, deskZ];
+    // Deeper into the room than the doorway: the brief is explicit that a trade
+    // has to go *in* every cabin, so the visitor stands beside the desk, inside
+    // the glass, with the model's own agent at the console next to them.
+    const [ix, iy, iz] = [slot.x + slot.w * 0.34, slot.y + slot.d * 0.44, deskZ];
     drawTrader(ops, pr, { ...occupant, x: ix, y: iy } as Trader, t, {
       label: occupant.symbol,
       sublabel: occupant.side,
@@ -724,7 +748,7 @@ function drawCabin(
       ...card,
       tone: state?.said ? "live" : "idle",
       width: cardWidth(pr),
-      lines: state?.said ? 4 : 3,
+      lines: CARD_LINES,
       alpha: state ? 0.97 : 0.72,
     });
   // Cabins are painted back to front and the CEO box is the tallest, so a card

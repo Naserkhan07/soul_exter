@@ -73,6 +73,32 @@ class DebateMessage:
         return asdict(self)
 
 
+def packet(trade: TradeCandidate, result: CouncilResult,
+           extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The numbers a desk is shown when it is asked about a trade.
+
+    One builder, used by the review round and by an ad-hoc question from the
+    floor, so a desk can never be asked about a trade it cannot see.
+    """
+    out: Dict[str, Any] = {
+        "symbol": trade.symbol, "side": trade.side, "strategy": trade.strategy,
+        "rr": round(trade.rr, 2), "risk": round(trade.risk_pct, 2),
+        "atr": round(float(trade.features.get("atr_pct", 1.0)), 2),
+        "rsi": round(float(trade.features.get("rsi", 50.0)), 1),
+        "regime": ("risk-on" if float(trade.features.get("regime", 0)) > 0 else
+                   "risk-off" if float(trade.features.get("regime", 0)) < 0 else "mixed"),
+        "btc": round(float(trade.features.get("btc_ret_12", 0.0)), 2),
+        "corr": round(float(trade.features.get("corr_proxy", 1.3)), 2),
+        "stop": trade.stop,
+        "size": round(float(getattr(result, "size_multiplier", 1.0) or 1.0), 2),
+        "decision": result.decision,
+        "approvals": result.approvals,
+        "rejections": result.rejections,
+    }
+    out.update(extra or {})
+    return out
+
+
 class DebateRoom:
     """Turns + transcript + written rules, driven by the same six brains."""
 
@@ -94,22 +120,7 @@ class DebateRoom:
     def queue_trade(self, trade: TradeCandidate, result: CouncilResult,
                     extra: Optional[Dict[str, Any]] = None) -> None:
         """Put the trade the council just decided on the debate agenda."""
-        inner = {
-            "symbol": trade.symbol, "side": trade.side, "strategy": trade.strategy,
-            "rr": round(trade.rr, 2), "risk": round(trade.risk_pct, 2),
-            "atr": round(float(trade.features.get("atr_pct", 1.0)), 2),
-            "rsi": round(float(trade.features.get("rsi", 50.0)), 1),
-            "regime": ("risk-on" if float(trade.features.get("regime", 0)) > 0 else
-                       "risk-off" if float(trade.features.get("regime", 0)) < 0 else "mixed"),
-            "btc": round(float(trade.features.get("btc_ret_12", 0.0)), 2),
-            "corr": round(float(trade.features.get("corr_proxy", 1.3)), 2),
-            "stop": trade.stop,
-            "size": round(float(getattr(result, "size_multiplier", 1.0) or 1.0), 2),
-            "decision": result.decision,
-            "approvals": result.approvals,
-            "rejections": result.rejections,
-        }
-        inner.update(extra or {})
+        inner = packet(trade, result, extra)
         topic = (f"{trade.symbol} {trade.side} ({trade.strategy}) — the council "
                  f"{'passed' if result.decision == 'ENTER' else 'refused'} it "
                  f"{result.approvals}-{result.rejections}. Is that the right call?")
@@ -193,6 +204,26 @@ class DebateRoom:
 
     def ceo_key(self) -> str:
         return "CEO"
+
+    async def ask(self, key: str, question: str,
+                  trade_id: Optional[str] = None,
+                  inner: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """A human asks one desk a question, and the desk answers in the room.
+
+        The answer is an ordinary turn: it lands in the transcript, on the bus and
+        on the cabin's card, so a question asked from the floor is the same kind
+        of object as an argument the desk made on its own.
+        """
+        key = (key or "").strip().upper()
+        if key not in self.brains and key != self.ceo_key():
+            return None
+        text = " ".join(str(question or "").split())[:240]
+        if not text:
+            return None
+        payload = dict(inner or {})
+        if trade_id:
+            payload["trade_id"] = trade_id
+        return await self._say(key, "answer", text, payload)
 
     # ------------------------------------------------------------------
     def snapshot(self) -> Dict[str, Any]:

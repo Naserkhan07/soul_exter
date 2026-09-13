@@ -39,6 +39,7 @@ import {
   drawReception,
   drawWalls,
 } from "./room";
+import type { CardRect } from "./room";
 import { drawTrader, facingFor, voteColor } from "./actors";
 import type {
   Cabin,
@@ -94,6 +95,8 @@ export class SoulFloor {
   private positions = new Map<string, { pnl_pct: number }>();
   private doorActive = { entry: 0, exit: 0 };
   private focus: CameraFocus = { mode: "all" };
+  private cardRects: CardRect[] = [];
+  private lastOps = 0;
   private pickHandler: ((id: string, ev: { x: number; y: number }) => void) | null = null;
   private layerBack: HTMLCanvasElement | null = null;
   private layerFront: HTMLCanvasElement | null = null;
@@ -161,6 +164,20 @@ export class SoulFloor {
   }
 
   /** Hit test in CSS pixels. */
+  /**
+   * Hit-test the council cards. The cards are packed in screen space and the
+   * rects are kept from the last paint, so what is clickable is exactly what is
+   * on screen — including after the packer has moved a card to clear a
+   * neighbour.
+   */
+  pickCabin(x: number, y: number): string | null {
+    for (let i = this.cardRects.length - 1; i >= 0; i--) {
+      const c = this.cardRects[i];
+      if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) return c.key;
+    }
+    return null;
+  }
+
   pick(x: number, y: number): string | null {
     let best: string | null = null;
     let bestD = 26 * 26;
@@ -557,6 +574,9 @@ export class SoulFloor {
     // every time a wall, a ceiling beam or a cabin grew, and the scene started
     // bleeding off the top of the canvas.
     const pad = Math.max(12, Math.min(this.width, this.height) * 0.02);
+    // The top bar is DOM sitting on top of the canvas, so the room has to leave
+    // it a band: a council card drawn under it is a card nobody can read.
+    const padTop = pad + 62;
     const focus = new Projector(1, 0, 0);
 
     // Pass 0: a rough scale, enough to have text and detail laid out sanely.
@@ -573,7 +593,7 @@ export class SoulFloor {
     }
     let scale = Math.min(
       (this.width - pad * 2) / Math.max(1, maxX - minX),
-      (this.height - pad * 2) / Math.max(1, maxY - minY),
+      (this.height - padTop - pad) / Math.max(1, maxY - minY),
     ) * this.zoom;
 
     // Where the camera looks: a preset world point, or the middle of the room.
@@ -596,7 +616,7 @@ export class SoulFloor {
     if (this.focus.mode !== "all") {
       const centre = focus.p(cxWorld, cyWorld, 2.2);
       this.pr = new Projector(scale, this.width / 2 - centre[0] * scale,
-                              this.height / 2 - centre[1] * scale);
+                              (this.height + padTop - pad) / 2 - centre[1] * scale);
       return;
     }
 
@@ -615,20 +635,20 @@ export class SoulFloor {
     for (let i = 0; i < 4; i++) {
       const centre = focus.p(cxWorld, cyWorld, 2.2);
       this.pr = new Projector(scale, this.width / 2 - centre[0] * scale + shiftX,
-                              this.height / 2 - centre[1] * scale + shiftY);
+                              (this.height + padTop - pad) / 2 - centre[1] * scale + shiftY);
       const box = this.measure(this.buildFrame());
       if (!box) break;
 
       const fit = Math.min(
         (this.width - pad * 2) / Math.max(1, box.x1 - box.x0),
-        (this.height - pad * 2) / Math.max(1, box.y1 - box.y0),
+        (this.height - padTop - pad) / Math.max(1, box.y1 - box.y0),
       );
       let dx = 0;
       let dy = 0;
       if (keepInside) {
         if (box.x0 < pad) dx = pad - box.x0;
         else if (box.x1 > this.width - pad) dx = this.width - pad - box.x1;
-        if (box.y0 < pad) dy = pad - box.y0;
+        if (box.y0 < padTop) dy = padTop - box.y0;
         else if (box.y1 > this.height - pad) dy = this.height - pad - box.y1;
       }
       const stepped = scale * Math.min(1.6, Math.max(0.62, fit));
@@ -682,7 +702,7 @@ export class SoulFloor {
     for (const tr of this.traders.values()) {
       if (tr.state === "in_cabin" && tr.cabin) occupants[tr.cabin] = tr;
     }
-    drawCabins(ops, pr, this.cabins, t, active, occupants);
+    this.cardRects = drawCabins(ops, pr, this.cabins, t, active, occupants);
 
     // ---- desks, row by row, with the people at them ----------------------
     let deskIdx = 0;
@@ -869,6 +889,7 @@ export class SoulFloor {
   draw(): void {
     this.syncViewport();               // paint passes cull what is off-screen
     const ops = this.buildFrame();
+    this.lastOps = ops.length;
     const ctx = this.ctx;
     if (!ctx) return;
 
@@ -919,9 +940,15 @@ export class SoulFloor {
    * The op list exactly as a paint pass would build it (off-screen culling on).
    * The offline harness uses this so it renders the scene that actually ships.
    */
+  /** How many draw ops the last painted frame needed — the frame's weight. */
+  get lastOpCount(): number {
+    return this.lastOps;
+  }
+
   paintOps(): Op[] {
     this.syncViewport();
     const ops = this.buildFrame();
+    this.lastOps = ops.length;
     this.pr.vw = 0;                    // never leave culling on for the fitter
     this.pr.vh = 0;
     return ops;

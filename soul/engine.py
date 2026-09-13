@@ -15,7 +15,7 @@ from .bus import EventBus
 from .council import Council
 from . import universe as book
 from .config import Config
-from .debate import DebateRoom
+from .debate import DebateRoom, packet
 from .desk import PaperDesk
 from .market import MarketFeed
 from .models import TradeCandidate
@@ -224,6 +224,18 @@ class Engine:
                 await self.bus.publish("error", trade_id=trade.id, message=str(exc))
             finally:
                 self.in_flight -= 1
+
+    async def ask_desk(self, key: str, question: str, trade_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Ask one cabin why it voted the way it did. Returns the turn it said."""
+        if self.debate is None:
+            return None
+        inner: Dict[str, Any] = {}
+        if trade_id:
+            rec = next((h for h in reversed(self.council.history)
+                        if getattr(h.trade, "id", None) == trade_id), None)
+            if rec is not None:
+                inner = packet(rec.trade, rec)
+        return await self.debate.ask(key, question, trade_id, inner)
 
     async def _debate_loop(self) -> None:
         """Run the debate room: a review of the last decision, then a lesson.

@@ -60,13 +60,32 @@ const fixture = {
     ],
   },
   cabins: [
-    { key: "QUANT", label: "QUANT", model: "Qwen/Qwen2.5-7B-Instruct", role: "quant", isCeo: false, thinking: true, calls: 39, latency: 480, symbol: "TIA/USDT" },
-    { key: "RISK", label: "RISK", model: "mistralai/Mistral-7B-Instruct-v0.3", role: "risk", isCeo: false, thinking: false, lastVote: "REJECT", confidence: 61, calls: 39, latency: 510 },
-    { key: "NEWS", label: "NEWS", model: "HuggingFaceH4/zephyr-7b-beta", role: "news", isCeo: false, thinking: false, lastVote: "APPROVE", confidence: 70, calls: 39, latency: 455 },
-    { key: "MACRO", label: "MACRO", model: "Qwen/Qwen2.5-3B-Instruct", role: "macro", isCeo: false, thinking: false, calls: 38, latency: 300 },
-    { key: "COMPLIANCE", label: "COMPLIANCE", model: "microsoft/Phi-3.5-mini-instruct", role: "compliance", isCeo: false, thinking: false, calls: 38, latency: 280 },
+    { key: "QUANT", label: "QUANT", name: "Dr. Amara Osei", title: "Head of Quantitative Research",
+      expertise: ["statistical edges", "signal decay", "position sizing"],
+      reason: "The 24-bar drift and volume z-score are both in the top decile, and the pullback holds above the 20-EMA.",
+      said: "Correlation to the book is 1.3 and the stop sits inside the noise band.", lastVote: "APPROVE", confidence: 72,
+      model: "Qwen/Qwen2.5-7B-Instruct", role: "quant", isCeo: false, thinking: true, calls: 39, latency: 480, symbol: "TIA/USDT" },
+    { key: "RISK", label: "RISK", name: "Viktor Hale", title: "Chief Risk Officer",
+      expertise: ["drawdown control", "correlation", "stop placement"],
+      reason: "Risk per seat is 0.75% and the book already carries this factor twice; I want the size cut before it is taken.",
+      lastVote: "REJECT", confidence: 61, model: "mistralai/Mistral-7B-Instruct-v0.3", role: "risk", isCeo: false, thinking: false, calls: 39, latency: 510 },
+    { key: "NEWS", label: "NEWS", name: "Lina Marchetti", title: "Head of News Flow and Catalysts",
+      expertise: ["catalysts", "funding", "event risk"],
+      reason: "No catalyst behind the move and the funding print is stretched. This is a chase, not a setup.",
+      lastVote: "APPROVE", confidence: 70, model: "HuggingFaceH4/zephyr-7b-beta", role: "news", isCeo: false, thinking: false, calls: 39, latency: 455 },
+    { key: "MACRO", label: "MACRO", name: "Rahul Menon", title: "Global Macro Strategist",
+      expertise: ["regime detection", "rates", "index expression"],
+      reason: "If the front end is repricing, express the short at index level rather than in a single high-beta name.",
+      lastVote: "HOLD", confidence: 55, model: "Qwen/Qwen2.5-3B-Instruct", role: "macro", isCeo: false, thinking: false, calls: 38, latency: 300 },
+    { key: "COMPLIANCE", label: "COMPLIANCE", name: "Sofia Bergman", title: "Head of Trading Compliance",
+      expertise: ["position limits", "venue rules", "audit"],
+      reason: "The clip is inside every venue limit and the audit trail is complete.", lastVote: "APPROVE", confidence: 80,
+      model: "microsoft/Phi-3.5-mini-instruct", role: "compliance", isCeo: false, thinking: false, calls: 38, latency: 280 },
   ],
-  ceo: { key: "CEO", label: "CEO", model: "Qwen/Qwen2.5-14B-Instruct", role: "ceo", isCeo: true, thinking: false, calls: 17, latency: 900 },
+  ceo: { key: "CEO", label: "CEO", name: "Marcus Vale", title: "Head of Desk", isCeo: true, thinking: false,
+    reason: "Rule written: when the trade is a regime call, take the index, not the single name.",
+    said: "Rule written: when the trade is a regime call, take the index, not the single name.",
+    lastVote: "APPROVE", confidence: 68, model: "Qwen/Qwen2.5-14B-Instruct", role: "ceo", calls: 17, latency: 900 },
   positions: [
     { trade_id: "T-9D0AC4", symbol: "ARB/USDT", side: "LONG", entry: 1.1412, price: 1.1601, stop: 1.1203, target: 1.1889, qty: 420, pnl: 7.9, pnl_pct: 1.66, dollar_risk: 32.1 },
     { trade_id: "T-91B77E", symbol: "SOL/USDT", side: "SHORT", entry: 141.2, price: 139.8, stop: 143.4, target: 136.1, qty: 12, pnl: 16.8, pnl_pct: 0.99, dollar_risk: 26.4 },
@@ -334,6 +353,33 @@ if (settingsButton) {
   checks.push(["settings drawer opens", false]);
 }
 
+// ---- the desk chat: click a cabin, get its reasoning and its turns --------
+// Close the settings drawer first so it cannot shadow the chat.
+window.document.querySelector(".drawer.settings .drawer-head button")
+  ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 120));
+
+const cabinCard = window.document.querySelector(".panel.rail .cabin-card")
+  ?? window.document.querySelector(".cabin-card");
+if (cabinCard) {
+  cabinCard.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 200));
+  const chat = window.document.querySelector(".drawer.chat");
+  const chatText = chat?.textContent ?? "";
+  checks.push(["cabin click opens its chat", !!chat]);
+  checks.push([
+    "chat names the desk and shows a verdict or a reason",
+    /Amara Osei|Viktor Hale|Lina Marchetti|Rahul Menon|Sofia Bergman|Marcus Vale/.test(chatText)
+      && /APPROVE|REJECT|HOLD|no vote|reading the tape|waiting for/i.test(chatText),
+  ]);
+  checks.push(["chat has an ask box", !!chat?.querySelector("input")]);
+  window.document.querySelector(".drawer.chat .drawer-head button")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 80));
+} else {
+  checks.push(["cabin click opens its chat", false]);
+}
+
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
 const html_ = window.document.body.innerHTML.length;
 
@@ -360,6 +406,25 @@ if (liveBase) {
     ["live api: seven asset classes offered", classes.length === 7],
     ["live api: forex pairs are selectable", forex.length >= 10],
     ["live api: debate room knows its speakers", (debate.speakers ?? []).length >= 6],
+  );
+
+  // Ask a desk a question: the trade's numbers go into the prompt and the desk
+  // answers in the room, so "why did you agree" is answerable from the floor.
+  // the transcript endpoint caps what it returns, so count by timestamp, not by length
+  const since = Date.now() / 1000 - 1;
+  const asked = await (await fetch(`${liveBase}/api/debate/ask`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ cabin: "QUANT", question: "Why did you vote the way you did on the last trade?" }),
+  })).json();
+  const after = await (await fetch(`${liveBase}/api/debate`)).json();
+  apiChecks.push(
+    ["live api: a desk answers a direct question",
+      asked?.ok === true && typeof asked?.said?.text === "string" && asked.said.text.length > 20],
+    ["live api: the answer is a turn from that desk",
+      asked?.said?.speaker === "QUANT" && asked?.said?.turn === "answer"],
+    ["live api: the answer is in the transcript",
+      (after.transcript ?? []).some((t) => t.turn === "answer" && t.speaker === "QUANT" && t.ts >= since)],
   );
 }
 
