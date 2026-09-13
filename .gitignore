@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# kaggle / weights / runtime
+*.ipynb_checkpoints/
+hf_cache/
+artifacts/
+outputs/
+logs/
+*.log
+*.safetensors
+*.bin
+*.pt
+cloudflared
+
+# os
+.DS_Store
+
+# rendered frames from tools/floor_smoke.mjs
+floor.png

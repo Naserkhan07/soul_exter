@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>SOUL EXTER — LLM Trading Floor</title>
+<link rel="icon" href="/static/favicon.svg" />
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div id="app">
+  <canvas id="floor"></canvas>
+
+  <!-- ── top bar ─────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">◈</span>
+      <div>
+        <h1>SOUL EXTER</h1>
+        <p>six open-source models decide every trade</p>
+      </div>
+    </div>
+    <div class="badges">
+      <span class="badge" id="badge-brains" title="which brains are in the cabins">brains: …</span>
+      <span class="badge" id="badge-feed" title="market data source">feed: …</span>
+      <span class="badge" id="badge-scan">scan: …</span>
+      <span class="badge badge-warn hidden" id="badge-paused">PAUSED</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn" id="btn-scan" title="run the scanner now">Scan now</button>
+      <button class="btn" id="btn-pause" title="pause / resume scanning">Pause</button>
+    </div>
+  </header>
+
+  <!-- ── left: cabins ────────────────────────────────────────── -->
+  <aside class="panel roster">
+    <h2>Cabins <span class="hint">5 desks + CEO</span></h2>
+    <div id="roster-list"></div>
+    <div class="vote-legend">
+      <span><i class="dot ok"></i>5/5 → entry door</span>
+      <span><i class="dot mid"></i>1–4 → CEO decides</span>
+      <span><i class="dot bad"></i>0/5 → exit door</span>
+    </div>
+  </aside>
+
+  <!-- ── right: balance / book ───────────────────────────────── -->
+  <section class="panel balance">
+    <div class="bal-head">
+      <div>
+        <p class="label">PAPER EQUITY</p>
+        <p class="big" id="equity">$0.00</p>
+      </div>
+      <div class="ret" id="return-pct">+0.00%</div>
+    </div>
+    <canvas id="spark" height="54"></canvas>
+    <div class="stats">
+      <div><span>open</span><b id="st-open">0</b></div>
+      <div><span>realised</span><b id="st-realised">$0.00</b></div>
+      <div><span>open p&amp;l</span><b id="st-openpnl">$0.00</b></div>
+      <div><span>win rate</span><b id="st-winrate">—</b></div>
+      <div><span>closed</span><b id="st-closed">0</b></div>
+      <div><span>risk used</span><b id="st-risk">0.0%</b></div>
+    </div>
+    <div class="council-tally" id="tally">
+      <span class="t-item"><i class="dot ok"></i><b id="t-approved">0</b> entry</span>
+      <span class="t-item"><i class="dot bad"></i><b id="t-rejected">0</b> exit</span>
+      <span class="t-item"><i class="dot mid"></i><b id="t-escalated">0</b> to CEO</span>
+    </div>
+    <div class="positions" id="positions"></div>
+  </section>
+
+  <!-- ── bottom-left: controls ───────────────────────────────── -->
+  <section class="panel controls">
+    <div class="ctl-row">
+      <button class="btn" id="btn-seed">Seed trades</button>
+      <button class="btn" id="btn-shock">Inject volatility</button>
+      <button class="btn danger" id="btn-flat">Flatten book</button>
+    </div>
+    <label class="slider">
+      <span>scan every <b id="lbl-scan">25</b>s</span>
+      <input type="range" id="rng-scan" min="5" max="90" step="1" value="25" />
+    </label>
+    <label class="slider">
+      <span>signal threshold <b id="lbl-score">0.28</b></span>
+      <input type="range" id="rng-score" min="0" max="0.8" step="0.02" value="0.28" />
+    </label>
+    <p class="mini">market <span id="mkt-mode">…</span> · tf <span id="mkt-tf">…</span> · desks <span id="desk-count">0</span></p>
+  </section>
+
+  <!-- ── bottom-right: activity feed ─────────────────────────── -->
+  <section class="panel feed">
+    <h2>Floor log <span class="hint" id="feed-count"></span></h2>
+    <ul id="feed-list"></ul>
+  </section>
+
+  <!-- ── trade transcript drawer ─────────────────────────────── -->
+  <aside class="drawer hidden" id="drawer">
+    <button class="drawer-close" id="drawer-close">✕</button>
+    <div id="drawer-body"></div>
+  </aside>
+
+  <div class="boot" id="boot">
+    <div class="boot-inner">
+      <span class="spinner"></span>
+      <p id="boot-text">Waking the floor…</p>
+    </div>
+  </div>
+</div>
+
+<script src="/static/floor.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

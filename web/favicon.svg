@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="#0a0f16"/>
+  <!-- iso floor plate -->
+  <path d="M16 5l11 6.4v12.2L16 30 5 23.6V11.4z" fill="none" stroke="#5ad2ff" stroke-width="1.4" opacity=".55"/>
+  <!-- cabin row -->
+  <rect x="7.5" y="10" width="7" height="5.2" rx="1" fill="#5ad2ff" opacity=".35" stroke="#5ad2ff" stroke-width="1"/>
+  <rect x="17.5" y="13.5" width="7" height="5.2" rx="1" fill="#ffc857" opacity=".35" stroke="#ffc857" stroke-width="1"/>
+  <!-- desks -->
+  <rect x="8" y="20.5" width="6" height="2.2" rx="1" fill="#35d07f" opacity=".8"/>
+  <rect x="16" y="22.8" width="6" height="2.2" rx="1" fill="#ff5c62" opacity=".8"/>
+</svg>
