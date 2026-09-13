@@ -949,6 +949,40 @@ export function drawDesk(ops: Op[], pr: Projector, desk: DeskSlot, t: number, oc
   // instead of being paid for on every frame.
   const lod = pr.scale >= 24 ? 2 : pr.scale >= 18 ? 1 : 0;
 
+  // Where the screens and the rig actually sit (shared by both tiers).
+  const mx = x + 1.62;
+  const my = y + 0.38;
+  const sx0 = mx + 0.09;
+  const screenTop = h + 0.78;
+  const screenBot = h + 0.43;
+
+  if (lod === 0) {
+    // Far tier — and the one a fit-to-window camera always lands on. There a
+    // desk is ~25 px wide: the trestle, the cable tray, the second screen, the
+    // keyboard and the candles are all sub-pixel, and the thick volume of the
+    // monitor is a couple of pixels. Paint the silhouette that still reads as a
+    // trading desk — top, monitor slab, lit screen, chair — and drop the rest.
+    contactShadow(ops, pr, x + 1.15, y + 0.7, 1.5, 0.9, 0.32);
+    for (const lx of [x + 0.22, x + 1.68]) {
+      ops.push({ op: "line", pts: [pr.p(lx, y + 0.5, h - 0.07), pr.p(lx, y + 0.5, 0)],
+        stroke: "#2b313c", lw: Math.max(1, pr.len(0.1)) });
+    }
+    box(ops, pr, x, y + 0.16, h - 0.05, 1.9, 1.1, 0.06,
+      shadeFaces(palette.deskTop, { stroke: rgba("#20140c", 0.7), lw: 1 }));
+    box(ops, pr, mx - 0.03, my + 0.02, h + 0.38, 0.11, 0.66, 0.44,
+      shadeFaces(palette.monitorBezel, { stroke: "#0a0d12", lw: 1 }));
+    // one lit panel instead of the two screens and their candles: at this
+    // size the panel is what reads, and the candles inside it are not
+    ops.push({ op: "poly",
+      pts: [pr.p(sx0, my + 0.06, screenTop), pr.p(sx0, my + 0.62, screenTop),
+            pr.p(sx0, my + 0.62, screenBot), pr.p(sx0, my + 0.06, screenBot)],
+      fill: rgba("#123243", 0.96), stroke: rgba(palette.screenGlow, 0.45), lw: 1 });
+    glow(ops, pr, sx0, my + 0.34, 0.8, palette.screenGlow, occupied ? 0.14 : 0.09);
+    if (desk.index % 3 === 0) cylinder(ops, pr, x + 0.72, y + 0.9, h, 0.075, 0.13, "#8c5a4a");
+    drawChair(ops, pr, desk.seat[0], desk.seat[1], 0, "-x", 0);
+    return;
+  }
+
   contactShadow(ops, pr, x + 1.15, y + 0.7, 1.5, 0.9, 0.34);
 
   // legs: two metal trestles
@@ -969,15 +1003,10 @@ export function drawDesk(ops: Op[], pr: Projector, desk: DeskSlot, t: number, oc
   });
 
   // ---- monitor -----------------------------------------------------------
-  const mx = x + 1.62;
-  const my = y + 0.38;
   box(ops, pr, mx, my, h + 0.01, 0.16, 0.34, 0.12, shadeFaces("#171c24"));   // foot
   box(ops, pr, mx + 0.03, my + 0.11, h + 0.1, 0.09, 0.11, 0.3, shadeFaces("#20262f"));  // neck
   box(ops, pr, mx - 0.03, my + 0.02, h + 0.38, 0.11, 0.66, 0.44, shadeFaces(palette.monitorBezel, { stroke: "#0a0d12", lw: 1 }));
   // the screen, showing a small candle chart
-  const sx0 = mx + 0.09;
-  const screenTop = h + 0.78;
-  const screenBot = h + 0.43;
   ops.push({
     op: "poly",
     pts: [pr.p(sx0, my + 0.06, screenTop), pr.p(sx0, my + 0.62, screenTop),
