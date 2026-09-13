@@ -177,8 +177,13 @@ Every pixel of the room comes from the engine's event stream; the UI holds no tr
 
 ![cabins](docs/cabin-closeup.png)
 
-Above: the cabins mid-session. Below: the whole floor, with the ticker wall, the march of desks and
-the scout drone patrolling the aisle.
+Above: the cabins mid-session. A trade walks into the cabin it is being judged in, not just up to
+its door — the visitor stands inside the glass next to the desk that is ruling on it:
+
+![a visitor inside a cabin](docs/visitor-in-cabin.png)
+
+Below: the whole floor, with the ticker wall, the march of desks and the scout drone patrolling the
+aisle.
 
 ![the floor](docs/floor-preview.png)
 
