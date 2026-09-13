@@ -209,6 +209,7 @@ export function SettingsPanel({
                 <span className="badge">T={ceo.temperature}</span>
                 <span className="badge ok">no key</span>
               </div>
+              <div className="roster-auth">{ceo.auth} · {ceo.license}</div>
               <p className="style">{ceo.style}</p>
             </div>
           )}
@@ -228,6 +229,7 @@ export function SettingsPanel({
                 <span className="badge">T={r.temperature}</span>
                 <span className="badge ok">ungated</span>
               </div>
+              <div className="roster-auth">{r.auth} · {r.license}</div>
               <p className="style">{r.style}</p>
               <ul className="expertise">
                 {r.expertise.map((e) => (

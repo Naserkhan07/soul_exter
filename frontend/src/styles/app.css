@@ -379,6 +379,7 @@ button.ghost.active { border-color: var(--accent); color: var(--accent); backgro
 }
 .badge.ok { color: var(--good); border-color: rgba(62, 224, 138, 0.35); }
 .mono { font-family: var(--mono); font-size: 11px; color: var(--text); }
+.roster-auth { margin-top: 7px; color: var(--text-faint); font: 10.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.02em; }
 .style { margin: 9px 0 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; font-style: italic; }
 .expertise { margin: 8px 0 0 16px; padding: 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.6; }
 .book-class { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }

@@ -66,8 +66,24 @@ export const STAIR = {
   steps: 7,
 };
 
-/** Two steps from the platform up to the CEO's floor. */
-export const CEO_STAIR = { x: 29.0, w: 2.8, yBottom: 4.4, yTop: 1.2 };
+/**
+ * Stairs from the platform up to the CEO's floor.
+ *
+ * They used to rise at x=29 — which is *inside* the MACRO cabin's footprint, so
+ * every walk to the penthouse went through a colleague's cabin. They now stand
+ * on the open platform past COMPLIANCE, and the walk to the CEO door runs along
+ * a mezzanine behind the cabin row instead of across its roofs.
+ */
+export const CEO_STAIR = { x: 44.5, w: 2.8, yBottom: 4.4, yTop: 1.2 };
+
+/**
+ * The mezzanine behind the cabin row: the deck the penthouse door opens onto.
+ * It runs from the top of the console stair (right end) along the back of the
+ * cabins to the CEO's own door, and it sits behind `y = 1.5` because that is
+ * where the cabins start — the walk never crosses one.
+ */
+export const CEO_WALK_Y = 0.7;
+export const CEO_TERRACE = { x: 21.0, y: -0.7, w: 26.4, d: 2.0, z: CEO.z };
 
 export const DOORS = {
   entry: { x: 13.6, w: 4.4, y: FLOOR.d - 0.15, label: "WELCOME" },
@@ -221,26 +237,45 @@ export function pathToCabin(
     const start: Pt = from!.cabin
       ? cabinInterior(from!.cabin)
       : [from!.x, from!.y, from!.z];
-    const out: Pt[] = [start, [start[0], PLATFORM_WALK, PLATFORM.z]];
+    const out: Pt[] = [start];
+    // Stepping out of a cabin means stepping out of its doorway. Walking
+    // straight out from the standing spot took the trader through the front
+    // glass, which is exactly what "no walking through structures" rules out.
+    const leaving = from?.cabin
+      ? (from.cabin === "CEO" ? CEO : CABINS.find((c) => c.key === from.cabin))
+      : null;
+    if (leaving) {
+      out.push([leaving.doorX, leaving.y + leaving.d * 0.52, leaving.z]);
+      out.push(leaving.key === "CEO"
+        ? [NODES.ceoFront[0], NODES.ceoFront[1], CEO.z]
+        : [leaving.doorX, leaving.y + leaving.d + 0.5, PLATFORM.z]);
+    }
+    const walkX = leaving ? leaving.doorX : start[0];
+    if (!leaving || leaving.key !== "CEO") out.push([walkX, PLATFORM_WALK, PLATFORM.z]);
     if (cabinKey === "CEO" || (from?.cabin === "CEO" && cabinKey !== "CEO")) {
-      // the penthouse has its own two steps; outsiders use the console stair
       if (cabinKey === "CEO") {
+        // up the stairs at the end of the row, along the mezzanine behind the
+        // cabins, then in through the penthouse door
         out.push(
+          [NODES.ceoStairBase[0], PLATFORM_WALK, PLATFORM.z],
           [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
           [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
-          [cabin.doorX, PLATFORM_WALK, CEO.z],
+          [NODES.ceoStairTop[0], CEO_WALK_Y, CEO.z],
+          [CEO.doorX, CEO_WALK_Y, CEO.z],
+          [CEO.doorX, CEO.y + CEO.d * 0.52, CEO.z],
           inside,
         );
-      } else {
-        out.push(
-          [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
-          [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
-          [cabin.doorX, PLATFORM_WALK, PLATFORM.z],
-          [cabin.doorX, cabin.y + cabin.d * 0.52, PLATFORM.z],
-          inside,
-        );
+        return out;
       }
-      return out;
+      // coming down from the penthouse: door, mezzanine, stairs, walkway
+      out.push(
+        [CEO.doorX, CEO.y + CEO.d * 0.52, CEO.z],
+        [CEO.doorX, CEO_WALK_Y, CEO.z],
+        [NODES.ceoStairTop[0], CEO_WALK_Y, CEO.z],
+        [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
+        [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
+        [NODES.ceoStairBase[0], PLATFORM_WALK, PLATFORM.z],
+      );
     }
     out.push(
       [cabin.doorX, PLATFORM_WALK, PLATFORM.z],
@@ -263,9 +298,12 @@ export function pathToCabin(
   ];
   if (cabinKey === "CEO") {
     out.push(
+      [NODES.ceoStairBase[0], PLATFORM_WALK, PLATFORM.z],
       [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
       [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
-      [cabin.doorX, PLATFORM_WALK, CEO.z],
+      [NODES.ceoStairTop[0], CEO_WALK_Y, CEO.z],
+      [CEO.doorX, CEO_WALK_Y, CEO.z],
+      [CEO.doorX, CEO.y + CEO.d * 0.52, CEO.z],
       inside,
     );
   } else {
@@ -288,10 +326,32 @@ export function pathToDoor(
   const front: [number, number] = [d.x + d.w / 2, PROMENADE.front];
   const out: Pt[] = [];
   if (from && from.z >= PLATFORM.z - 0.05) {
-    // coming down from the cabins: along the platform, down the stairs, then
-    // across the floor to the door — the same route in reverse
+    // coming down from the cabins: out of the doorway it is standing in, along
+    // the platform, down the stairs, then across the floor to the door
+    const leaving = from.cabin
+      ? (from.cabin === "CEO" ? CEO : CABINS.find((c) => c.key === from.cabin))
+      : null;
+    if (leaving) {
+      out.push(
+        cabinInterior(leaving.key),
+        [leaving.doorX, leaving.y + leaving.d * 0.52, leaving.z],
+      );
+      if (leaving.key === "CEO") {
+        out.push(
+          [CEO.doorX, CEO_WALK_Y, CEO.z],
+          [NODES.ceoStairTop[0], CEO_WALK_Y, CEO.z],
+          [NODES.ceoStairTop[0], NODES.ceoStairTop[1], CEO.z],
+          [NODES.ceoStairBase[0], NODES.ceoStairBase[1], PLATFORM.z],
+          [NODES.ceoStairBase[0], PLATFORM_WALK, PLATFORM.z],
+          [NODES.stairTop[0], PLATFORM_WALK, PLATFORM.z],
+        );
+      } else {
+        out.push([leaving.doorX, leaving.y + leaving.d + 0.5, PLATFORM.z]);
+      }
+    } else {
+      out.push([from.x, from.y, from.z]);
+    }
     out.push(
-      from.cabin ? cabinInterior(from.cabin) : [from.x, from.y, from.z],
       [NODES.stairTop[0], NODES.stairTop[1], PLATFORM.z],
       NODES.stairBase,
       [PROMENADE.centre, STAIR.yBottom + 0.9, 0],

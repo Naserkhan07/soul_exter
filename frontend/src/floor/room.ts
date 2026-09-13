@@ -29,6 +29,7 @@ import {
   CABINS,
   CEO,
   CEO_STAIR,
+  CEO_TERRACE,
   DESK_SLOTS,
   DOORS,
   FLOOR,
@@ -498,6 +499,48 @@ function drawCeoStairs(ops: Op[], pr: Projector, t: number): void {
       shadeFaces("#333a46", { stroke: "#1b2029", lw: 1 }));
   }
   lightPool(ops, pr, CEO_STAIR.x + CEO_STAIR.w / 2, CEO_STAIR.yBottom, 3.4, palette.ceoAccent, 0.12, PLATFORM.z);
+
+  // ---- the mezzanine behind the cabin row -------------------------------
+  // Walkers reach the CEO door along this deck, so it has to exist: a route
+  // that crosses thin air reads as a bug even when the path behind it is right.
+  const terrace = { x: CEO_TERRACE.x, y: CEO_TERRACE.y, w: CEO_TERRACE.w, d: CEO_TERRACE.d };
+  slab(ops, pr, terrace.x, terrace.y, CEO.z - 0.04, terrace.w, terrace.d, 0.36,
+    shadeFaces(palette.cabinFrame, { stroke: "#0b0f14", lw: 1 }));
+  // plating, so the deck reads as a working surface rather than a slab of sky
+  for (let i = 0; i < 7; i++) {
+    const x0 = terrace.x + 1.0 + i * ((terrace.w - 2.0) / 6);
+    ops.push({
+      op: "line",
+      pts: [pr.p(x0, terrace.y + 0.18, CEO.z - 0.03), pr.p(x0, terrace.y + terrace.d - 0.16, CEO.z - 0.03)],
+      stroke: rgba("#8fa3bb", 0.07), lw: 1,
+    });
+  }
+  // the two risers that carry the deck, standing on the platform below
+  for (const px of [terrace.x + 4.2, terrace.x + terrace.w - 4.6]) {
+    box(ops, pr, px, 0.3, PLATFORM.z, 0.42, 0.42, CEO.z - PLATFORM.z,
+      shadeFaces("#20262f", { stroke: "#141920", lw: 1 }));
+  }
+  // rail along the open (front) edge — left open at the far right, where the
+  // console stair lands
+  const railTo = terrace.x + terrace.w - 3.2;
+  box(ops, pr, terrace.x + 0.2, terrace.y + terrace.d - 0.16, CEO.z + 0.02,
+    railTo - terrace.x - 0.2, 0.1, 0.76, shadeFaces("#2b323d", { stroke: "#141920", lw: 1 }));
+  for (let i = 0; i <= 8; i++) {
+    const px = terrace.x + 0.2 + (i / 8) * (railTo - terrace.x - 0.2);
+    box(ops, pr, px - 0.045, terrace.y + terrace.d - 0.16, CEO.z + 0.02, 0.09, 0.09, 0.76,
+      shadeFaces("#232a34"));
+  }
+  // the light strip the penthouse throws down the back of the floor
+  ops.push({
+    op: "poly",
+    pts: [
+      pr.p(terrace.x + 0.4, terrace.y + 0.12, CEO.z + 0.01),
+      pr.p(terrace.x + terrace.w - 0.4, terrace.y + 0.12, CEO.z + 0.01),
+      pr.p(terrace.x + terrace.w - 0.4, terrace.y + 0.12, CEO.z + 0.05),
+      pr.p(terrace.x + 0.4, terrace.y + 0.12, CEO.z + 0.05),
+    ],
+    fill: rgba(palette.ceoAccent, 0.32),
+  });
 }
 
 // ---------------------------------------------------------------------------
