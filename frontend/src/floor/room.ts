@@ -838,7 +838,7 @@ function drawCabin(
   // ---- name plate on the roof, readable at any zoom ----------------------
   const [lx, ly] = pr.p(icx, slot.y + slot.d + 0.42, z + wallT + 0.72);
   const label = state?.label ?? slot.key;
-  const model = state?.model ? state.model.split("/").pop() ?? state.model : "";
+  const model = shortModel(state?.model);
   chip(ops, pr, lx, ly, label, accent, 1, isCeo ? 1.5 : 1.25);
   if (model) {
     ops.push({
@@ -870,6 +870,22 @@ function drawCabin(
   if (isCeo && thinking) {
     glow(ops, pr, icx, icy, slot.w * 0.85, tint(palette.ceoAccent, "#ff8a2b", 0.35), 0.13 + pulse * 0.08);
   }
+}
+
+/** "Qwen2.5-14B-Instruct" -> "Qwen2.5-14B": on a roof plate the suffix is noise. */
+export function shortModel(model?: string | null): string {
+  if (!model) return "";
+  const tail = model.split("/").pop() ?? model;
+  const short = tail
+    .replace(/-?instruct$/i, "")
+    .replace(/-?it$/i, "")
+    .replace(/-?beta$/i, "")
+    .replace(/-?chat$/i, "")
+    .replace(/-v\d+(\.\d+)?$/i, "");
+  const pretty = short.length > 1 && short === short.toLowerCase()
+    ? short.replace(/^[a-z]/, (c) => c.toUpperCase())
+    : short;
+  return pretty.length > 18 ? `${pretty.slice(0, 17)}…` : pretty;
 }
 
 // ---------------------------------------------------------------------------
