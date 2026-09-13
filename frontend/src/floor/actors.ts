@@ -225,12 +225,18 @@ function facingForWorld(tr: Trader): Facing {
 }
 
 /** Office chair, drawn under a seated trader. */
-export function drawChair(ops: Op[], pr: Projector, cx: number, cy: number, z: number, facing: Facing): void {
+export function drawChair(ops: Op[], pr: Projector, cx: number, cy: number, z: number,
+                          facing: Facing, lod = 2): void {
   const fr = frameFor(facing);
   contactShadow(ops, pr, cx, cy, 0.3, 0.28, 0.3, z);
   cylinder(ops, pr, cx, cy, z + 0.06, 0.06, 0.34, "#2f3742");
   // seat pan
   part(ops, pr, fr, cx, cy, z + 0.4, 0.4, 0.4, 0.09, palette.chairSeat);
+  // Seventy-five empty chairs were 1,900 canvas ops a frame, and at the default
+  // zoom a chair is six pixels wide: the backrest, the armrests and the
+  // five-star base are there when you zoom in, not when you are watching the
+  // floor move.
+  if (lod < 1) return;
   // backrest, behind the sitter
   part(ops, pr, fr, cx, cy, z + 0.46, 0.38, 0.09, 0.44, palette.chairBack, { f: 0.19 });
   // armrests

@@ -883,6 +883,12 @@ export function drawDesk(ops: Op[], pr: Projector, desk: DeskSlot, t: number, oc
   const { deskW: w, deskD: d } = { deskW: 1.9, deskD: 1.25 };
   void w;
   void d;
+  // Level of detail. There are 75 desks, and the full desk is ~78 ops of
+  // grain, mouse, mug, lamp and sparkline: about 5,800 ops a frame, three
+  // quarters of everything the renderer emits. At the zoom the floor is
+  // actually watched from, most of that is sub-pixel, so it is gated on scale
+  // instead of being paid for on every frame.
+  const lod = pr.scale >= 24 ? 2 : pr.scale >= 18 ? 1 : 0;
 
   contactShadow(ops, pr, x + 1.15, y + 0.7, 1.5, 0.9, 0.34);
 
@@ -892,12 +898,12 @@ export function drawDesk(ops: Op[], pr: Projector, desk: DeskSlot, t: number, oc
     box(ops, pr, lx, y + 1.0, z, 0.1, 0.1, h - 0.06, shadeFaces(palette.deskLegDark));
   }
   // cable tray
-  box(ops, pr, x + 0.25, y + 0.3, z + 0.18, 1.4, 0.12, 0.07, shadeFaces("#20262f"), { only: ["top", "right"] });
+  if (lod >= 1) box(ops, pr, x + 0.25, y + 0.3, z + 0.18, 1.4, 0.12, 0.07, shadeFaces("#20262f"), { only: ["top", "right"] });
 
   // top, with a rounded front edge suggested by a lighter strip
   box(ops, pr, x, y + 0.16, h - 0.05, 1.9, 1.1, 0.06, shadeFaces(palette.deskTop, { stroke: rgba("#20140c", 0.7), lw: 1 }));
-  woodGrain(ops, pr, x, y + 0.16, h + 0.011, 1.9, 1.1, desk.index * 17 + 5, rgba("#2b1a0e", 0.55), 6, 0.22);
-  ops.push({
+  if (lod >= 2) woodGrain(ops, pr, x, y + 0.16, h + 0.011, 1.9, 1.1, desk.index * 17 + 5, rgba("#2b1a0e", 0.55), 6, 0.22);
+  if (lod >= 1) ops.push({
     op: "poly",
     pts: [pr.p(x, y + 1.26, h), pr.p(x + 1.9, y + 1.26, h), pr.p(x + 1.9, y + 1.26, h - 0.001), pr.p(x, y + 1.26, h - 0.001)],
     fill: rgba(palette.deskEdge, 0.9),
@@ -929,8 +935,9 @@ export function drawDesk(ops: Op[], pr: Projector, desk: DeskSlot, t: number, oc
     lw: 1,
   });
   const seed = desk.index * 29;
-  for (let i = 0; i < 9; i++) {
-    const f0 = i / 9;
+  const candles = lod >= 1 ? 9 : 4;
+  for (let i = 0; i < candles; i++) {
+    const f0 = i / candles;
     const up = hash01(seed + i * 3) > 0.45;
     const yb = my + 0.1 + f0 * 0.5;
     const hi = 0.06 + hash01(seed + i * 5) * 0.2;
@@ -949,34 +956,34 @@ export function drawDesk(ops: Op[], pr: Projector, desk: DeskSlot, t: number, oc
     stroke: rgba(palette.screenGlow, 0.35),
     lw: 1,
   });
-  ops.push({ op: "line", pts: [pr.p(x + 1.1, y + 0.32, h + 0.45), pr.p(x + 1.46, y + 0.32, h + 0.5)],
+  if (lod >= 1) ops.push({ op: "line", pts: [pr.p(x + 1.1, y + 0.32, h + 0.45), pr.p(x + 1.46, y + 0.32, h + 0.5)],
     stroke: rgba(palette.longColor, 0.8), lw: Math.max(1, pr.len(0.025)) });
 
   // keyboard
   box(ops, pr, x + 0.35, y + 0.42, h + 0.01, 0.62, 0.26, 0.035, shadeFaces("#1b2029"));
   // mouse + pad
-  ops.push({ op: "ellipse", cx: pr.p(x + 0.28, y + 0.68, h + 0.03)[0], cy: pr.p(x + 0.28, y + 0.68, h + 0.03)[1],
+  if (lod >= 2) ops.push({ op: "ellipse", cx: pr.p(x + 0.28, y + 0.68, h + 0.03)[0], cy: pr.p(x + 0.28, y + 0.68, h + 0.03)[1],
     rx: pr.len(0.09), ry: pr.len(0.055), fill: "#232a34" });
   // mug / papers / headset: a desk is never empty
   if (desk.index % 3 === 0) cylinder(ops, pr, x + 0.72, y + 0.9, h, 0.075, 0.13, "#8c5a4a");
-  if (desk.index % 4 === 1) {
+  if (lod >= 1 && desk.index % 4 === 1) {
     box(ops, pr, x + 0.12, y + 0.86, h + 0.01, 0.3, 0.22, 0.012, shadeFaces("#c9cfd8"));
     box(ops, pr, x + 0.16, y + 0.9, h + 0.02, 0.26, 0.18, 0.01, shadeFaces("#aeb5c0"));
   }
-  if (desk.index % 5 === 2) {
+  if (lod >= 2 && desk.index % 5 === 2) {
     cylinder(ops, pr, x + 1.82, y + 1.0, h, 0.11, 0.1, "#2b3038");
     ops.push({ op: "ellipse", cx: pr.p(x + 1.82, y + 1.0, h + 0.22)[0], cy: pr.p(x + 1.82, y + 1.0, h + 0.22)[1],
       rx: pr.len(0.16), ry: pr.len(0.09), fill: shade("#4a8a5a", 0.9), alpha: 0.95 });
   }
   // a small desk lamp lending the desk its own pool of light
-  if (desk.index % 2 === 0) {
+  if (lod >= 1 && desk.index % 2 === 0) {
     cylinder(ops, pr, x + 1.78, y + 0.32, h, 0.045, 0.32, "#3a4250");
     ops.push({ op: "ellipse", cx: pr.p(x + 1.7, y + 0.3, h + 0.4)[0], cy: pr.p(x + 1.7, y + 0.3, h + 0.4)[1],
       rx: pr.len(0.12), ry: pr.len(0.07), fill: shade(palette.lampWarm, 1.0), alpha: 0.9 });
     lightPool(ops, pr, x + 1.55, y + 0.5, 1.15, palette.lampWarm, occupied ? 0.12 : 0.07, h + 0.02);
   }
   // chair (always there — empty when the trader is away)
-  drawChair(ops, pr, desk.seat[0], desk.seat[1], 0, "-x");
+  drawChair(ops, pr, desk.seat[0], desk.seat[1], 0, "-x", lod);
 }
 
 
