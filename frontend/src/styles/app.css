@@ -382,6 +382,12 @@ button.ghost.active { border-color: var(--accent); color: var(--accent); backgro
 .style { margin: 9px 0 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; font-style: italic; }
 .expertise { margin: 8px 0 0 16px; padding: 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.6; }
 .book-class { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.book-tools { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.book-tools .search {
+  flex: 1; min-width: 170px; background: #0a1119; color: var(--text); font: inherit;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px;
+}
+.book-tools .search:focus { outline: none; border-color: var(--line-strong); }
 .book-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
 .check.strong > span { font-weight: 700; }

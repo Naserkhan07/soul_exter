@@ -349,6 +349,26 @@ if (settingsButton) {
   const bookText = window.document.querySelector(".drawer.settings")?.textContent ?? "";
   checks.push(["market book lists the classes", /Crypto/.test(bookText) && /Forex/.test(bookText)]);
   checks.push(["market book lists forex pairs", /EUR\/USD/.test(bookText)]);
+  const wantSyms = settingsFixture.instruments.classes
+    .reduce((n, c) => n + c.symbols.length, 0);
+  const boxes = window.document.querySelectorAll(".drawer.settings .book-grid .check.sym input");
+  checks.push(["every instrument in the book has a checkbox", boxes.length === wantSyms]);
+  checks.push(["class header counts what is ticked", /2\/2 ticked/.test(bookText)]);
+  // the search box has to actually narrow the book, not just exist
+  const search = window.document.querySelector(".drawer.settings .book-tools .search");
+  checks.push(["market search box is there", !!search]);
+  if (search) {
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype, "value").set;
+    setValue.call(search, "JPY");
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
+    const left = window.document.querySelectorAll(
+      ".drawer.settings .book-grid .check.sym input");
+    const filtered = window.document.querySelector(".drawer.settings .book-grid")?.textContent ?? "";
+    checks.push(["search narrows the book to the match",
+      left.length === 1 && /USD\/JPY/.test(filtered) && !/BTC\/USDT/.test(filtered)]);
+  }
 } else {
   checks.push(["settings drawer opens", false]);
 }

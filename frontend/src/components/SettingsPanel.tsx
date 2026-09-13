@@ -87,6 +87,8 @@ export function SettingsPanel({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [q, setQ] = useState("");
+  const [onlyTicked, setOnlyTicked] = useState(false);
 
   const load = () => {
     fetch("/api/settings")
@@ -249,9 +251,32 @@ export function SettingsPanel({
           <div className="note">
             Ticked instruments become the scanner&apos;s universe. The fly scout
             only hunts inside this book, and every trade on the floor carries one
-            of these symbols.
+            of these symbols. Screen <b>Forex</b> and every pair is a checkbox —
+            or type a symbol to find one.
           </div>
+
+          <div className="book-tools">
+            <input
+              className="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Find a symbol (EUR, INR, NVDA…)"
+              aria-label="Filter instruments"
+            />
+            <label className="check sym">
+              <input type="checkbox" checked={onlyTicked}
+                     onChange={(e) => setOnlyTicked(e.target.checked)} />
+              <span>only ticked</span>
+            </label>
+            <span className="muted small">{ticked.size} / {data?.instruments.total ?? 0}</span>
+          </div>
+
           {(data?.instruments.classes ?? []).map((cls) => {
+            const needle = q.trim().toUpperCase();
+            const shown = cls.symbols.filter((s) =>
+              (!needle || s.symbol.toUpperCase().includes(needle) || s.name.toUpperCase().includes(needle))
+              && (!onlyTicked || ticked.has(s.symbol)));
+            if (shown.length === 0) return null;
             const all = cls.symbols.every((s) => ticked.has(s.symbol));
             const some = cls.symbols.some((s) => ticked.has(s.symbol));
             return (
@@ -269,11 +294,12 @@ export function SettingsPanel({
                     <span>{cls.label}</span>
                   </label>
                   <span className="muted small">
-                    {cls.count} · {cls.instrument} · {cls.source}
+                    {cls.symbols.filter((s) => ticked.has(s.symbol)).length}/{cls.count} ticked ·{" "}
+                    {cls.instrument} · {cls.source}
                   </span>
                 </div>
                 <div className="book-grid">
-                  {cls.symbols.map((s) => (
+                  {shown.map((s) => (
                     <label className="check sym" key={s.symbol} title={`${s.name} - ${badgeOf(s)}`}>
                       <input
                         type="checkbox"
@@ -288,6 +314,10 @@ export function SettingsPanel({
               </section>
             );
           })}
+          {q.trim() && !(data?.instruments.classes ?? []).some((c) =>
+            c.symbols.some((s) => s.symbol.toUpperCase().includes(q.trim().toUpperCase()))) && (
+            <div className="warn">no instrument matches “{q.trim()}” on this desk</div>
+          )}
         </div>
       )}
 
