@@ -19,6 +19,7 @@ import {
   shadeFaces,
   shaft,
   slab,
+  cardSize,
   namePlate,
   speechCard,
   woodGrain,
@@ -510,12 +511,96 @@ export function drawCabins(
   activeSymbol: Partial<Record<string, string>>,
   occupants: Partial<Record<string, Trader>> = {},
 ): void {
-  for (const slot of CABINS) {
-    const state = cabins.find((c) => c.key === slot.key);
-    drawCabin(ops, pr, slot, state, t, activeSymbol[slot.key], false, occupants[slot.key]);
+  // The six cards are packed as one newspaper page, not six independent
+  // balloons: cabins sit close together along the back wall, so their screen
+  // anchors land within a card's width of each other and a per-cabin stagger
+  // alone drops one card onto its neighbour. Lay them out first, then paint.
+  const wanted = [
+    ...CABINS.map((slot, i) => ({ slot, state: cabins.find((c) => c.key === slot.key), isCeo: false, i })),
+    { slot: CEO, state: cabins.find((c) => c.key === "CEO"), isCeo: true, i: -1 },
+  ].filter((w) => pr.visible(w.slot.x + w.slot.w / 2, w.slot.y + w.slot.d * 0.4, w.slot.z, 760));
+
+  const boxes = wanted.map((w) => {
+    const anchor = cabinCardAnchor(pr, w.slot, w.isCeo, w.i);
+    const card = cabinCardContent(w.state, w.isCeo ? palette.ceoAccent : palette.cabinAccent);
+    const size = cardSize(pr, { ...card, lines: w.state?.said ? 4 : 3, width: cardWidth(pr) });
+    return { key: w.slot.key, anchor, w: size.w, h: size.h };
+  });
+  const packed = packCards(boxes);
+
+  const cards: Array<() => void> = [];
+  for (const w of wanted) {
+    drawCabin(ops, pr, w.slot, w.state, t, activeSymbol[w.slot.key], w.isCeo, occupants[w.slot.key],
+      packed.get(w.slot.key), cards);
   }
-  drawCabin(ops, pr, CEO, cabins.find((c) => c.key === "CEO"), t, activeSymbol.CEO, true,
-    occupants.CEO);
+  // every roof is up by now: the cards go on top of the room, not inside it
+  for (const paint of cards) paint();
+}
+
+/** Card width in screen px — the same number the painter uses. */
+function cardWidth(pr: Projector): number {
+  return Math.max(142, pr.len(6.6));
+}
+
+/** Where a cabin would like its card: above the roof, staggered by rank. */
+function cabinCardAnchor(pr: Projector, slot: CabinSlot, isCeo: boolean, idx: number): [number, number] {
+  const rank = idx < 0 ? 0 : idx % 2;
+  const stagger = idx < 0 ? 1.5 : rank * 4.1;
+  const dx = idx < 0 ? 0 : (rank ? 1.5 : -1.5);
+  // 1.2 units of air above the roof plate: the plate carries the model id and
+  // the card carries the argument, and they should not share a line.
+  return pr.p(slot.x + slot.w / 2 + dx, slot.y + slot.d * 0.35, slot.z + (isCeo ? 6.8 : 5.6) + stagger);
+}
+
+function cabinCardContent(state: Cabin | undefined, base: string): { name: string; title: string; body: string; verdict?: string; confidence?: number; accent: string } {
+  const thinking = !!state?.thinking;
+  return {
+    name: state?.name ?? state?.label ?? "",
+    title: thinking ? "DELIBERATING" : state?.title ? state.title.split(",")[0] : "",
+    body: (state?.said || state?.reason || "").trim() || (thinking ? "reading the tape…" : "waiting for a trade"),
+    verdict: state?.lastVote,
+    confidence: state?.confidence,
+    accent: voteAccent(state?.lastVote, base),
+  };
+}
+
+/**
+ * Greedy label packing. Each card may drift a little sideways and then upwards;
+ * the first offset that clears every card already placed wins, and if the whole
+ * window is full it keeps climbing until it is clear. Deterministic, so the
+ * floor does not reshuffle itself between frames.
+ */
+function packCards(items: Array<{ key: string; anchor: [number, number]; w: number; h: number }>): Map<string, [number, number]> {
+  const order = [...items].sort((a, b) => a.anchor[1] - b.anchor[1]);
+  const placed: Array<{ x0: number; x1: number; y0: number; y1: number }> = [];
+  const out = new Map<string, [number, number]>();
+  // Cards that merely touch read as one card: two boxes sharing an edge with a
+  // 3px seam looked like a single run-on paragraph in the render. Pack with a
+  // gutter, not with a hairline.
+  const GAPX = 12;
+  const GAPY = 9;
+  const hits = (b: { x0: number; x1: number; y0: number; y1: number }) =>
+    placed.some((p) => b.x0 < p.x1 + GAPX && b.x1 > p.x0 - GAPX && b.y0 < p.y1 + GAPY && b.y1 > p.y0 - GAPY);
+  for (const it of order) {
+    const [ax, ay] = it.anchor;
+    const offsets: Array<[number, number]> = [];
+    for (let up = 0; up <= 360; up += 16) {
+      for (const dx of [0, -26, 26, -52, 52, -78, 78]) {
+        if (up === 0 && dx === 0) { offsets.push([0, 0]); continue; }
+        offsets.push([dx, -up]);
+      }
+    }
+    let chosen: [number, number] = [0, 0];
+    for (const [dx, dy] of offsets) {
+      const box = { x0: ax + dx - it.w / 2, x1: ax + dx + it.w / 2, y0: ay + dy - it.h, y1: ay + dy };
+      if (!hits(box)) { chosen = [dx, dy]; break; }
+      chosen = [dx, dy];
+    }
+    const [px, py] = [ax + chosen[0], ay + chosen[1]];
+    placed.push({ x0: px - it.w / 2, x1: px + it.w / 2, y0: py - it.h, y1: py });
+    out.set(it.key, [px, py]);
+  }
+  return out;
 }
 
 function drawCabin(
@@ -527,6 +612,8 @@ function drawCabin(
   activeSymbol: string | undefined,
   isCeo: boolean,
   occupant?: Trader,
+  cardAt?: [number, number],
+  defer?: Array<() => void>,
 ): void {
   // off-screen cabins (and their cards) are not painted at all
   if (!pr.visible(slot.x + slot.w / 2, slot.y + slot.d * 0.4, slot.z, 760)) return;
@@ -621,30 +708,30 @@ function drawCabin(
   // One card per cabin: who is in there, how they voted, and why — in their
   // own words. It sits above the roof, staggered so five of them across the
   // back of the room do not stack on top of each other.
-  const cxm = slot.x + slot.w / 2;
-  const cym = slot.y + slot.d * 0.35;
-  // Two ranks, alternating, so five cards across the back of the room do not
-  // cover each other: even cabins sit low and push left, odd ones sit high and
-  // push right.
   const idx = isCeo ? -1 : CABINS.findIndex((c) => c.key === slot.key);
-  const rank = idx < 0 ? 0 : idx % 2;
-  const stagger = idx < 0 ? 1.5 : rank * 4.1;
-  const dx = idx < 0 ? 0 : (rank ? 1.5 : -1.5);
-  const topZ = z + (isCeo ? 5.6 : 4.4) + stagger;
-  const [nx, ny] = pr.p(cxm + dx, cym, topZ);
-  const body = (state?.said || state?.reason || "").trim();
-  speechCard(ops, pr, nx, ny, {
-    name: state?.name ?? state?.label ?? slot.key,
-    title: thinking ? "DELIBERATING" : state?.title ? state.title.split(",")[0] : "",
-    body: body || (thinking ? "reading the tape…" : "waiting for a trade"),
-    accent: voteAccent(state?.lastVote, accent),
-    verdict: state?.lastVote,
-    confidence: state?.confidence,
-    tone: state?.said ? "live" : "idle",
-    width: Math.max(142, pr.len(6.6)),
-    lines: state?.said ? 4 : 3,
-    alpha: state ? 0.97 : 0.72,
-  });
+  const [nx, ny] = cardAt ?? cabinCardAnchor(pr, slot, isCeo, idx);
+  const card = cabinCardContent(state, accent);
+  const head = isCeo ? 5.6 : 4.4;
+  const roof = pr.p(slot.x + slot.w / 2, slot.y + slot.d * 0.9, z + head);
+  // A stem from the roof up to the card: it is what makes a box of text read as
+  // *this* cabin's voice rather than as a floating HUD element.
+  if (ny < roof[1] - 4) {
+    ops.push({ op: "line", pts: [roof, [nx, ny]], stroke: rgba(accent, 0.32), lw: 1.2 });
+    ops.push({ op: "ellipse", cx: roof[0], cy: roof[1], rx: 2.4, ry: 1.4, fill: rgba(accent, 0.55) });
+  }
+  const paintCard = () =>
+    speechCard(ops, pr, nx, ny, {
+      ...card,
+      tone: state?.said ? "live" : "idle",
+      width: cardWidth(pr),
+      lines: state?.said ? 4 : 3,
+      alpha: state ? 0.97 : 0.72,
+    });
+  // Cabins are painted back to front and the CEO box is the tallest, so a card
+  // painted inside its own cabin's turn gets covered by the next cabin along.
+  // The caller flushes the cards after the last roof is up.
+  if (defer) defer.push(paintCard);
+  else paintCard();
   // a plant, because every floor has one
   cylinder(ops, pr, slot.x + slot.w - 0.7, slot.y + slot.d - 0.7, deskZ, 0.26, 0.36, "#3a3327");
   for (let i = 0; i < 5; i++) {
@@ -742,10 +829,12 @@ function drawCabin(
       size: Math.max(9, pr.len(0.3)), weight: "800", align: "center",
     });
   }
-  if (thinking) {
-    chip(ops, pr, lx, ly + pr.len(1.15), "DELIBERATING", "#7fd6ff", 0.9 + pulse * 0.1, 0.95);
-  } else if (vote) {
-    chip(ops, pr, lx, ly + pr.len(1.15), vote, VERDICT_COLOR[vote] ?? palette.abstainColor, 0.95, 0.95);
+  // The status light lives on the cabin base, not on the roof: the roof row is
+  // where the reasoning card lands, and a chip up there ends up behind it.
+  if (thinking || vote) {
+    const [sx, sy] = pr.p(slot.x + 0.5, slot.y + slot.d + 0.6, z + 0.32);
+    if (thinking) chip(ops, pr, sx, sy, "DELIBERATING", "#7fd6ff", 0.9 + pulse * 0.1, 0.95);
+    else chip(ops, pr, sx, sy, vote as string, VERDICT_COLOR[vote as string] ?? palette.abstainColor, 0.95, 0.95);
   }
   if (vote) {
     // a wash of colour on the cabin floor + a glow at the door, so the verdict

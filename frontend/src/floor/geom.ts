@@ -566,6 +566,27 @@ export function motes(
  * trade. Same cheap per-character width estimate as the name plate, so the
  * offline rasteriser lays it out identically to the browser.
  */
+/**
+ * The size a speech card will occupy, without drawing it. The card layout pass
+ * in room.ts needs this: it packs six cards above the cabins, and a layout that
+ * guesses at heights ends up with one card sitting on another.
+ */
+export function cardSize(
+  pr: Projector,
+  opts: { body?: string; title?: string; verdict?: string; lines?: number; width?: number },
+): { w: number; h: number; s: number } {
+  const s = Math.max(0.55, Math.min(1.35, pr.scale / 24));
+  const bodySize = Math.max(9, Math.round(10.4 * s));
+  const maxLines = opts.lines ?? 3;
+  const w = opts.width ?? Math.max(190 * s, pr.len(13));
+  const padX = 9 * s;
+  const bodyChars = Math.max(18, Math.floor((w - padX * 2) / (bodySize * 0.52)));
+  const bodyLines = wrapText(opts.body ?? "", bodyChars).slice(0, maxLines);
+  const headH = 27 * s + (opts.title ? 12 * s : 0) + (opts.verdict ? 16 * s : 0);
+  const bodyH = bodyLines.length * (bodySize + 3.4 * s);
+  return { w, h: headH + bodyH + 14 * s, s };
+}
+
 export function speechCard(
   ops: Op[],
   pr: Projector,
@@ -593,28 +614,40 @@ export function speechCard(
   const nameSize = Math.max(12, Math.round(13 * s));
   const titleSize = Math.max(8, Math.round(8.6 * s));
   const bodySize = Math.max(9, Math.round(10.4 * s));
+  const sized = cardSize(pr, opts);
+  const width = sized.w;
+  const h = sized.h;
   const maxLines = opts.lines ?? 3;
-  const width = opts.width ?? Math.max(190 * s, pr.len(13));
   const padX = 9 * s;
   const bodyChars = Math.max(18, Math.floor((width - padX * 2) / (bodySize * 0.52)));
-  const bodyLines = wrapText(opts.body, bodyChars).slice(0, maxLines);
+  const wrapped = wrapText(opts.body, bodyChars);
+  const bodyLines = wrapped.slice(0, maxLines);
+  if (wrapped.length > maxLines && bodyLines.length) {
+    // a cut sentence that does not say it was cut reads as a typo
+    const last = bodyLines[bodyLines.length - 1];
+    bodyLines[bodyLines.length - 1] = last.length >= bodyChars ? `${last.slice(0, bodyChars - 1)}…` : `${last}…`;
+  }
   const headH = 27 * s + (opts.title ? 12 * s : 0) + (opts.verdict ? 16 * s : 0);
-  const bodyH = bodyLines.length * (bodySize + 3.4 * s);
-  const h = headH + bodyH + 14 * s;
   const x = cx - width / 2;
   const y = cy - h;
 
   // a card that reads as a card: lighter than the room behind it, with a
   // verdict-coloured spine and enough shadow to lift it off the floor
   contactShadowish(ops, x + 4 * s, y + h + 3 * s, width - 8 * s, 12 * s, alpha);
+  // A card can land on a black cabin roof, so it cannot rely on a dark fill and
+  // a hairline: it gets its own drop shadow and a brighter edge.
+  ops.push({
+    op: "round", x: x + 2 * s, y: y + 4 * s, w: width, h, r: 7 * s,
+    fill: "#000000", alpha: 0.42 * alpha,
+  });
   ops.push({
     op: "round", x, y, w: width, h, r: 7 * s,
-    fill: "#121b28", alpha: 0.95 * alpha,
-    stroke: rgba("#8fb2d8", 0.24 * alpha), lw: 1,
+    fill: "#0c1420", alpha: Math.min(1, 0.8 + 0.2 * alpha),
+    stroke: rgba("#a9c8ea", 0.34 * alpha), lw: 1.2,
   });
   ops.push({
     op: "round", x, y, w: width, h: Math.min(h, 26 * s), r: 7 * s,
-    fill: "#18232f", alpha: 0.95 * alpha,
+    fill: "#16222f", alpha: Math.min(1, 0.82 + 0.18 * alpha),
   });
   // accent spine
   ops.push({

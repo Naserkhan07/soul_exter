@@ -117,7 +117,7 @@ step(Math.max(40, frames));
 floor.refit();                       // frame whatever the scene has become
 const ops = floor.paintOps();
 const traders = [...floor.traders.values()] as Trader[];
-const stats = {
+const stats: Record<string, number | string> = {
   ops: ops.length,
   traders: traders.length,
   seated: traders.filter((t) => t.state === "seated").length,
@@ -128,6 +128,38 @@ const stats = {
   cabinsPlaced: CABINS.length + 1,
   ceo: CEO.key,
 };
+// ---- council cards must never sit on each other ---------------------------
+// The six cards are packed in screen space, so a change to a card's contents
+// (a longer reason, a verdict line appearing) can silently re-introduce the
+// overlap that the packing pass exists to prevent. Check the painted geometry.
+const CARD_FILL = "#0c1420";
+const GAP_X = 12;
+const GAP_Y = 9;
+const cards = ops.filter(
+  (o) => o.op === "round" && String((o as { fill?: string }).fill ?? "").toLowerCase() === CARD_FILL,
+) as Array<{ x: number; y: number; w: number; h: number }>;
+const collisions: string[] = [];
+for (let i = 0; i < cards.length; i++) {
+  for (let j = i + 1; j < cards.length; j++) {
+    const a = cards[i];
+    const b = cards[j];
+    if (a.x < b.x + b.w + GAP_X && a.x + a.w > b.x - GAP_X &&
+        a.y < b.y + b.h + GAP_Y && a.y + a.h > b.y - GAP_Y) {
+      collisions.push(`card ${i} (${Math.round(a.x)},${Math.round(a.y)}) vs card ${j} (${Math.round(b.x)},${Math.round(b.y)})`);
+    }
+  }
+}
+stats.cards = cards.length;
+stats.cardCollisions = collisions.length;
+if (cards.length < CABINS.length + 1) {
+  console.error(`floor smoke: only ${cards.length} council cards painted, expected ${CABINS.length + 1}`);
+  process.exit(1);
+}
+if (collisions.length) {
+  console.error(`floor smoke: council cards collide:\n  ${collisions.join("\n  ")}`);
+  process.exit(1);
+}
+
 const payload = { size: [w, h], focus, zoom, stats, ops };
 writeFileSync(out, JSON.stringify(payload));
 console.log(JSON.stringify({ out, ...stats }, null, 2));
