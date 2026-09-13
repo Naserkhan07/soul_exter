@@ -389,7 +389,7 @@ window.document.querySelector(".drawer.settings .drawer-head button")
 await new Promise((r) => setTimeout(r, 120));
 
 // ---- the debate room: the top-bar button opens the full chat room --------
-const roomButton = buttons.find((b) => (b.textContent ?? "").trim() === "Debate");
+const roomButton = buttons.find((b) => /^(chat|debate) room$/i.test((b.textContent ?? "").trim()));
 if (roomButton) {
   roomButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 30));

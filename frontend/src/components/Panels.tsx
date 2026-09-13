@@ -101,8 +101,9 @@ export function TopBar({
           Scan now
         </button>
         <button className="ghost" onClick={onRefresh}>Sync</button>
-        <button className="ghost" onClick={onDebate} title="Hold a debate round now">
-          Debate
+        <button className="ghost" onClick={onDebate}
+                title="Open the room the six desks argue in">
+          Chat room
         </button>
         {fps !== undefined && (
           <span className={`fps ${fps >= 45 ? "good" : fps >= 24 ? "mid" : "bad"}`} title="painted frames per second">
