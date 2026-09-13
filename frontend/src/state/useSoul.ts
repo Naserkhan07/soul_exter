@@ -200,6 +200,9 @@ export interface DebateTurn {
   text: string;
   round: number;
   trade_id?: string | null;
+  /** who this turn was addressed to — the room is a conversation, not a log */
+  to?: string;
+  to_name?: string;
   ts: number;
 }
 
@@ -263,7 +266,8 @@ export interface SoulEvents {
   ends: Array<{ id: string; decision: string; reason?: string }>;
   floats: Array<{ id: string; text: string; tone: "good" | "bad" | "info" }>;
   /** turns as they are spoken, for the live debate panel and the cabins */
-  debate: Array<{ cabin: string; name: string; turn: string; text: string; topic: string }>;
+  debate: Array<{ cabin: string; name: string; turn: string; text: string; topic: string;
+                  to?: string; to_name?: string }>;
 }
 
 export function useSoul(pollMs = 4000): {
@@ -401,6 +405,7 @@ export function useSoul(pollMs = 4000): {
             cabin: String(p.speaker), name: String(p.name ?? p.speaker),
             turn: String(p.turn ?? "claim"), text: String(p.text),
             topic: String(p.topic ?? ""),
+            to: String(p.to ?? ""), to_name: String(p.to_name ?? ""),
           });
         }
         break;

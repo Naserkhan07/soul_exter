@@ -28,6 +28,10 @@ export default function App() {
   const [scoutBatch, setScoutBatch] = useState<ScoutRead[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [cabinChat, setCabinChat] = useState<string | null>(null);
+  // what this desk's settled calls have been worth, straight from the council's
+  // scoreboard: a desk with no record says so instead of implying one
+  const deskRecord = (key: string) =>
+    (state.council as any)?.scoreboard?.desks?.[key] ?? null;
   const [fps, setFps] = useState<number | undefined>(undefined);
   const [liveTurns, setLiveTurns] = useState<
     Array<{ cabin: string; name: string; turn: string; text: string; topic: string }>
@@ -217,6 +221,7 @@ export default function App() {
           cabin={chatCabin}
           turns={debateTurns}
           question={chatQuestion}
+          record={deskRecord(chatCabin.key)}
           onAsk={askDesk}
           onClose={() => setCabinChat(null)}
         />

@@ -164,7 +164,7 @@ export function FloorCanvas({
       floor.cabinVote(v.cabin, v.verdict, v.confidence, v.symbol, v.reason);
     }
     for (const d of events.debate.splice(0)) {
-      floor.cabinSpeak(d.cabin, d.turn, d.text);
+      floor.cabinSpeak(d.cabin, d.turn, d.text, d.to_name);
     }
     for (const e of events.ends.splice(0)) floor.endTrade(e.id, e.decision, e.reason);
     for (const f of events.floats.splice(0)) floor.float(f.id, f.text, f.tone);

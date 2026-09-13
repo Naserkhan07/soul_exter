@@ -165,7 +165,8 @@ class LocalHFBrain:
         trader is carrying the trade *to*, so the debate is a review meeting, not
         a rerun of the vote.
         """
-        prompt = self.spec.debate_prompt(topic, transcript, kind)
+        prompt = self.spec.debate_prompt(topic, transcript, kind,
+                                         str(inner.get("to_name", "")))
         async with self.semaphore:
             try:
                 text = await asyncio.get_running_loop().run_in_executor(None, self._generate, prompt)

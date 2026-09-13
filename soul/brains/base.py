@@ -6,6 +6,8 @@ full transcript of all five and makes the final call.
 """
 from __future__ import annotations
 
+from ..knowledge import for_desk
+
 import json
 import re
 from dataclasses import dataclass, field
@@ -55,7 +57,8 @@ class CabinSpec:
             f"Your mandate: {self.mandate}\n"
             "What you are trusted for:\n"
             f"{skills}\n"
-            f"House style: {self.style}.\n"
+            f"House style: {self.style}.\n\n"
+            f"{for_desk(self.key)}\n"
             "How you work: read the numbers before the story; size the loss before the "
             "win; treat every backtest as guilty until proven innocent; and say plainly "
             "when a setup is not worth the risk. Disagreement is the job — a desk that "
@@ -64,7 +67,8 @@ class CabinSpec:
         )
 
     # ------------------------------------------------------------------
-    def debate_prompt(self, topic: str, transcript: List[Dict[str, Any]], kind: str) -> str:
+    def debate_prompt(self, topic: str, transcript: List[Dict[str, Any]], kind: str,
+                      to_name: str = "") -> str:
         """Prompt for one turn in the debate room (the desks training each other)."""
         said = "\n".join(f"{m.get('name') or m['speaker']} [{m['kind']}]: {m['text']}"
                           for m in transcript[-6:]) or "(nobody has spoken yet)"
@@ -76,11 +80,16 @@ class CabinSpec:
             "lesson": "Close the round: state the rule the desk should carry from this.",
             "ack": "Add one concrete nuance, then stop.",
         }
+        who_line = (
+            f"You are speaking directly to {to_name}: name them and answer *them*, "
+            "not the room.\n" if to_name else ""
+        )
         return (
             f"{self.system_prompt}\n\n"
             f"You are now in the DESK DEBATE ROOM with the other cabins. Topic: {topic}\n"
             f"Transcript so far:\n{said}\n\n"
             f"Your turn: {asks.get(kind, asks['ack'])}\n"
+            f"{who_line}"
             "Speak as this professional, in 1-3 sentences, concrete and specific "
             "(levels, conditions, numbers). No JSON, no bullet lists, no preamble: "
             "just what you would actually say across the table."
@@ -281,6 +290,18 @@ def desk_memory_block(ctx: Dict[str, Any]) -> str:
     return "\n".join(out)
 
 
+def desk_record_block(ctx: Dict[str, Any]) -> str:
+    """How each desk has actually done, when it has a record worth reading.
+
+    A desk with no settled calls gets no line, deliberately: the head of desk is
+    told the record, not a rumour of one.
+    """
+    rows = ctx.get("scoreboard") or []
+    if not rows:
+        return "DESK RECORD: no settled calls yet this session."
+    return "DESK RECORD (settled calls):\n" + "\n".join(f"  - {r}" for r in rows)
+
+
 def prior_verdicts_block(prior: List[Verdict]) -> str:
     if not prior:
         return "EARLIER DESKS: none yet — you are first to speak."
@@ -321,6 +342,7 @@ def build_cabin_prompt(spec: CabinSpec, trade: TradeCandidate, ctx: Dict[str, An
         f"=== DESK BOOK ===\n{portfolio_block(ctx)}\n\n"
         f"=== COUNCIL SO FAR ===\n{prior_verdicts_block(prior)}\n\n"
         f"=== {desk_memory_block(ctx)} ===\n\n"
+        f"=== {desk_record_block(ctx)} ===\n\n"
         f"Rules:\n"
         f"- 'verdict' must be APPROVE, REJECT or ABSTAIN (ABSTAIN only if the packet is too thin to judge).\n"
         f"- 'confidence' is YOUR confidence in YOUR verdict, 0-100. Do not use 100 unless the case is airtight.\n"
@@ -352,6 +374,7 @@ def build_ceo_prompt(spec: CabinSpec, trade: TradeCandidate, verdicts: List[Verd
         f"=== LIVE MARKET ===\n{market_block(ctx)}\n\n"
         f"=== DESK BOOK ===\n{portfolio_block(ctx)}\n\n"
         f"=== {desk_memory_block(ctx)} ===\n\n"
+        f"=== {desk_record_block(ctx)} ===\n\n"
         f"=== COUNCIL TRANSCRIPT ({approves} approve / {rejects} reject / {abstains} abstain) ===\n"
         + "\n".join(tally_lines) +
         "\n\nDecide on the merits of THIS trade. Do not split the difference; do not defer to majority "

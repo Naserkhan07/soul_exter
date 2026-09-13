@@ -41,16 +41,32 @@ function clock(ts?: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** The council's scoreboard row for one desk (null while it has no record). */
+export interface DeskRecord {
+  calls: number;
+  right: number;
+  hit_rate: number;
+  approvals: number;
+  wins: number;
+  losses: number;
+  r_sum: number;
+  streak: number;
+  weight: number;
+  proven: boolean;
+}
+
 export function CabinChat({
   cabin,
   turns,
   question,
+  record,
   onAsk,
   onClose,
 }: {
   cabin: Cabin;
   turns: DebateTurn[];
   question: string;
+  record?: DeskRecord | null;
   onAsk: (key: string, question: string) => Promise<void> | void;
   onClose: () => void;
 }) {
@@ -119,6 +135,33 @@ export function CabinChat({
           ))}
         </div>
       ) : null}
+
+      <div className="chat-record">
+        <h3>Track record</h3>
+        {record && record.calls > 0 ? (
+          <p className="rec">
+            <b>
+              right on {record.right}/{record.calls}
+            </b>{" "}
+            settled calls ({Math.round(record.hit_rate * 100)}%)
+            {record.approvals > 0 && (
+              <>
+                {" · "}
+                {record.wins}W/{record.losses}L on the trades it passed
+                {record.r_sum !== 0 && <> · {record.r_sum > 0 ? "+" : ""}{record.r_sum.toFixed(1)}R</>}
+              </>
+            )}
+            {record.streak > 1 && <> · {record.streak} in a row</>}
+            {!record.proven && <em className="muted"> (not proven yet — needs a few more closes)</em>}
+          </p>
+        ) : (
+          <p className="muted small">
+            No settled calls yet. Every closed trade this desk voted on is marked
+            against it, and a desk with a poor record gets discounted by the head
+            of desk.
+          </p>
+        )}
+      </div>
 
       <div className="chat-why">
         <h3>{question ? "This trade" : "The floor"}</h3>

@@ -362,17 +362,25 @@ export class SoulFloor {
     }
   }
 
-  /** A turn in the debate room. The cabin lights up and holds the floor. */
-  cabinSpeak(cabin: string, turn: string, text: string): void {
+  /** A turn in the debate room. The cabin lights up and holds the floor.
+   *
+   * `toName` matters: the card above the cabin has to read like something said
+   * *to* somebody ("Dr. Amara Osei — that assumes the entry fills"), because a
+   * room where six desks broadcast past each other is not a debate.
+   */
+  cabinSpeak(cabin: string, turn: string, text: string, toName?: string): void {
     const c = this.cabins.find((x) => x.key === cabin);
     if (!c) return;
     c.speakingSince = this.time;
     c.turn = turn;
     const prefix =
       turn === "lesson" ? "RULE" : turn === "challenge" ? "→" : turn === "question" ? "?" : "";
-    c.said = `${prefix ? prefix + " " : ""}${text}`.slice(0, 320);
+    const head = toName ? `${toName} — ` : "";
+    c.said = `${prefix ? prefix + " " : ""}${head}${text}`.slice(0, 320);
     this.needsFit = true;
-    this.pop(c, `${c.name ?? cabin} ${turn === "lesson" ? "sets the rule" : turn + "s"}`,
+    this.pop(c, toName
+      ? `${c.name ?? cabin} → ${toName}`
+      : `${c.name ?? cabin} ${turn === "lesson" ? "sets the rule" : turn + "s"}`,
       turn === "lesson" ? "good" : "info", 1.1);
   }
 

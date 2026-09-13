@@ -128,7 +128,7 @@ class MockBrain:
         text = rng.choice(pool)
         rule = inner.get("rule") or "when a setup is extended, halve the size instead of skipping it"
         try:
-            return text.format(
+            text = text.format(
                 rr=float(inner.get("rr", 2.0)), win=float(inner.get("win", 45.0)),
                 strategy=inner.get("strategy", "trend"), atr=float(inner.get("atr", 1.0)),
                 risk=float(inner.get("risk", 1.2)), stop=_money(inner.get("stop", 0.0)),
@@ -138,7 +138,14 @@ class MockBrain:
                 symbol=inner.get("symbol", "this name"), rule=rule,
             )
         except (KeyError, ValueError):
-            return text
+            pass
+        # `return` inside try would have returned before this ran: a turn that is
+        # addressed to somebody has to *say* so, or the room reads like six
+        # broadcasts and the floor card cannot show who was answered.
+        who = str(inner.get("to_name") or "").strip()
+        if who and not text.lstrip().startswith(who):
+            text = f"{who} — {text}"
+        return text
 
     def _seed(self, trade: TradeCandidate) -> random.Random:
         h = hashlib.sha256(f"{trade.id}|{self.spec.key}|{trade.symbol}|{trade.side}".encode()).digest()

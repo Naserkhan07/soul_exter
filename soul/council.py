@@ -30,6 +30,7 @@ from .brains import Brain
 from .brains.base import CABINS, CEO_SPEC, CabinSpec
 from .config import Config
 from .models import CouncilResult, TradeCandidate, Verdict, clamp
+from .scoreboard import Scoreboard
 
 log = logging.getLogger("soul.council")
 
@@ -51,6 +52,8 @@ class Council:
             "ceo_approved": 0, "ceo_rejected": 0, "total_cabin_calls": 0,
         }
         self.history: List[CouncilResult] = []
+        # what each cabin's settled calls were actually worth (see scoreboard.py)
+        self.scoreboard = Scoreboard()
 
     # ------------------------------------------------------------------
     def cabin_spec(self, key: str) -> CabinSpec:
@@ -71,6 +74,8 @@ class Council:
                                   "label": spec.label, "side": trade.side})
         async with self.sem:
             ctx = ctx_fn()
+            ctx = dict(ctx)
+            ctx["scoreboard"] = self.scoreboard.summary()
             verdict = await brain.judge(trade, ctx, prior, stage)
         self.stats["total_cabin_calls"] += 1
         return verdict
@@ -183,6 +188,19 @@ class Council:
             self.stats["ceo_approved"] += 1
             # the CEO's confidence blends the council's and its own read
             result.confidence = clamp(0.45 * result.confidence + 0.55 * verdict.confidence, 0, 100)
+            # ...and the *size* answers to the record. On a split council whose
+            # approvers have been wrong more often than right, the trade is
+            # taken smaller rather than argued away: the book still gets the
+            # idea, the account is charged less for it.
+            approvers = [v.cabin for v in result.verdicts if v.verdict == "APPROVE"]
+            weight = self.scoreboard.book_weight(approvers)
+            if weight < 0.95:
+                verdict.adjustment = dict(verdict.adjustment or {})
+                current = float(verdict.adjustment.get("size_multiplier", 1.0) or 1.0)
+                verdict.adjustment["size_multiplier"] = round(max(0.25, current * weight), 3)
+                verdict.risk_flags = list(verdict.risk_flags) + [
+                    f"record discount x{weight:.2f} on the desks carrying this"
+                ]
         else:
             result.decision = "SKIP"
             self.stats["ceo_rejected"] += 1
@@ -195,8 +213,26 @@ class Council:
                                model=verdict.model, council=[v.as_dict() for v in result.verdicts])
 
     # ------------------------------------------------------------------
+    def settle(self, trade_id: str, pnl: float, risk: float = 0.0) -> None:
+        """A closed trade settles every desk that voted on it.
+
+        Called by the engine when a position closes; the desk that was right on
+        a loser (a REJECT) is credited the same way the desk that was right on a
+        winner is, because refusing a bad trade is the job too.
+        """
+        rec = self.get(trade_id)
+        if not rec:
+            return
+        for v in rec.get("verdicts", []) or []:
+            self.scoreboard.settle(str(v.get("cabin", "")), str(v.get("verdict", "")),
+                                   float(pnl or 0.0), float(risk or 0.0))
+        ceo = rec.get("ceo") or {}
+        if ceo.get("verdict"):
+            self.scoreboard.settle("CEO", str(ceo["verdict"]), float(pnl or 0.0), float(risk or 0.0))
+
     def snapshot(self) -> Dict[str, Any]:
         return {**self.stats, "history_len": len(self.history),
+                "scoreboard": self.scoreboard.snapshot(),
                 "rules": {
                     "cabins": self.cfg.rules.cabins,
                     "unanimous_approve": self.cfg.rules.unanimous_approve,

@@ -67,6 +67,11 @@ class DebateMessage:
     text: str
     round: int
     trade_id: Optional[str] = None
+    #: who the desk was speaking *to* — the room is a conversation, not six
+    #: monologues: a challenge names the desk whose claim it is attacking, a
+    #: question names the desk that has to answer it.
+    to: str = ""
+    to_name: str = ""
     ts: float = field(default_factory=time.time)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -134,16 +139,29 @@ class DebateRoom:
         return {"topic": text, "inner": {}, "trade_id": None}
 
     # ------------------------------------------------------------------
-    async def _say(self, key: str, kind: str, topic: str, inner: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _name_of(self, key: str) -> str:
+        brain = self.brains.get(key) or self.ceo
+        spec = getattr(brain, "spec", None)
+        return (spec.name or spec.label) if spec else key
+
+    async def _say(self, key: str, kind: str, topic: str, inner: Dict[str, Any],
+                   to: str = "", to_name: str = "") -> Optional[Dict[str, Any]]:
         brain = self.brains.get(key) or self.ceo
         if brain is None:
             return None
         spec: CabinSpec = brain.spec
         reg = self.registry.get(key, {})
+        inner = dict(inner)
+        if to_name:
+            # the brain is told who it is talking to, so it answers *that desk*
+            inner["to_name"] = to_name
         # note: `turn`, not `kind` — publish() already owns that keyword
         await self.bus.publish("debate_thinking", room="desk", speaker=key,
                                name=spec.name or spec.label, turn=kind, topic=topic,
                                round=self.rounds + 1)
+        await self.bus.publish("debate_listening", room="desk", speaker=key,
+                               name=spec.name or spec.label, turn=kind, topic=topic,
+                               to=to, to_name=to_name, round=self.rounds + 1)
         text = await brain.debate(topic, self.transcript, kind, inner)
         text = " ".join(str(text).split())
         if not text:
@@ -152,7 +170,7 @@ class DebateRoom:
             room="desk", topic=topic, speaker=key, name=spec.name or spec.label,
             label=spec.label, model=reg.get("model", getattr(brain, "model_name", "mock")),
             turn=kind, text=text[:600], round=self.rounds + 1,
-            trade_id=inner.get("trade_id"),
+            trade_id=inner.get("trade_id"), to=to, to_name=to_name,
         ).as_dict()
         self.transcript.append(msg)
         self.transcript = self.transcript[-160:]
@@ -190,12 +208,30 @@ class DebateRoom:
             lead = order[self._rng.randrange(len(order))]
             order = [lead] + [k for k in order if k != lead]
 
+            # A round is a conversation between named desks: the lead claims,
+            # a second desk challenges *the lead*, a third puts a question to the
+            # challenger, the challenger answers it, a fourth adds a nuance, and
+            # the head of desk closes with the rule the room will carry.
+            lead = order[0]
+            second = order[1] if len(order) > 1 else lead
+            third = order[2] if len(order) > 2 else second
+            fourth = order[3] if len(order) > 3 else third
+            turns = [
+                ("claim", lead, ""),
+                ("challenge", second, lead),
+                ("question", third, second),
+                ("answer", second, third),          # the desk that was asked answers
+                ("ack", fourth, third if fourth != third else second),
+                ("lesson", self.ceo_key(), ""),     # the close is addressed to the room
+            ]
+
             said: List[Dict[str, Any]] = []
-            for i, kind in enumerate(ROUND_SHAPE):
-                speaker = self.ceo_key() if kind == "lesson" else order[min(i, len(order) - 1)]
-                if kind == "ack" and len(order) > 4:
-                    speaker = order[3]
-                msg = await self._say(speaker, kind, text, inner)
+            for kind, speaker, target in turns:
+                if speaker == self.ceo_key() and kind != "lesson":
+                    speaker = second
+                msg = await self._say(speaker, kind, text, inner,
+                                      to=target if target else "",
+                                      to_name=self._name_of(target) if target else "")
                 if msg:
                     said.append(msg)
             log.info("debate round %d on %r: %d turns, %d lessons on file",

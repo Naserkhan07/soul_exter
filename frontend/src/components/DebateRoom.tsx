@@ -100,6 +100,7 @@ export function DebateRoomPanel({
               <div className="turn-head">
                 <span className="turn-icon">{st.icon}</span>
                 <b>{m.name}</b>
+                {m.to_name && <span className="turn-to">→ {m.to_name}</span>}
                 <em>{st.label}</em>
                 <span className="turn-model mono">{m.model}</span>
                 {hours24 && <time>{fmtTime(m.ts)}</time>}

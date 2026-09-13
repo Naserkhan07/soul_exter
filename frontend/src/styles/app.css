@@ -429,6 +429,11 @@ button.ghost.tiny { padding: 3px 8px; font-size: 11px; }
 .turn-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .turn-head b { font-size: 11.5px; }
 .turn-head em { font-style: normal; font-size: 10px; color: var(--text-faint); }
+.turn-head .turn-to { color: var(--accent, #7fb2ff); font-size: 10.5px; opacity: 0.9; }
+.chat-record { border-bottom: 1px solid var(--line, #1d2836); padding: 8px 12px; }
+.chat-record h3 { margin: 0 0 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+.chat-record .rec { margin: 0; font-size: 11.5px; }
+.chat-record .rec b { color: var(--text, #e8eef7); }
 .turn-head .turn-model { margin-left: auto; color: var(--text-faint); font-size: 9.5px; }
 .turn-head time { color: var(--text-faint); font-size: 9.5px; }
 .turn p { margin: 3px 0 0; color: var(--text-dim); font-size: 11.5px; line-height: 1.5; }

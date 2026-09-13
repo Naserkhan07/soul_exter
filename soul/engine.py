@@ -83,6 +83,10 @@ class Engine:
             return {
                 "market": self._market_ctx(trade.symbol, trade.features),
                 "portfolio": self.desk.context(),
+                # what the table has already taught itself, read back into every
+                # verdict: the debate room is the training channel, so its rules
+                # are part of the packet, not a footnote to it.
+                "memory": {"lessons": list(self.debate.lessons) if self.debate else []},
                 "now": time.time(),
             }
         return _ctx
@@ -290,6 +294,15 @@ class Engine:
                                      float(payload.get("pnl_pct", 0.0) or 0.0))
                 except Exception as exc:                # pragma: no cover
                     log.warning("scout learning failed: %s", exc)
+                # ...and the six desks are marked too: a closed trade is the
+                # only honest scorecard a council can have.
+                if self.council is not None:
+                    try:
+                        self.council.settle(str(payload.get("trade_id", "")),
+                                            float(payload.get("pnl", 0.0) or 0.0),
+                                            float(payload.get("risk", 0.0) or 0.0))
+                    except Exception as exc:            # pragma: no cover
+                        log.warning("scoreboard settle failed: %s", exc)
         finally:
             self.bus.unsubscribe(queue)
 
