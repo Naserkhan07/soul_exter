@@ -404,7 +404,11 @@ if (liveBase) {
     ["live api: every desk has a name and title", (roster.roster ?? []).every((r) => r.name && r.title)],
     ["live api: no API keys anywhere", (roster.roster ?? []).every((r) => r.key_required === false)],
     ["live api: seven asset classes offered", classes.length === 7],
-    ["live api: forex pairs are selectable", forex.length >= 10],
+    ["live api: forex pairs are selectable", forex.length >= 30],
+    ["live api: every forex pair is checkable",
+      forex.length === classes.find((c) => c.key === "forex")?.count],
+    ["live api: badges follow the data",
+      classes.every((c) => c.symbols.every((s) => ["venue", "rates", "sim"].includes(s.live ?? s.kind)))],
     ["live api: debate room knows its speakers", (debate.speakers ?? []).length >= 6],
   );
 

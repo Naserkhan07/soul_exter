@@ -145,7 +145,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
                 }
                 for r in engine.registry.values()
             ],
-            "instruments": book.catalogue(),
+            "instruments": book.catalogue(engine.market.source_of),
             "selected": list(engine.cfg.universe),
             "debate": {
                 "enabled": engine.debate is not None,

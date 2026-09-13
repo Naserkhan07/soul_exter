@@ -40,10 +40,15 @@ interface RosterEntry {
 interface SymbolEntry {
   symbol: string;
   name: string;
+  /** what the instrument is wired for */
   kind: string;
+  /** what the desk is actually reading right now (falls back to kind) */
+  live?: string;
   venue?: string | null;
   rate?: string | null;
 }
+
+const badgeOf = (s: SymbolEntry) => SOURCE_BADGE[s.live ?? s.kind] ?? s.live ?? s.kind;
 
 interface ClassEntry {
   key: string;
@@ -269,14 +274,14 @@ export function SettingsPanel({
                 </div>
                 <div className="book-grid">
                   {cls.symbols.map((s) => (
-                    <label className="check sym" key={s.symbol} title={`${s.name} — ${SOURCE_BADGE[s.kind] ?? s.kind}`}>
+                    <label className="check sym" key={s.symbol} title={`${s.name} - ${badgeOf(s)}`}>
                       <input
                         type="checkbox"
                         checked={ticked.has(s.symbol)}
                         onChange={() => toggle(s.symbol)}
                       />
                       <span className="mono">{s.symbol}</span>
-                      <em>{SOURCE_BADGE[s.kind] ?? s.kind}</em>
+                      <em>{badgeOf(s)}</em>
                     </label>
                   ))}
                 </div>

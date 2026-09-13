@@ -6,11 +6,13 @@ bar looks like*:
 
 * **crypto** streams from Binance's public endpoints (no key, no account) and
   falls back to the simulator when the venue is unreachable;
-* **forex, indices, metals** come from the free exchange-rate endpoints, which
-  need no key either (frankfurter/ECB reference rates for the majors) — daily
-  bars, so the desk reads them as a slow book;
-* **stocks, futures, options** have no free keyless intraday feed worth trusting,
-  so on those the desk is explicit: it runs on the simulator, and it says so.
+* **forex** is anchored on the keyless ECB/Frankfurter reference table -- one
+  plain GET, no key and no account -- and simulated between fixes, so the level
+  is real and the intraday motion is honestly ours;
+* **indices, metals, stocks, futures, options** have no free keyless intraday
+  feed wired in, so on those the desk is explicit: it runs on the simulator, and
+  every badge in the UI says so (`market.source_of` follows the data, so a
+  "rates" badge only appears when that fetch actually landed).
 
 Anything selected here becomes the scanner's universe, the ticker on the wall,
 and the set of desks people can be seated at. The roster is intentionally wider
@@ -54,8 +56,8 @@ CLASSES: Dict[str, Dict[str, object]] = {
     },
     "forex": {
         "label": "Forex",
-        "source": "ECB/Frankfurter reference rates (keyless)",
-        "instrument": "spot FX majors and crosses",
+        "source": "ECB/Frankfurter reference rates (keyless) -- daily fix, intraday sim",
+        "instrument": "spot FX majors, crosses and the EM board",
     },
     "indices": {
         "label": "Indices",
@@ -79,7 +81,7 @@ CLASSES: Dict[str, Dict[str, object]] = {
     },
     "metals": {
         "label": "Metals",
-        "source": "ECB reference rates, quoted against USD (keyless)",
+        "source": "simulated (no keyless spot-metal feed wired)",
         "instrument": "spot metals",
     },
 }
@@ -130,18 +132,52 @@ INSTRUMENTS: List[Instrument] = [
     _ins("PAXG/USDT", "PAX Gold / Tether", "crypto", "venue", 2400.0, 0.35, "PAXG/USDT"),
 
     # ---- forex (ECB reference rates, keyless) ---------------------------
-    _ins("EUR/USD", "Euro / US Dollar", "forex", "rates", 1.08, 0.35, rate="EUR"),
-    _ins("GBP/USD", "Pound / US Dollar", "forex", "rates", 1.27, 0.40, rate="GBP"),
-    _ins("USD/JPY", "US Dollar / Yen", "forex", "rates", 152.0, 0.45, rate="JPY"),
-    _ins("USD/CHF", "US Dollar / Franc", "forex", "rates", 0.88, 0.35, rate="CHF"),
-    _ins("AUD/USD", "Aussie / US Dollar", "forex", "rates", 0.66, 0.55, rate="AUD"),
-    _ins("USD/CAD", "US Dollar / Loonie", "forex", "rates", 1.36, 0.40, rate="CAD"),
-    _ins("NZD/USD", "Kiwi / US Dollar", "forex", "rates", 0.60, 0.55, rate="NZD"),
+    # `rate` is the pair the reference table can settle, always written
+    # BASE-QUOTE: the client fetches the EUR table once and crosses any of
+    # these off it. Everything here is a pair the desk can actually price.
+    # majors
+    _ins("EUR/USD", "Euro / US Dollar", "forex", "rates", 1.08, 0.35, rate="EUR-USD"),
+    _ins("GBP/USD", "Pound / US Dollar", "forex", "rates", 1.27, 0.40, rate="GBP-USD"),
+    _ins("USD/JPY", "US Dollar / Yen", "forex", "rates", 152.0, 0.45, rate="USD-JPY"),
+    _ins("USD/CHF", "US Dollar / Franc", "forex", "rates", 0.88, 0.35, rate="USD-CHF"),
+    _ins("AUD/USD", "Aussie / US Dollar", "forex", "rates", 0.66, 0.55, rate="AUD-USD"),
+    _ins("USD/CAD", "US Dollar / Loonie", "forex", "rates", 1.36, 0.40, rate="USD-CAD"),
+    _ins("NZD/USD", "Kiwi / US Dollar", "forex", "rates", 0.60, 0.55, rate="NZD-USD"),
+    # crosses
     _ins("EUR/GBP", "Euro / Pound", "forex", "rates", 0.85, 0.30, rate="EUR-GBP"),
     _ins("EUR/JPY", "Euro / Yen", "forex", "rates", 164.0, 0.40, rate="EUR-JPY"),
-    _ins("SEK/USD", "Krona / US Dollar", "forex", "rates", 0.095, 0.50, rate="SEK"),
+    _ins("EUR/CHF", "Euro / Franc", "forex", "rates", 0.95, 0.30, rate="EUR-CHF"),
+    _ins("EUR/AUD", "Euro / Aussie", "forex", "rates", 1.64, 0.50, rate="EUR-AUD"),
+    _ins("EUR/CAD", "Euro / Loonie", "forex", "rates", 1.47, 0.45, rate="EUR-CAD"),
+    _ins("EUR/NOK", "Euro / Krone", "forex", "rates", 11.60, 0.65, rate="EUR-NOK"),
+    _ins("EUR/SEK", "Euro / Krona", "forex", "rates", 11.35, 0.60, rate="EUR-SEK"),
+    _ins("EUR/PLN", "Euro / Zloty", "forex", "rates", 4.30, 0.70, rate="EUR-PLN"),
+    _ins("GBP/JPY", "Pound / Yen", "forex", "rates", 193.0, 0.50, rate="GBP-JPY"),
+    _ins("GBP/CHF", "Pound / Franc", "forex", "rates", 1.12, 0.40, rate="GBP-CHF"),
+    _ins("AUD/JPY", "Aussie / Yen", "forex", "rates", 100.0, 0.55, rate="AUD-JPY"),
+    _ins("AUD/NZD", "Aussie / Kiwi", "forex", "rates", 1.10, 0.35, rate="AUD-NZD"),
+    _ins("CAD/JPY", "Loonie / Yen", "forex", "rates", 112.0, 0.50, rate="CAD-JPY"),
+    _ins("CHF/JPY", "Franc / Yen", "forex", "rates", 172.0, 0.45, rate="CHF-JPY"),
+    _ins("NZD/JPY", "Kiwi / Yen", "forex", "rates", 91.0, 0.55, rate="NZD-JPY"),
+    # dollar bloc and the EM board
+    _ins("USD/SEK", "US Dollar / Krona", "forex", "rates", 10.50, 0.60, rate="USD-SEK"),
+    _ins("USD/NOK", "US Dollar / Krone", "forex", "rates", 10.80, 0.65, rate="USD-NOK"),
+    _ins("USD/DKK", "US Dollar / Krone (DK)", "forex", "rates", 6.85, 0.40, rate="USD-DKK"),
+    _ins("USD/PLN", "US Dollar / Zloty", "forex", "rates", 3.98, 0.70, rate="USD-PLN"),
+    _ins("USD/CZK", "US Dollar / Koruna", "forex", "rates", 23.30, 0.70, rate="USD-CZK"),
+    _ins("USD/HUF", "US Dollar / Forint", "forex", "rates", 360.0, 0.75, rate="USD-HUF"),
+    _ins("USD/INR", "US Dollar / Rupee", "forex", "rates", 83.50, 0.35, rate="USD-INR"),
+    _ins("USD/CNY", "US Dollar / Yuan", "forex", "rates", 7.25, 0.25, rate="USD-CNY"),
+    _ins("USD/SGD", "US Dollar / Singapore Dollar", "forex", "rates", 1.35, 0.30, rate="USD-SGD"),
+    _ins("USD/HKD", "US Dollar / Hong Kong Dollar", "forex", "rates", 7.81, 0.15, rate="USD-HKD"),
+    _ins("USD/KRW", "US Dollar / Won", "forex", "rates", 1340.0, 0.55, rate="USD-KRW"),
+    _ins("USD/MXN", "US Dollar / Peso", "forex", "rates", 17.10, 0.80, rate="USD-MXN"),
+    _ins("USD/ZAR", "US Dollar / Rand", "forex", "rates", 18.60, 0.90, rate="USD-ZAR"),
+    _ins("USD/TRY", "US Dollar / Lira", "forex", "rates", 32.50, 0.95, rate="USD-TRY"),
+    _ins("USD/BRL", "US Dollar / Real", "forex", "rates", 5.05, 0.85, rate="USD-BRL"),
 
-    # ---- metals (ECB reference rates) -----------------------------------
+    # ---- metals ----------------------------------------------------------
+    # No keyless spot-metal feed is wired, so these are simulated and say so.
     _ins("XAU/USD", "Gold / US Dollar", "metals", "sim", 2400.0, 0.30),
     _ins("XAG/USD", "Silver / US Dollar", "metals", "sim", 28.0, 0.45),
 
@@ -153,6 +189,9 @@ INSTRUMENTS: List[Instrument] = [
     _ins("UK100", "FTSE 100", "indices", "sim", 8200.0, 0.65),
     _ins("NIKKEI225", "Nikkei 225", "indices", "sim", 38500.0, 0.75),
     _ins("VIX", "Volatility Index", "indices", "sim", 15.4, -1.90),
+    _ins("CAC40", "CAC 40", "indices", "sim", 7600.0, 0.80),
+    _ins("HSI", "Hang Seng", "indices", "sim", 17400.0, 0.95),
+    _ins("ASX200", "S&P/ASX 200", "indices", "sim", 7900.0, 0.60),
 
     # ---- stocks ----------------------------------------------------------
     _ins("AAPL", "Apple", "stocks", "sim", 228.0, 0.95),
@@ -165,6 +204,16 @@ INSTRUMENTS: List[Instrument] = [
     _ins("AMD", "Advanced Micro Devices", "stocks", "sim", 162.0, 1.55),
     _ins("JPM", "JPMorgan Chase", "stocks", "sim", 214.0, 0.80),
     _ins("XOM", "Exxon Mobil", "stocks", "sim", 118.0, 0.55),
+    _ins("NFLX", "Netflix", "stocks", "sim", 690.0, 1.25),
+    _ins("AVGO", "Broadcom", "stocks", "sim", 172.0, 1.35),
+    _ins("ORCL", "Oracle", "stocks", "sim", 168.0, 1.05),
+    _ins("CRM", "Salesforce", "stocks", "sim", 265.0, 1.10),
+    _ins("COST", "Costco", "stocks", "sim", 890.0, 0.60),
+    _ins("KO", "Coca-Cola", "stocks", "sim", 71.0, 0.45),
+    _ins("DIS", "Walt Disney", "stocks", "sim", 95.0, 1.10),
+    _ins("BA", "Boeing", "stocks", "sim", 152.0, 1.25),
+    _ins("PFE", "Pfizer", "stocks", "sim", 29.0, 0.75),
+    _ins("INTC", "Intel", "stocks", "sim", 21.0, 1.40),
 
     # ---- futures ---------------------------------------------------------
     _ins("ES1!", "E-mini S&P 500 (front)", "futures", "sim", 5405.0, 0.85),
@@ -174,12 +223,20 @@ INSTRUMENTS: List[Instrument] = [
     _ins("GC1!", "Gold (front)", "futures", "sim", 2410.0, 0.30),
     _ins("SI1!", "Silver (front)", "futures", "sim", 28.2, 0.45),
     _ins("ZB1!", "30Y Treasury Bond (front)", "futures", "sim", 121.0, -0.25),
+    _ins("ZN1!", "10Y Treasury Note (front)", "futures", "sim", 114.5, -0.20),
+    _ins("BZ1!", "Brent Crude (front)", "futures", "sim", 82.0, 0.65),
+    _ins("HG1!", "Copper (front)", "futures", "sim", 4.35, 0.85),
+    _ins("6E1!", "Euro FX (front)", "futures", "sim", 1.085, 0.35),
 
     # ---- options (vanilla, on the index) --------------------------------
     _ins("SPX-C5400", "S&P 500 call 5400 (30d)", "options", "sim", 62.0, 1.20),
     _ins("SPX-P5200", "S&P 500 put 5200 (30d)", "options", "sim", 38.0, -1.30),
     _ins("NVDA-C120", "NVIDIA call 120 (30d)", "options", "sim", 5.4, 1.80),
     _ins("TSLA-P240", "Tesla put 240 (30d)", "options", "sim", 7.9, -1.60),
+    _ins("SPX-P5400", "S&P 500 put 5400 (30d)", "options", "sim", 54.0, -1.25),
+    _ins("AAPL-C240", "Apple call 240 (30d)", "options", "sim", 6.2, 1.55),
+    _ins("NVDA-P110", "NVIDIA put 110 (30d)", "options", "sim", 4.1, -1.70),
+    _ins("QQQ-C480", "Nasdaq 100 ETF call 480 (30d)", "options", "sim", 9.3, 1.40),
 ]
 
 BY_SYMBOL: Dict[str, Instrument] = {i.symbol: i for i in INSTRUMENTS}
@@ -195,8 +252,13 @@ DEFAULT_SELECTION: List[str] = [
 ]
 
 
-def catalogue() -> Dict[str, object]:
-    """Everything the settings panel needs to draw the instrument book."""
+def catalogue(source_of=None) -> Dict[str, object]:
+    """Everything the settings panel needs to draw the instrument book.
+
+    `source_of` (usually `MarketFeed.source_of`) turns each instrument's declared
+    kind into the source it is *actually* running on right now, so a panel can
+    never promise a feed the desk is not reading.
+    """
     classes = []
     for key, meta in CLASSES.items():
         members = [i for i in INSTRUMENTS if i.klass == key]
@@ -208,6 +270,7 @@ def catalogue() -> Dict[str, object]:
             "count": len(members),
             "symbols": [
                 {"symbol": i.symbol, "name": i.name, "kind": i.kind,
+                 "live": (source_of(i.symbol) if source_of else i.kind),
                  "venue": i.venue, "rate": i.rate}
                 for i in sorted(members, key=lambda x: x.symbol)
             ],

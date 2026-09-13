@@ -61,6 +61,9 @@ class MarketFeed:
         self._hist_ts: Dict[str, float] = {}
         self._hist_lock = asyncio.Lock()
         self._exchange: Any = None
+        # daily ECB reference table (keyless): the level FX is anchored on
+        self._rates: Dict[str, float] = {}
+        self._rates_ok = False
         self._rng = random.Random(7)
         self._btc_drift = 0.0
         self._new_bar_at: Dict[str, float] = {}
@@ -82,6 +85,9 @@ class MarketFeed:
                 log.warning("market: ccxt unavailable -> simulator")
         else:
             self.mode = "sim"
+
+        if self.cfg.market_source in ("auto", "rates", "ccxt"):
+            await asyncio.to_thread(self._try_rates)
 
         self._seed_simulator()
 
@@ -108,6 +114,54 @@ class MarketFeed:
             self.errors.append(str(exc))
             log.info("market: ccxt not usable (%s)", exc)
             return False
+
+    # ------------------------------------------------------------------
+    # keyless reference rates (ECB via frankfurter — no key, no token)
+    # ------------------------------------------------------------------
+    RATES_URLS = (
+        "https://api.frankfurter.dev/v1/latest?base=EUR",
+        "https://api.frankfurter.app/latest?from=EUR",
+    )
+
+    def _try_rates(self) -> bool:
+        """Load the daily EUR reference table.
+
+        This is the whole of the FX data story: one keyless GET, no key, no
+        account, no token. FX desks are anchored on the published fix and
+        simulated between fixes, which is throttled through `SIM_BAR_SECONDS`
+        like every other simulated tape, so the council is never handed an
+        FX bar that moves 16% in a session.
+        """
+        import json
+        import urllib.request
+
+        for url in self.RATES_URLS:
+            try:
+                with urllib.request.urlopen(url, timeout=6) as resp:
+                    table = json.loads(resp.read().decode("utf-8")).get("rates") or {}
+                table = {str(k).upper(): float(v) for k, v in table.items() if v}
+                if table.get("USD"):
+                    table["EUR"] = 1.0
+                    self._rates = table
+                    self._rates_ok = True
+                    log.info("market: reference rates loaded (%d currencies)", len(table))
+                    return True
+            except Exception as exc:
+                self.errors.append(f"rates {url}: {exc}")
+        log.info("market: reference rates unreachable -> FX runs on the simulator")
+        return False
+
+    def _rate_price(self, hint: str) -> Optional[float]:
+        """Price a BASE-QUOTE pair off the EUR table (EUR itself is 1.0)."""
+        if not self._rates_ok or not hint:
+            return None
+        parts = hint.upper().split("-")
+        if len(parts) != 2:
+            return None
+        base, quote = self._rates.get(parts[0]), self._rates.get(parts[1])
+        if not base or not quote:
+            return None
+        return float(quote) / float(base)
 
     # ------------------------------------------------------------------
     # polling loop
@@ -155,17 +209,21 @@ class MarketFeed:
     # simulator
     # ------------------------------------------------------------------
     def source_of(self, symbol: str) -> str:
-        """Where a symbol's bars come from: the venue, the rates feed, or sim.
+        """Where a symbol's bars come from: the venue, the reference fix, or sim.
 
         Selecting an instrument does not promise a live feed for it. Crypto
-        streams from the venue; FX/metal crosses come from the keyless reference
-        rates; everything else has no free keyless source, so the desk simulates
-        it — and says so, in the same sentence, everywhere it is shown.
+        streams from the venue when ccxt is installed; an FX pair is anchored on
+        the keyless ECB reference table when that one GET succeeds and simulated
+        between fixes; everything else has no keyless source wired in, so the
+        desk simulates it -- and says so, in the same sentence, everywhere it is
+        shown. The label follows the data: no fetch, no "rates" badge.
         """
         inst = book.instrument(symbol)
         if inst.kind == "venue" and self.mode == "live":
             return "venue"
-        return inst.kind if inst.kind in ("rates", "venue") else "sim"
+        if inst.kind == "rates" and self._rates_ok:
+            return "rates"
+        return "sim"
 
     def set_universe(self, symbols: List[str]) -> List[str]:
         """Point the desk at a new instrument book.
@@ -190,6 +248,11 @@ class MarketFeed:
                 continue
             inst = book.instrument(sym)
             base = SEED_PRICES.get(sym, inst.base)
+            if inst.kind == "rates":
+                # real level from the published fix, simulated motion around it
+                fix = self._rate_price(inst.rate or sym.replace("/", "-"))
+                if fix:
+                    base = fix
             beta = BETA.get(sym, inst.beta) * (0.9 + 0.2 * self._rng.random())
             rows = np.zeros((n, 6), dtype=float)
             # start on the anchor and stay near it: the reversion below only has
