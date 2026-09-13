@@ -28,8 +28,10 @@ const zoom = parseFloat(flag("zoom", "1"));
 
 const floor = new SoulFloor(null);
 floor.resize(w, h, 1);
-floor.setZoom(zoom);
-floor.focusOn({ mode: focus });
+// The zoom rides along with the focus: "all" always fits the whole room (so the
+// zoom is a no-op there by design), while the presets crop and therefore honour
+// it — which is the only way to render the desk detail tiers offline.
+floor.focusOn({ mode: focus, zoom });
 
 // the desk as it is rostered in soul/brains/base.py: names, titles, local model
 const ROSTER: Array<[string, string, string, string, string]> = [
