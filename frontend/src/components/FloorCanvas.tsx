@@ -56,7 +56,11 @@ export function FloorCanvas({
 
     const resize = () => {
       const rect = wrap.getBoundingClientRect();
-      floor.resize(rect.width, rect.height, Math.min(2, window.devicePixelRatio || 1));
+      // 1.5 is the sweet spot for this scene: on a retina display a 2x backing
+      // store costs 4x the fill for a picture that is mostly flat isometric
+      // fills and thin strokes, and the HUD text is DOM, so it stays crisp
+      // either way.
+      floor.resize(rect.width, rect.height, Math.min(1.5, window.devicePixelRatio || 1));
     };
     resize();
     const ro = new ResizeObserver(resize);
