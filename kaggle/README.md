@@ -13,7 +13,9 @@ Cloudflare quick tunnel for viewing. No account, token or API key is needed anyw
 3. **Run cells 1 → 5 in order.**
    - cell 1 confirms the two T4s
    - cell 2 installs deps (~3 min the first time)
-   - cell 3 clones the code and points `HF_HOME` at `/kaggle/working/hf`
+   - cell 3 clones the branch the work lives on (`SOUL_BRANCH`, default
+     `arena/01a09bbe-soul-exter`) and falls back to the default branch if it is not there,
+     then points `HF_HOME` at `/kaggle/working/hf`
    - cell 4 loads **one** cabin and prints its verdict — a smoke test before you spend 15 minutes
      downloading the rest
    - cell 5 starts the engine and opens the tunnel, then prints a URL like
