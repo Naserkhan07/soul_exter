@@ -97,9 +97,14 @@ click. That is why there is no Llama and no Gemma in the list (both require an a
 | QUANT | `Qwen/Qwen2.5-7B-Instruct` | ~5.0 GB | Apache-2.0 |
 | RISK | `mistralai/Mistral-7B-Instruct-v0.3` | ~5.0 GB | Apache-2.0 |
 | NEWS | `HuggingFaceH4/zephyr-7b-beta` | ~5.0 GB | MIT |
-| MACRO | `Qwen/Qwen2.5-3B-Instruct` | ~2.4 GB | Apache-2.0 |
-| COMPLIANCE | `microsoft/Phi-3.5-mini-instruct` | ~2.6 GB | MIT |
+| MACRO | `microsoft/Phi-3.5-mini-instruct` | ~2.6 GB | MIT |
+| COMPLIANCE | `Qwen/Qwen2.5-3B-Instruct` | ~2.4 GB | Apache-2.0 |
 | **CEO** | `Qwen/Qwen2.5-14B-Instruct` | ~9.5 GB | Apache-2.0 |
+
+Six desks, six *different* sets of weights: the head of desk never decides a
+trade on the same model that voted on it. (`SOUL_MODEL_PROFILE=variety` keeps
+the same six models but gives the macro desk the 7B reasoner and drops quant to
+the 3B; `low` is the laptop profile and shares two small models on purpose.)
 
 2 × T4 = 32 GB, and the pool keeps the most recently used models resident
 (`SOUL_MODEL_CACHE`, default 6). Profiles: `SOUL_MODEL_PROFILE=low|standard|variety`.

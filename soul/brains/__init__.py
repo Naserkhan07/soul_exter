@@ -40,8 +40,8 @@ PROFILE_STANDARD: Dict[str, str] = {
     "QUANT": "Qwen/Qwen2.5-7B-Instruct",
     "RISK": "mistralai/Mistral-7B-Instruct-v0.3",
     "NEWS": "HuggingFaceH4/zephyr-7b-beta",
-    "MACRO": "Qwen/Qwen2.5-3B-Instruct",
-    "COMPLIANCE": "microsoft/Phi-3.5-mini-instruct",
+    "MACRO": "microsoft/Phi-3.5-mini-instruct",
+    "COMPLIANCE": "Qwen/Qwen2.5-3B-Instruct",
     "CEO": "Qwen/Qwen2.5-14B-Instruct",
 }
 
@@ -54,12 +54,16 @@ PROFILE_LOW: Dict[str, str] = {
     "CEO": "Qwen/Qwen2.5-7B-Instruct",
 }
 
-#: Every cabin a *different* model, heaviest reasonable set for 2x T4 (32 GB).
+#: Every cabin a different model, and the head of desk on the 14B: the whole
+#: point of the roster is that six voices are six different sets of weights.
+#: Same six models, different wiring: the macro desk gets the 7B reasoner and
+#: quantitative research drops to the 3B, so the desk arguing the regime read is
+#: not the desk that already argued the statistics one.
 PROFILE_VARIETY: Dict[str, str] = {
-    "QUANT": "Qwen/Qwen2.5-7B-Instruct",
+    "QUANT": "Qwen/Qwen2.5-3B-Instruct",
     "RISK": "mistralai/Mistral-7B-Instruct-v0.3",
     "NEWS": "HuggingFaceH4/zephyr-7b-beta",
-    "MACRO": "Qwen/Qwen2.5-14B-Instruct",
+    "MACRO": "Qwen/Qwen2.5-7B-Instruct",
     "COMPLIANCE": "microsoft/Phi-3.5-mini-instruct",
     "CEO": "Qwen/Qwen2.5-14B-Instruct",
 }
@@ -132,8 +136,13 @@ def brain_registry(brains: Dict[str, Brain], profile: str = "standard") -> Dict[
             "role": spec.role,
             "is_ceo": spec.is_ceo,
             "slot": i,
-            "model": getattr(b, "model_name", "mock"),
+            # The desk's model id is a fact about the desk, not about this
+            # process: on a CPU box the personas answer, but the roster still
+            # has to say which open weights that desk runs on a GPU.
+            "model": getattr(b, "model_name", None) or model_for(spec, profile),
             "backend": b.kind,
+            "note": ("mock personas: same pipeline and prompts, no weights loaded "
+                     "(this desk runs the model on a GPU box)") if b.kind == "mock" else "",
             "temperature": spec.temperature,
             "license": "open weights, ungated",
             # there is no key to show: that is the point of the roster

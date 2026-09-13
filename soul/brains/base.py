@@ -169,7 +169,10 @@ CABINS: List[CabinSpec] = [
         mandate=("Judge the regime: BTC trend, risk-on/risk-off posture, correlation crowding, "
                  "liquidity/spread conditions, and whether this trade is fighting the tape or "
                  "riding it."),
-        model_prefs=["Qwen/Qwen2.5-14B-Instruct", "Qwen/Qwen2.5-7B-Instruct"],
+        # MACRO runs the small reasoner by default and the 7B in the heavy
+        # profile; the 14B is reserved for the head of desk, so no desk shares
+        # its weights with the model that decides the trade.
+        model_prefs=["microsoft/Phi-3.5-mini-instruct", "Qwen/Qwen2.5-7B-Instruct"],
         temperature=0.3,
     ),
     CabinSpec(
@@ -188,7 +191,7 @@ CABINS: List[CabinSpec] = [
         mandate=("Judge the book, not the thesis: position limits, total exposure, duplicate or "
                  "correlated positions, cash available, and whether this trade violates the "
                  "desk's own rules. Rules beat opinions."),
-        model_prefs=["microsoft/Phi-3.5-mini-instruct", "Qwen/Qwen2.5-3B-Instruct"],
+        model_prefs=["Qwen/Qwen2.5-3B-Instruct", "microsoft/Phi-3.5-mini-instruct"],
         temperature=0.15,
         max_new_tokens=280,
     ),

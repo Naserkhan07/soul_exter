@@ -142,6 +142,7 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
                     "expertise": r.get("expertise", []), "style": r.get("style", ""),
                     "key_required": False, "auth": r.get("auth", "none"),
                     "license": r.get("license", "open weights"),
+                    "note": r.get("note", ""),
                 }
                 for r in engine.registry.values()
             ],

@@ -30,7 +30,8 @@ Cloudflare quick tunnel for viewing. No account, token or API key is needed anyw
 
 | profile | cabins | first trade | steady state |
 |---|---|---|---|
-| `standard` (default) | Qwen-7B, Mistral-7B, Zephyr-7B, Qwen-3B, Phi-3.5-mini, **CEO Qwen-14B** | 3–6 min (downloads) | ~1–3 trades/min, 2 waves + CEO on splits |
+| `standard` (default) | Qwen-7B, Mistral-7B, Zephyr-7B, Phi-3.5-mini, Qwen-3B, **CEO Qwen-14B** | 3–6 min (downloads) | ~1–3 trades/min, 2 waves + CEO on splits |
+| `variety` | Qwen-3B, Mistral-7B, Zephyr-7B, Qwen-7B, Phi-3.5-mini, **CEO Qwen-14B** | 3–6 min | same |
 | `low` | 3B + Phi-mini throughout, CEO Qwen-7B | 1–2 min | ~3–6 trades/min |
 
 Watch VRAM with cell 6. If you OOM, lower `SOUL_MODEL_CACHE` (how many models stay resident) or

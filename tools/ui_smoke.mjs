@@ -455,6 +455,15 @@ if (liveBase) {
     ["live api: six desks in the roster", (roster.roster ?? []).length === 6],
     ["live api: every desk has a name and title", (roster.roster ?? []).every((r) => r.name && r.title)],
     ["live api: no API keys anywhere", (roster.roster ?? []).every((r) => r.key_required === false)],
+    // the brief: five voting desks plus a head of desk, and six *different*
+    // local models — not one model wearing six prompt hats
+    ["live api: six desks run six different models",
+      new Set((roster.roster ?? []).map((r) => r.model)).size === 6],
+    ["live api: the head of desk runs its own model", (() => {
+      const rs = roster.roster ?? [];
+      const ceo = rs.find((r) => r.is_ceo);
+      return !!ceo && rs.filter((r) => !r.is_ceo).every((r) => r.model !== ceo.model);
+    })()],
     ["live api: seven asset classes offered", classes.length === 7],
     ["live api: forex pairs are selectable", forex.length >= 30],
     ["live api: every forex pair is checkable",

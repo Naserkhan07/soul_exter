@@ -29,6 +29,8 @@ interface RosterEntry {
   is_ceo: boolean;
   model: string;
   backend: string;
+  /** why the backend is what it is — "mock personas, no weights loaded" on a CPU box */
+  note?: string;
   temperature: number;
   expertise: string[];
   style: string;
@@ -205,7 +207,7 @@ export function SettingsPanel({
               </div>
               <div className="roster-meta">
                 <span className="mono">{ceo.model}</span>
-                <span className="badge">{ceo.backend}</span>
+                <span className="badge" title={ceo.note || undefined}>{ceo.backend}</span>
                 <span className="badge">T={ceo.temperature}</span>
                 <span className="badge ok">no key</span>
               </div>
@@ -225,7 +227,7 @@ export function SettingsPanel({
               </div>
               <div className="roster-meta">
                 <span className="mono">{r.model}</span>
-                <span className="badge">{r.backend}</span>
+                <span className="badge" title={r.note || undefined}>{r.backend}</span>
                 <span className="badge">T={r.temperature}</span>
                 <span className="badge ok">ungated</span>
               </div>
