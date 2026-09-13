@@ -115,6 +115,14 @@ class Config:
     min_score: float = _env_float("SOUL_MIN_SCORE", 0.28)
     #: don't re-review the same symbol+side+strategy for this long (seconds)
     trade_cooldown_s: float = _env_float("SOUL_TRADE_COOLDOWN", 420.0)
+
+    # The fly scout: a spiking FlyWire-inspired network that screens scanner
+    # candidates before they are allowed to cost the council any GPU time.
+    scout_enabled: bool = _env_bool("SOUL_SCOUT", True)
+    scout_min_z: float = _env_float("SOUL_SCOUT_MIN_Z", 1.3)   # margin floor, in sigmas
+    scout_top_n: int = _env_int("SOUL_SCOUT_TOP_N", 0)         # 0 -> MAX_CANDIDATES
+    scout_learn: bool = _env_bool("SOUL_SCOUT_LEARN", True)    # learn from realised P&L
+    scout_seed: int = _env_int("SOUL_SCOUT_SEED", 1337)
     desks: int = _env_int("SOUL_DESKS", 64)
 
     # ---- council ------------------------------------------------------

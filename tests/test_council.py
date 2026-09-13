@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -395,6 +396,12 @@ def test_mock_council_produces_a_spread_of_outcomes():
     about, so fail loudly.
     """
     cfg = Config(mock_llm=True)
+    # Each mock verdict is seeded from the trade's (random) id, so a single deck
+    # is a random draw. This guard is therefore statistical: it scores a few
+    # dozen trades with the latency turned off, which makes the flake rate
+    # negligible while keeping the test fast.
+    cfg.mock_latency = 0.0
+    cfg.mock_jitter = 0.0
     council, bus = make_council(cfg)
     from soul.market import MarketFeed
     from soul.scanner import Scanner
@@ -420,13 +427,45 @@ def test_mock_council_produces_a_spread_of_outcomes():
     deck = asyncio.run(run())
     assert len(deck) >= 8, "scanner should find setups in the simulator"
 
+    # The spread is a property of the brains, not of whatever tape the simulator
+    # happened to print, so drive the histogram from a FIXED deck. Deriving it
+    # from the live simulator made this guard flaky: the simulator advances with
+    # wall-clock time, so a slow machine scores a different deck.
+    # Seeded, so the deck is identical on every run, but sampled across the whole
+    # feature range the scanner actually produces — including the weak, late and
+    # conflicted setups that the cabins are supposed to push back on.
+    rng = random.Random(20240913)
+    fixed = []
+    for i in range(40):
+        t = trade(symbol=f"TST{i}/USDT",
+                  side="LONG" if i % 2 == 0 else "SHORT",
+                  score=rng.uniform(0.05, 0.95),
+                  entry=100.0, stop=100.0 - rng.uniform(0.4, 3.0),
+                  target=100.0 + rng.uniform(0.8, 6.0))
+        t.features = dict(t.features)
+        t.features.update({
+            "rsi": rng.uniform(20.0, 85.0),
+            "rel_strength": rng.uniform(-4.0, 4.0),
+            "vol_z": rng.uniform(-1.0, 3.5),
+            "regime": float(rng.choice([-1.0, 0.0, 1.0])),
+            "atr_rank": rng.uniform(5.0, 95.0),
+            "atr_pct": rng.uniform(0.2, 3.0),
+            "range_pos": rng.uniform(0.0, 1.0),
+            "bb_width_rank": rng.uniform(0.0, 100.0),
+            "btc_ret_12": rng.uniform(-3.0, 3.0),
+            "corr_proxy": rng.uniform(0.8, 2.0),
+            "ema_stack": float(rng.choice([-1.0, 1.0])),
+            "rr": round(rng.uniform(0.8, 3.5), 2),
+        })
+        fixed.append(t)
+
     histogram = {}
     entries = 0
-    for t in deck[:12]:
+    for t in fixed:
         r = asyncio.run(council.review(t, ctx_fn))
         histogram[r.approvals] = histogram.get(r.approvals, 0) + 1
         entries += 1 if r.decision == "ENTER" else 0
     assert len(histogram) >= 3, f"mock council is too uniform: {histogram}"
     assert any(k >= 4 for k in histogram), f"no near-consensus approvals: {histogram}"
     assert any(k <= 1 for k in histogram), f"no near-consensus rejections: {histogram}"
-    assert 0 < entries < len(deck[:12]), "every trade took the same door"
+    assert 0 < entries < len(fixed), "every trade took the same door"

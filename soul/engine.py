@@ -18,6 +18,7 @@ from .desk import PaperDesk
 from .market import MarketFeed
 from .models import TradeCandidate
 from .scanner import Scanner
+from .scout import FlyScout
 
 log = logging.getLogger("soul.engine")
 
@@ -28,6 +29,14 @@ class Engine:
         self.bus = bus or EventBus()
         self.market = MarketFeed(cfg)
         self.scanner = Scanner(cfg, self.market)
+        # The scout is cheap (~5 ms/symbol) and fully offline, so it is built
+        # eagerly; if it ever fails the engine runs without it rather than dying.
+        self.scout: Optional[FlyScout] = None
+        if cfg.scout_enabled:
+            try:
+                self.scout = FlyScout(cfg)
+            except Exception as exc:                       # pragma: no cover
+                log.warning("scout unavailable: %s", exc)
         self.desk = PaperDesk(cfg, self.bus)
         self.council: Optional[Council] = None
         self.brains: Dict[str, Any] = {}
@@ -104,6 +113,8 @@ class Engine:
             asyncio.create_task(self._mark_loop(), name="mark"),
             asyncio.create_task(self._broadcast_loop(), name="broadcast"),
         ]
+        if self.scout is not None:
+            self._tasks.append(asyncio.create_task(self._scout_listener(), name="scout-learner"))
         if seed is None:
             seed = self.cfg.seed_demo_trades
         if seed:
@@ -136,8 +147,29 @@ class Engine:
         if force:
             self.cfg.min_score = min(self.cfg.min_score, 0.05)
         candidates = await self.scanner.scan(force=force)
-        await self.bus.publish("scan", count=len(candidates), scan_index=self.scanner.scan_count,
+        found = len(candidates)
+
+        # The fly screens before the council: it reads the same feature block the
+        # cabins will get, expressed in the frame of the proposed trade, and only
+        # the setups it confirms walk in through the welcome door.
+        if self.scout is not None and candidates:
+            picks = self.scout.screen(candidates)
+            await self.bus.publish(
+                "scout",
+                judged=found,
+                admitted=len(picks),
+                confirmed=self.scout.confirmed,
+                waited=self.scout.waited,
+                contradicted=self.scout.contradicted,
+                batch=self.scout.last_batch,
+                picks=[p.as_dict() for p in picks],
+            )
+            candidates = [p.candidate for p in picks]
+
+        await self.bus.publish("scan", count=len(candidates), found=found,
+                               scan_index=self.scanner.scan_count,
                                paused=self.paused,
+                               scanned=self.scout is not None,
                                symbols=[c.symbol for c in candidates])
         for cand in candidates:
             cand.desk = self._assign_desk(cand)
@@ -190,6 +222,31 @@ class Engine:
                 await asyncio.wait_for(self._stopping.wait(), timeout=self.cfg.poll_seconds)
             except asyncio.TimeoutError:
                 pass
+
+    async def _scout_listener(self) -> None:
+        """Feed realised P&L back into the fly's mushroom body.
+
+        A trade the scout confirmed that then closed in profit is a reward for
+        the Kenyon cells that were active when it made that call; a loser is a
+        punishment. This is the third factor in the three-factor rule.
+        """
+        queue = self.bus.subscribe()
+        try:
+            while not self._stopping.is_set():
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                if event.get("type") != "position_closed" or self.scout is None:
+                    continue
+                payload = event.get("payload", {})
+                try:
+                    self.scout.learn(str(payload.get("trade_id", "")),
+                                     float(payload.get("pnl_pct", 0.0) or 0.0))
+                except Exception as exc:                # pragma: no cover
+                    log.warning("scout learning failed: %s", exc)
+        finally:
+            self.bus.unsubscribe(queue)
 
     async def _broadcast_loop(self) -> None:
         """Throttled price + equity stream for the HUD."""
@@ -264,4 +321,5 @@ class Engine:
             "recent_councils": self.council.recent(20) if self.council else [],
             "trade_log": self.trade_log[-60:],
             "scan_index": self.scanner.scan_count,
+            "scout": self.scout.stats() if self.scout else {"enabled": False},
         }
