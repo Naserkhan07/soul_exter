@@ -14,12 +14,15 @@ The whole product runs on a **free Kaggle GPU** — nothing heavy on your laptop
                          ┌──────────────── the floor ────────────────┐
   market tape ──► FLY BRAIN ──► welcome gate ──► desk (sit) ──► cabin 1..5 ──►
                          │                                          │
-                         │                     3–4 approve & dissent │
-                         │                                          ▼
-                         └──────────────────────────────────► CEO (cabin 6)
-                                                                    │
-                                        approve ──► entry gate ─────┘
-                                        reject  ──► exit door
+                         │              ┌──── 5/5 unanimous ──► entry gate
+                         │              │
+                         │     3–4 approve & dissent
+                         │              ▼
+                         └──────────────────────────► CEO (cabin 6)
+                                                        │
+                            approve ──► entry gate ─────┘
+                            reject  ──► exit door       (≤2 approve ──► exit door,
+                                                         straight from the cabins)
 ```
 
 ---
@@ -31,10 +34,11 @@ The whole product runs on a **free Kaggle GPU** — nothing heavy on your laptop
 | **Welcome gates** (south wall) | Tickets enter from the street; rejected tickets leave through the exit gate |
 | **Trading pit** (36 desks, 6 pods) | Every discovered trade gets its own desk, a seated trader and a live screen |
 | **Cabins 01–05** | LLM judges hear the ticket *inside* the cabin, at the hearing table, then vote |
-| **Executive cabin** | The 6th LLM (CEO) receives the whole record — every stage's reasoning, confidence and evidence — when the council splits |
+| **Executive cabin** | The 6th LLM (CEO) receives the whole record — every stage's reasoning, confidence and evidence — whenever the council splits 3–1 / 4–1. A unanimous 5/5 board skips the chamber and walks straight to the entry gate |
 | **Data vault** | Playbook buckets, realised track record, tail events |
 | **Debate chamber** | All six desks debate, challenge, concede and ratify training notes continuously |
 | **Corridor / concourse** | Clean pathways only — walkers are routed on a navmesh built from the same blueprint that renders the room |
+| **Execution (Broker tab)** | Paper by default; point it at MetaTrader 5 with your account, server and password to have cleared tickets routed as venue orders. PLACE / BOOK buttons on any ticket, plus optional auto-place on accept |
 
 Floating labels ride above every head — seated, walking, inside a cabin — with the trade or
 agent it belongs to. Above each cabin: the judge's name, model and its verdict on the ticket
@@ -78,9 +82,11 @@ DeepSeek, Mistral, Ollama, custom). Keys are stored on the host machine only.
    at the hearing table for the hearing, then leaves and walks to cabin 02, and so on.
    Each judge sees only the ticket, the tape evidence, the playbook base rates and the
    reasoning of the cabins before it — no peeking ahead.
-5. **Ruling** — five verdicts. Five or four approvals escalate the ticket to the CEO with the
-   full record; two approvals or fewer is an outright veto; a split goes to the Head of
-   Council with every stage's reasoning attached.
+5. **Ruling** — five verdicts. **5/5 unanimous** clears the ticket straight to the entry gate —
+   a unanimous board needs no executive review. **3–4 approvals** escalate it to the Head of
+   Council (cabin 6) with the full record attached: every cabin's verdict, confidence,
+   key points, risks and the playbook base rate. **Two approvals or fewer** is an outright veto
+   by the cabins — the ticket never reaches the chamber and walks out of the exit door.
 6. **Settlement** — approved tickets walk to the entry gate and are paper-evaluated
    (realised R). Rejected tickets walk out of the exit door, and the counterfactual is still
    tracked (`cf_r`) so the floor can see what the veto saved or cost.

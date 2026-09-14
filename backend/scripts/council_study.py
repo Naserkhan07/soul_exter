@@ -200,11 +200,17 @@ def recompute_verdicts(p: dict, judges, ceo, book) -> None:
     score = max(-1.0, min(1.0, score))
     votes[ceo.id] = "approve" if score >= 0.12 else "reject"
     scores[ceo.id] = score
-    # cabin-only rule: 3+ approves escalate to the CEO, otherwise veto
+    # cabin rule (mirrors engine._after_cabins): 5/5 unanimous clears straight to the
+    # entry gate, 3-4 escalate to the CEO, 2 or fewer are vetoed by the cabins alone.
     p["votes"] = votes
     p["scores"] = scores
     p["votes_for"] = votes_for
-    p["accepted"] = (votes[ceo.id] == "approve") if votes_for >= 3 else False
+    if votes_for >= 5:
+        p["accepted"] = True
+    elif votes_for >= 3:
+        p["accepted"] = votes[ceo.id] == "approve"
+    else:
+        p["accepted"] = False
     p["score"] = score
 
 

@@ -41,8 +41,12 @@ score: Q1 +0.22R → Q5 +0.77R. The desks load this model
 
 `python3 scripts/council_study.py --symbols 20 --cycles 26 --seed 4242` (seed not used in
 training)
-→ each desk approves a cohort worth ≈ +0.4 to +0.9R and rejects one worth ≈ −0.1 to −1.0R.
-Council verdicts: accept 66–69% at +0.70R mean, reject at −0.17R mean.
+→ each desk approves a cohort worth ≈ +0.37 to +1.01R and rejects one worth ≈ −0.09 to −0.53R.
+Council aggregation (166 settled tickets, current weights): **accept 106 (64%) at +0.523R** vs
+**reject 60 (36%) at −0.084R**, spread +0.607R. Lane rule mirrors the engine: 5/5 unanimous
+clears to the entry gate (85 tickets, +0.487R mean), 3–4 escalate to the CEO, ≤2 are vetoed
+by the cabins. Threshold sweep on the CEO composite peaks at t = −0.20 (accept +0.493R /
+reject −0.333R, +63R total).
 
 ## 7 · What does the whole floor earn?
 

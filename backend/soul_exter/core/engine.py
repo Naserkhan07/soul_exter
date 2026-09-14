@@ -515,6 +515,14 @@ class FloorEngine:
         self._tally(trade)
         if len([s for s in trade.stages if s.kind == "cabin" and s.verdict]) < 5:
             return
+        if trade.votes_for >= 5:
+            # unanimous board: the ticket clears straight to the entry gate
+            trade.exec_note = ("Unanimous council — all five cabins approved. The ticket clears "
+                               "straight to the entry gate; no executive review was needed.")
+            self.emit("council_unanimous", trade=dict(id=trade.id, votes_for=trade.votes_for))
+            self._finalize(trade, accepted=True)
+            self._walk_out(trade, "entry")
+            return
         if trade.votes_for <= 2:
             trade.outcome = "rejected"
             trade.exec_note = (f"Council veto: {trade.votes_for}/5 cabins approved. "
