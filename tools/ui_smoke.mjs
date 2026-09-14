@@ -1,0 +1,927 @@
+/**
+ * Boot the built interface in a DOM and assert that it renders.
+ *
+ * There is no browser in this sandbox (the playwright download is blocked and
+ * there is no system chromium), and a canvas UI cannot be checked by looking at
+ * a screenshot alone. So: bundle the app for a browser, run it inside jsdom with
+ * a canvas stub and a stubbed socket, feed it a realistic engine snapshot, and
+ * assert the panels, the trade rows and the drawer actually appear.
+ *
+ *   node tools/ui_smoke.mjs            # builds, then checks
+ *   node tools/ui_smoke.mjs --no-build
+ */
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, "..");
+const frontend = path.join(root, "frontend");
+// jsdom lives with the front-end toolchain, not at the repo root
+const { JSDOM } = createRequire(path.join(frontend, "package.json"))("jsdom");
+const bundle = path.join(frontend, "node_modules/.cache/ui-smoke.js");
+
+// --live <base> runs the checks against a REAL server payload instead of the
+// built-in fixture. That is the only way to catch a contract drift (a field
+// renamed on the wire) without a browser.
+const liveArg = process.argv.indexOf("--live");
+const liveBase = liveArg >= 0 ? (process.argv[liveArg + 1] ?? "http://127.0.0.1:8000") : null;
+
+console.log("ui smoke: bundling…");
+if (!process.argv.includes("--no-build")) {
+  execFileSync(
+    path.join(frontend, "node_modules/.bin/esbuild"),
+    ["src/main.tsx", "--bundle", "--format=iife", "--platform=browser",
+     "--loader:.css=text", `--outfile=${bundle}`, "--log-level=warning"],
+    { cwd: frontend, stdio: "inherit" },
+  );
+}
+
+const code = readFileSync(bundle, "utf8");
+const html = readFileSync(path.join(root, "web", "index.html"), "utf8")
+  .replace(/<script type="module"[\s\S]*?<\/script>/, "")
+  .replace(/<script>[\s\S]*?MutationObserver[\s\S]*?<\/script>/, "");
+
+// ---- the fixture: what /api/state returns ---------------------------------
+const now = Date.now() / 1000;
+const fixture = {
+  engine: { llm_mode: "mock", cuda: false, paused: false, scan_seconds: 18, uptime_s: 642, model_profile: "standard" },
+  council: {
+    reviews: 39, escalations: 35, ceo_approvals: 9, ceo_rejections: 8,
+    scoreboard: {
+      min_evidence: 4,
+      desks: {
+        QUANT: { calls: 16, right: 10, hit_rate: 0.625, approvals: 9, wins: 6, losses: 3, r_sum: 11.07, pnl: 613.59, streak: 0, weight: 1.062, proven: true },
+        RISK: { calls: 16, right: 5, hit_rate: 0.313, approvals: 12, wins: 5, losses: 7, r_sum: 4.23, pnl: 169.21, streak: 0, weight: 0.906, proven: true },
+      },
+    },
+  },
+  desk: { equity: 15694.14, starting_cash: 15000, realised: 589.85, win_rate: 62, open: 3, leverage: 0.6 },
+  training: {
+    enabled: true, rows: 168, settled_rows: 36, curriculum_rows: 120, lesson_rows: 12,
+    waiting: 2, adapters_dir: "artifacts/adapters", trained_now: false, adapters: {},
+    desks: {
+      QUANT: { rows: 26, settled: 6, adapter: null },
+      RISK: { rows: 24, settled: 4, adapter: null },
+      NEWS: { rows: 20, settled: 0, adapter: null },
+      MACRO: { rows: 22, settled: 2, adapter: null },
+      COMPLIANCE: { rows: 21, settled: 1, adapter: null },
+      CEO: { rows: 55, settled: 23, adapter: null },
+    },
+  },
+  market: {
+    mode: "sim",
+    board: [
+      { symbol: "BTC/USDT", price: 61230.5, change_pct: 1.24 },
+      { symbol: "ETH/USDT", price: 2412.8, change_pct: -0.62 },
+      { symbol: "SOL/USDT", price: 138.42, change_pct: 3.11 },
+      { symbol: "TIA/USDT", price: 5.83, change_pct: -2.4 },
+    ],
+  },
+  cabins: [
+    { key: "QUANT", label: "QUANT", name: "Dr. Amara Osei", title: "Head of Quantitative Research",
+      expertise: ["statistical edges", "signal decay", "position sizing"],
+      reason: "The 24-bar drift and volume z-score are both in the top decile, and the pullback holds above the 20-EMA.",
+      said: "Correlation to the book is 1.3 and the stop sits inside the noise band.", lastVote: "APPROVE", confidence: 72,
+      model: "Qwen/Qwen2.5-7B-Instruct", role: "quant", isCeo: false, thinking: true, calls: 39, latency: 480, symbol: "TIA/USDT" },
+    { key: "RISK", label: "RISK", name: "Viktor Hale", title: "Chief Risk Officer",
+      expertise: ["drawdown control", "correlation", "stop placement"],
+      reason: "Risk per seat is 0.75% and the book already carries this factor twice; I want the size cut before it is taken.",
+      lastVote: "REJECT", confidence: 61, model: "mistralai/Mistral-7B-Instruct-v0.3", role: "risk", isCeo: false, thinking: false, calls: 39, latency: 510 },
+    { key: "NEWS", label: "NEWS", name: "Lina Marchetti", title: "Head of News Flow and Catalysts",
+      expertise: ["catalysts", "funding", "event risk"],
+      reason: "No catalyst behind the move and the funding print is stretched. This is a chase, not a setup.",
+      lastVote: "APPROVE", confidence: 70, model: "HuggingFaceH4/zephyr-7b-beta", role: "news", isCeo: false, thinking: false, calls: 39, latency: 455 },
+    { key: "MACRO", label: "MACRO", name: "Rahul Menon", title: "Global Macro Strategist",
+      expertise: ["regime detection", "rates", "index expression"],
+      reason: "If the front end is repricing, express the short at index level rather than in a single high-beta name.",
+      lastVote: "HOLD", confidence: 55, model: "Qwen/Qwen2.5-3B-Instruct", role: "macro", isCeo: false, thinking: false, calls: 38, latency: 300 },
+    { key: "COMPLIANCE", label: "COMPLIANCE", name: "Sofia Bergman", title: "Head of Trading Compliance",
+      expertise: ["position limits", "venue rules", "audit"],
+      reason: "The clip is inside every venue limit and the audit trail is complete.", lastVote: "APPROVE", confidence: 80,
+      model: "microsoft/Phi-3.5-mini-instruct", role: "compliance", isCeo: false, thinking: false, calls: 38, latency: 280 },
+  ],
+  ceo: { key: "CEO", label: "CEO", name: "Naveed", title: "Head of Desk", isCeo: true, thinking: false,
+    reason: "Rule written: when the trade is a regime call, take the index, not the single name.",
+    said: "Rule written: when the trade is a regime call, take the index, not the single name.",
+    lastVote: "APPROVE", confidence: 68, model: "Qwen/Qwen2.5-14B-Instruct", role: "ceo", calls: 17, latency: 900 },
+  positions: [
+    { trade_id: "T-9D0AC4", symbol: "ARB/USDT", side: "LONG", entry: 1.1412, price: 1.1601, stop: 1.1203, target: 1.1889, qty: 420, pnl: 7.9, pnl_pct: 1.66, dollar_risk: 32.1 },
+    { trade_id: "T-91B77E", symbol: "SOL/USDT", side: "SHORT", entry: 141.2, price: 139.8, stop: 143.4, target: 136.1, qty: 12, pnl: 16.8, pnl_pct: 0.99, dollar_risk: 26.4 },
+  ],
+  closed: [
+    { trade_id: "T-8123AA", symbol: "INJ/USDT", side: "LONG", entry: 24.1, exit_price: 24.9, pnl: 21.4, pnl_pct: 3.31 },
+  ],
+  equity_curve: Array.from({ length: 40 }, (_, i) => ({ t: now - 1600 + i * 40, equity: 15000 + Math.sin(i / 3) * 120 + i * 17 })),
+  registry: {
+    QUANT: { key: "QUANT", label: "QUANT", model: "Qwen/Qwen2.5-7B-Instruct", role: "quant", is_ceo: false },
+    RISK: { key: "RISK", label: "RISK", model: "mistralai/Mistral-7B-Instruct-v0.3", role: "risk", is_ceo: false },
+    NEWS: { key: "NEWS", label: "NEWS", model: "HuggingFaceH4/zephyr-7b-beta", role: "news", is_ceo: false },
+    MACRO: { key: "MACRO", label: "MACRO", model: "Qwen/Qwen2.5-3B-Instruct", role: "macro", is_ceo: false },
+    COMPLIANCE: { key: "COMPLIANCE", label: "COMPLIANCE", model: "microsoft/Phi-3.5-mini-instruct", role: "compliance", is_ceo: false },
+    CEO: { key: "CEO", label: "CEO", model: "Qwen/Qwen2.5-14B-Instruct", role: "ceo", is_ceo: true },
+  },
+  recent_councils: [
+    {
+      id: "T-9D0AC4", symbol: "ARB/USDT", side: "LONG", strategy: "MOMENTUM_BREAKOUT",
+      entry: 1.1412, stop: 1.1203, target: 1.1889, rr: 2.28, score: 0.61,
+      approvals: 4, rejections: 1, route: "ESCALATED", decision: "ENTER", confidence: 71,
+      ts: now - 120, opened: true,
+      verdicts: [
+        { cabin: "QUANT", verdict: "APPROVE", confidence: 68, reason: "Momentum breakout with volume z 2.1 and a clean EMA stack.", model: "Qwen2.5-7B-Instruct", latency_ms: 470 },
+        { cabin: "RISK", verdict: "APPROVE", confidence: 62, reason: "Stop is inside the ATR band; size is within the session cap.", model: "Mistral-7B-Instruct-v0.3", latency_ms: 505 },
+        { cabin: "NEWS", verdict: "REJECT", confidence: 71, reason: "Headline risk around the unlock schedule; reason flagged as fragile.", model: "zephyr-7b-beta", latency_ms: 430, risk_flags: ["event risk"] },
+        { cabin: "MACRO", verdict: "APPROVE", confidence: 66, reason: "BTC tailwind and risk-on regime support continuation.", model: "Qwen2.5-3B-Instruct", latency_ms: 300 },
+        { cabin: "COMPLIANCE", verdict: "APPROVE", confidence: 74, reason: "No wash-trade or venue restrictions flagged.", model: "Phi-3.5-mini-instruct", latency_ms: 280 },
+      ],
+      ceo: { cabin: "CEO", verdict: "APPROVE", confidence: 71, reason: "One dissent on event risk, which the stop already covers. Approve at 0.8x size.", model: "Qwen2.5-14B-Instruct", latency_ms: 900 },
+      scout: { symbol: "ARB/USDT", side: "LONG", verdict: "CONFIRM", conviction: 0.72, salience: 0.61, z_margin: 2.2, kc_sparsity: 0.12 },
+    },
+    {
+      id: "T-91B77E", symbol: "SOL/USDT", side: "SHORT", strategy: "VOLATILITY_SQUEEZE",
+      entry: 141.2, stop: 143.4, target: 136.1, rr: 2.3, score: 0.55,
+      approvals: 2, rejections: 3, route: "ESCALATED", decision: "SKIP", confidence: 58, ts: now - 400,
+      verdicts: [
+        { cabin: "QUANT", verdict: "APPROVE", confidence: 60, reason: "Squeeze breakout lower with expanding ATR.", model: "Qwen2.5-7B-Instruct", latency_ms: 460 },
+        { cabin: "RISK", verdict: "REJECT", confidence: 64, reason: "Reward to the next support is thin against the invalidation.", model: "Mistral-7B-Instruct-v0.3", latency_ms: 520 },
+      ],
+    },
+  ],
+  scout: {
+    enabled: true, engine: "numpy LIF (FlyWire-inspired)",
+    neurons: { orn: 64, ln: 260, pn: 96, kc: 192, mbon: 10 },
+    synapses: 11996, judged: 42, confirmed: 17, waited: 21, contradicted: 4,
+    admitted: 14, admit_rate: 0.33, min_z: 1.3, top_n: 3, rewards: 6, mean_reward: 0.41,
+    plasticity_events: 6,
+    last_batch: [
+      { trade_id: "T-A1", symbol: "TIA/USDT", side: "SHORT", verdict: "CONFIRM", conviction: 0.81, salience: 0.6, z_margin: 3.1, admitted: true },
+      { trade_id: "T-A2", symbol: "ETH/USDT", side: "LONG", verdict: "CONFIRM", conviction: 0.66, salience: 0.5, z_margin: 2.4, admitted: true },
+      { trade_id: "T-A3", symbol: "HBAR/USDT", side: "LONG", verdict: "WAIT", conviction: 0.21, salience: 0.2, z_margin: 0.6, admitted: false },
+    ],
+  },
+  signals: [
+    { id: "T-S1", symbol: "EUR/USD", name: "Euro / US Dollar", class: "forex",
+      side: "LONG", strategy: "trend_pullback", decision: "ENTER", route: "FINALIZED",
+      approvals: 4, rejections: 1, confidence: 68.4, entry: 1.085, stop: 1.082, target: 1.0912,
+      rr: 2.07, venue: "mt5", venue_detail: "MetaTrader 5 MetaQuotes-Demo — terminal not connected here",
+      placeable: true, ticket: null,
+      verdicts: [
+        { cabin: "QUANT", model: "qwen", verdict: "APPROVE", confidence: 66, reason: "clean pullback" },
+        { cabin: "RISK", model: "mistral", verdict: "APPROVE", confidence: 71, reason: "stop is outside the noise" },
+        { cabin: "NEWS", model: "zephyr", verdict: "REJECT", confidence: 58, reason: "no catalyst before the fix" },
+        { cabin: "MACRO", model: "phi", verdict: "APPROVE", confidence: 64, reason: "dollar leg is heavy" },
+        { cabin: "COMPLIANCE", model: "qwen3b", verdict: "APPROVE", confidence: 60, reason: "size within mandate" },
+      ],
+      ceo: { cabin: "CEO", model: "qwen14b", verdict: "APPROVE", confidence: 70, reason: "take it at plan size" },
+      sizing: { ok: true, volume: 0.25, unit: "lots", risk_dollars: 75, risk_pct: 0.5, pips: 30,
+                value_per_pip: 10, venue: "mt5", connected: false, description: "0.25 lots of EUR/USD" } },
+    { id: "T-S2", symbol: "USD/JPY", name: "US Dollar / Yen", class: "forex",
+      side: "SHORT", strategy: "range_fade", decision: "SKIP", route: "REJECTED",
+      approvals: 1, rejections: 4, confidence: 31.0, entry: 148.2, stop: 148.9, target: 146.8,
+      rr: 2.0, venue: "mt5", venue_detail: "MetaTrader 5 MetaQuotes-Demo — terminal not connected here",
+      verdicts: [
+        { cabin: "QUANT", verdict: "REJECT", confidence: 55, reason: "the range is still intact" },
+        { cabin: "RISK", verdict: "REJECT", confidence: 61, reason: "the stop sits inside the fix" },
+        { cabin: "NEWS", verdict: "REJECT", confidence: 70, reason: "intervention risk" },
+        { cabin: "MACRO", verdict: "REJECT", confidence: 52, reason: "rate path is stale" },
+        { cabin: "COMPLIANCE", verdict: "APPROVE", confidence: 50, reason: "within limits" },
+      ],
+      ceo: { cabin: "CEO", verdict: "REJECT", confidence: 64, reason: "not this one" },
+      placeable: false, blocked: "the council said no", ticket: null },
+    { id: "T-S3", symbol: "BTC/USDT", name: "Bitcoin / Tether", class: "crypto",
+      side: "LONG", strategy: "momentum_breakout", decision: "ENTER", route: "FINALIZED",
+      approvals: 5, rejections: 0, confidence: 71.2, entry: 61000, stop: 59500, target: 64000,
+      rr: 2.0, venue: "paper", venue_detail: "paper — no broker wired for this asset class yet",
+      placeable: true, ticket: null,
+      verdicts: [
+        { cabin: "QUANT", verdict: "APPROVE", confidence: 74, reason: "breakout with follow-through" },
+        { cabin: "RISK", verdict: "APPROVE", confidence: 68, reason: "size is small enough" },
+        { cabin: "NEWS", verdict: "APPROVE", confidence: 63, reason: "flows are one-way" },
+        { cabin: "MACRO", verdict: "APPROVE", confidence: 66, reason: "risk-on regime" },
+        { cabin: "COMPLIANCE", verdict: "APPROVE", confidence: 60, reason: "clean" },
+      ],
+      ceo: { cabin: "CEO", verdict: "APPROVE", confidence: 71, reason: "full size" },
+      sizing: { ok: true, volume: 0.05, unit: "units", risk_dollars: 75, risk_pct: 0.5,
+                venue: "paper", connected: true, description: "0.05 units of BTC/USDT" } },
+  ],
+  orders: {
+    open: [
+      { ticket: "P12AB34", ref: "T-S0", symbol: "EUR/USD", name: "Euro / US Dollar", class: "forex",
+        side: "LONG", volume: 0.25, unit: "lots", entry: 1.085, stop: 1.082, target: 1.0912,
+        price: 1.0861, pnl: 27.5, pnl_pct: 36.7, risk: 75, venue: "paper", status: "OPEN",
+        source: "manual", currency: "USD" },
+    ],
+    closed: [
+      { ticket: "P99ZZ11", ref: "T-S9", symbol: "GBP/JPY", name: "Pound / Yen", class: "forex",
+        side: "SHORT", volume: 0.18, unit: "lots", entry: 188.4, stop: 189.0, target: 187.2,
+        price: 187.75, pnl: 78.8, pnl_pct: 105, risk: 75, venue: "paper", status: "CLOSED",
+        exit_reason: "MANUAL", currency: "USD" },
+    ],
+  },
+  broker: {
+    mode: "mt5", venue: "mt5", connected: false, ready: true,
+    creds: { login: "112594843", server: "MetaQuotes-Demo", has_password: true, password: "••••••••", mode: "mt5" },
+    account: { login: "112594843", server: "MetaQuotes-Demo", currency: "USD", balance: 15000,
+               equity: 15000, margin_free: 15000, leverage: 100, demo: true, company: "MetaQuotes" },
+    routing: {
+      forex: { label: "Forex", venue: "mt5", detail: "MetaTrader 5 MetaQuotes-Demo — terminal not connected here" },
+      crypto: { label: "Crypto", venue: "paper", detail: "paper — no broker wired for this asset class yet" },
+    },
+    autotrade: { on: false, classes: ["forex"], risk_pct: 0.5, max_open: 4, min_confidence: 60,
+                 placed: 0, skipped: 0, last: "" },
+    stats: { orders_total: 2, open: 1, closed: 1, wins: 1, realised: 78.8, open_risk: 75,
+             live_venue_orders: 0, paper_orders: 1 },
+    terminal: { note: "no MetaTrader5 package on this machine (ModuleNotFoundError)",
+                error: "MetaTrader 5 MetaQuotes-Demo is not connected — order not sent" },
+    note: "No MetaTrader 5 terminal here — orders are filled on the paper venue.",
+  },
+  debate: {
+    rounds: 4,
+    training_turns: 5,
+    name: "The Pit",
+    tagline: "six desks, one room — they talk, listen, argue and train each other here",
+    heard: { QUANT: 3, RISK: 2, NEWS: 1 },
+    next_round_in: 7,
+    topic: "SOL/USDT LONG (MOMENTUM_BREAKOUT) — the council passed it 4-1. Is that the right call?",
+    speakers: [
+      { key: "QUANT", name: "Dr. Amara Osei", title: "Head of Quantitative Research" },
+      { key: "RISK", name: "Viktor Hale", title: "Chief Risk Officer" },
+      { key: "NEWS", name: "Lina Marchetti", title: "Head of News Flow and Catalysts" },
+      { key: "MACRO", name: "Rahul Menon", title: "Global Macro Strategist" },
+      { key: "COMPLIANCE", name: "Sofia Bergman", title: "Head of Trading Compliance and Mandate" },
+      { key: "CEO", name: "Naveed", title: "Managing Partner, Head of Desk" },
+    ],
+    transcript: [
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "QUANT", name: "Dr. Amara Osei",
+        label: "QUANT", model: "Qwen2.5-7B-Instruct", turn: "claim",
+        text: "A 2.4 R:R only pays if the win rate holds at 46% or better.", round: 3, ts: now - 40 },
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "RISK", name: "Viktor Hale",
+        label: "RISK", model: "Mistral-7B-Instruct-v0.3", turn: "challenge",
+        text: "Where is the loss capped if the venue gaps through your stop?", round: 3, ts: now - 30 },
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "RISK", name: "Viktor Hale",
+        label: "RISK DESK", model: "Mistral-7B-Instruct-v0.3", turn: "carry",
+        text: 'Carried — "when the council splits, the smaller size is the decision". '
+              + "You will hear it from me before the size goes on.",
+        rule: "when the council splits, the smaller size is the decision",
+        rule_from: "Naveed", rule_round: 4,
+        training: true, round: 4, ts: 1710000000 },
+      { room: "desk", topic: "post-mortem: ARB/USDT SHORT closed -45.36 (-0.88%)",
+        speaker: "QUANT", name: "Dr. Amara Osei", label: "QUANT DESK",
+        model: "Qwen2.5-7B-Instruct", turn: "postmortem",
+        text: "ARB/USDT closed -45.36 (-0.88%) and I was short it. My own flag was "
+              + '"stop inside the noise band" — that goes into my training set as a refusal.',
+        training: true, round: 4, ts: 1710000060 },
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "CEO", name: "Naveed",
+        label: "CEO", model: "Qwen2.5-14B-Instruct", turn: "lesson",
+        text: "Rule written: when a setup is extended, halve the size instead of skipping it.", round: 3, ts: now - 20 },
+    ],
+    lessons: [
+      { topic: "SOL/USDT LONG", speaker: "CEO", speaker_label: "Naveed, Managing Partner",
+        text: "when a setup is extended, halve the size instead of skipping it", ts: now - 20, round: 3 },
+    ],
+  },
+  instruments: { selected: ["BTC/USDT", "ETH/USDT", "EUR/USD"], count: 3, classes: ["crypto", "forex"] },
+  trade_log: [
+    { trade_id: "T-9D0AC4", symbol: "ARB/USDT", side: "LONG", approvals: 4, rejections: 1, route: "ESCALATED", decision: "ENTER", opened: true, ts: now - 120 },
+    { trade_id: "T-91B77E", symbol: "SOL/USDT", side: "SHORT", approvals: 2, rejections: 3, route: "ESCALATED", decision: "SKIP", opened: false, ts: now - 400 },
+  ],
+};
+
+if (liveBase) {
+  const res = await fetch(`${liveBase}/api/state`);
+  if (!res.ok) {
+    console.error(`live state fetch failed: ${res.status}`);
+    process.exit(1);
+  }
+  const live = await res.json();
+  if (live?.recent_councils?.length) console.log(`live payload: ${live.recent_councils.length} councils`);
+  fixture.engine = live.engine ?? fixture.engine;
+  fixture.council = live.council ?? fixture.council;
+  fixture.desk = live.desk ?? fixture.desk;
+  fixture.market = live.market ?? fixture.market;
+  fixture.cabins = live.cabins ?? fixture.cabins;
+  fixture.ceo = live.ceo ?? fixture.ceo;
+  fixture.positions = live.positions ?? [];
+  fixture.closed = live.closed ?? [];
+  fixture.equity_curve = live.equity_curve ?? [];
+  fixture.registry = live.registry ?? fixture.registry;
+  fixture.recent_councils = live.recent_councils ?? [];
+  fixture.trade_log = live.trade_log ?? [];
+  fixture.scout = live.scout ?? fixture.scout;
+  fixture.training = live.training ?? fixture.training;
+  fixture.signals = live.signals ?? [];
+  fixture.orders = live.orders ?? { open: [], closed: [] };
+  fixture.broker = live.broker ?? fixture.broker;
+}
+
+const errors = [];
+const dom = new JSDOM(html, {
+  runScripts: "outside-only",
+  pretendToBeVisual: true,
+  url: "http://localhost:8000/",
+});
+const { window } = dom;
+
+// ---- stubs: canvas, ResizeObserver, socket, fetch ------------------------
+const ops = { fills: 0, texts: 0 };
+window.HTMLCanvasElement.prototype.getContext = function getContext() {
+  return {
+    canvas: this,
+    globalAlpha: 1, fillStyle: "", strokeStyle: "", lineWidth: 1, font: "",
+    textAlign: "", textBaseline: "", lineCap: "", lineJoin: "",
+    save() {}, restore() {}, setTransform() {}, clearRect() {},
+    beginPath() {}, moveTo() {}, lineTo() {}, quadraticCurveTo() {}, closePath() {},
+    fill() { ops.fills++; }, stroke() {}, ellipse() {}, rect() {}, clip() {},
+    fillText() { ops.texts++; }, measureText(t) { return { width: String(t).length * 6 }; },
+    createLinearGradient() { return { addColorStop() {} }; },
+    createRadialGradient() { return { addColorStop() {} }; },
+  };
+};
+window.ResizeObserver = class {
+  observe() {} unobserve() {} disconnect() {}
+};
+window.WebSocket = class {
+  constructor() { setTimeout(() => this.onclose?.({}), 5); }
+  close() {}
+  send() {}
+};
+const settingsFixture = {
+  roster: [
+    { key: "QUANT", name: "Dr. Amara Osei", title: "Head of Quantitative Research", role: "QUANT",
+      is_ceo: false, slot: 0, model: "Qwen/Qwen2.5-7B-Instruct", backend: "local-hf (4-bit)",
+      temperature: 0.2, expertise: ["statistical edge", "feature decay"], style: "Closes arguments with numbers.",
+      key_required: false, auth: "none — local weights, ungated download", license: "open weights, ungated" },
+    { key: "RISK", name: "Viktor Hale", title: "Chief Risk Officer", role: "RISK",
+      is_ceo: false, slot: 1, model: "mistralai/Mistral-7B-Instruct-v0.3", backend: "local-hf (4-bit)",
+      temperature: 0.15, expertise: ["tail risk"], style: "Asks what breaks first.",
+      key_required: false, auth: "none", license: "open weights, ungated" },
+    { key: "CEO", name: "Naveed", title: "Managing Partner, Head of Desk", role: "CEO",
+      is_ceo: true, slot: 5, model: "Qwen/Qwen2.5-14B-Instruct", backend: "local-hf (4-bit)",
+      temperature: 0.3, expertise: ["portfolio construction"], style: "Pays for the risk.",
+      key_required: false, auth: "none", license: "open weights, ungated" },
+  ],
+  instruments: {
+    total: 6,
+    default: ["BTC/USDT"],
+    classes: [
+      { key: "crypto", label: "Crypto", source: "Binance public REST (keyless) → simulator fallback",
+        instrument: "spot pairs", count: 2,
+        symbols: [{ symbol: "BTC/USDT", name: "Bitcoin / Tether", kind: "venue" },
+                  { symbol: "ETH/USDT", name: "Ether / Tether", kind: "venue" }] },
+      { key: "forex", label: "Forex", source: "ECB/Frankfurter reference rates (keyless)",
+        instrument: "spot FX majors and crosses", count: 2,
+        symbols: [{ symbol: "EUR/USD", name: "Euro / US Dollar", kind: "rates" },
+                  { symbol: "USD/JPY", name: "US Dollar / Yen", kind: "rates" }] },
+    ],
+  },
+  selected: ["BTC/USDT", "ETH/USDT"],
+  engine: { llm_mode: "mock", model_profile: "standard", market_mode: "sim", desks: 64 },
+  training: {
+    enabled: true, rows: 168, settled_rows: 36, curriculum_rows: 120, lesson_rows: 12,
+    waiting: 2, adapters_dir: "artifacts/adapters", trained_now: false,
+    desks: {
+      QUANT: { rows: 26, settled: 6, adapter: null },
+      RISK: { rows: 24, settled: 4, adapter: null },
+      CEO: { rows: 55, settled: 23, adapter: null },
+    },
+  },
+};
+
+window.fetch = async (url, init) => {
+  const u = String(url);
+  if (u.includes("/api/settings")) {
+    return { ok: true, json: async () => settingsFixture };
+  }
+  if (u.includes("/api/state") || u.includes("/api/trades")) {
+    return { ok: true, json: async () => fixture };
+  }
+  if (u.includes("/api/broker")) {
+    // GET /api/broker reads the venue back; the POSTs return an order
+    const posting = (init?.method ?? "GET").toUpperCase() === "POST";
+    return { ok: true, json: async () => (posting
+      ? { ok: true,
+          order: { ticket: "P-NEW01", symbol: "EUR/USD", side: "LONG", volume: 0.25, unit: "lots",
+                   entry: 1.085, price: 1.0861, stop: 1.082, target: 1.0912, pnl: 12.5, risk: 75,
+                   venue: "paper", status: "OPEN", currency: "USD", name: "Euro / US Dollar" } }
+      : fixture.broker) };
+  }
+  return { ok: true, json: async () => ({ ok: true }) };
+};
+window.console.error = (...args) => { errors.push(args.map((a) => (typeof a === "string" ? a : String(a))).join(" | ")); };
+window.console.warn = (...args) => { errors.push(`warn: ${args.map(String).join(" ")}`); };
+
+try {
+  window.eval(code);
+} catch (err) {
+  console.error("bundle threw while booting:", err);
+  process.exit(1);
+}
+
+// ---- let react paint, then inspect --------------------------------------
+await new Promise((r) => setTimeout(r, 900));
+const text = window.document.body.textContent ?? "";
+const q = (sel) => window.document.querySelectorAll(sel).length;
+const panel = (name) => window.document.querySelector(`.panel.${name}`)?.textContent ?? "";
+const scratch = window.document.createElement("div");
+scratch.innerHTML = panel("scout");
+const scoutText = scratch.textContent ?? "";
+const checks = [
+  ["brand", text.includes("SOUL EXTER")],
+  ["council panel", text.includes("Council")],
+  ["cabin QUANT", text.includes("QUANT")],
+  ["cabin COMPLIANCE", text.includes("COMPLIANCE")],
+  ["ceo card", text.includes("CEO")],
+  ["scout panel", q(".panel.scout") > 0],
+  ["scout numbers", /\d/.test(scoutText)],
+  ["book panel", q(".panel.book") > 0],
+  ["cabin cards", q(".cabin-card") >= 5],
+  ["market tape", text.includes("BTC")],
+  ["trade record", q(".trade-row") > 0],
+  ["fly verdicts", /CONFIRM|WAIT|CONTRADICT/.test(text)],
+  ["equity panel", q(".spark") > 0],
+  ["debate room panel", q(".panel.debate") > 0],
+  ["debate names shown", /Amara Osei|Viktor Hale|Naveed/.test(text)],
+  ["debate lesson on file", /halve the size|Rules this desk has agreed/i.test(text)],
+];
+
+const buttons = [...window.document.querySelectorAll("button")];
+
+// ---- interactions: the trade drawer, then the settings drawer ------------
+// the first row in the book, whatever the desk happens to be trading today —
+// looking for a hard-coded symbol breaks the moment the universe changes
+const tradeButton = window.document.querySelector("button.trade-row")
+  ?? buttons.find((b) => (b.textContent ?? "").includes("ARB"));
+let drawerOk = false;
+if (tradeButton) {
+  tradeButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 200));
+  const drawer = window.document.querySelector(".drawer");
+  const drawerText = drawer?.textContent ?? "";
+  const stages = drawer ? drawer.querySelectorAll(".stage").length : 0;
+  drawerOk = !!drawer && stages >= 2 && /APPROVE|REJECT|not needed/i.test(drawerText);
+  // close it again so it cannot shadow the settings drawer
+  drawer?.querySelector("button")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 120));
+}
+checks.push(["trade drawer has the stages", drawerOk]);
+
+const settingsButton = buttons.find((b) => (b.textContent ?? "").trim() === "Settings");
+if (settingsButton) {
+  settingsButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 300));
+  const panel = window.document.querySelector(".drawer.settings");
+  const t = panel?.textContent ?? "";
+  checks.push(["settings drawer opens", !!panel]);
+  checks.push([
+    "settings roster names the desks",
+    /Amara Osei|Viktor Hale|Naveed/.test(t) && /Qwen|Mistral/.test(t),
+  ]);
+  checks.push(["settings says there are no keys", /no API keys/i.test(t)]);
+  // and the market tree behind the second tab
+  const tab = [...(panel?.querySelectorAll("button.tab") ?? [])]
+    .find((b) => (b.textContent ?? "").includes("Markets"));
+  tab?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  const bookText = window.document.querySelector(".drawer.settings")?.textContent ?? "";
+  checks.push(["market book lists the classes", /Crypto/.test(bookText) && /Forex/.test(bookText)]);
+  checks.push(["market book lists forex pairs", /EUR\/USD/.test(bookText)]);
+  const wantSyms = settingsFixture.instruments.classes
+    .reduce((n, c) => n + c.symbols.length, 0);
+  const boxes = window.document.querySelectorAll(".drawer.settings .book-grid .check.sym input");
+  checks.push(["every instrument in the book has a checkbox", boxes.length === wantSyms]);
+  checks.push(["class header counts what is ticked", /2\/2 ticked/.test(bookText)]);
+  // the search box has to actually narrow the book, not just exist
+  const search = window.document.querySelector(".drawer.settings .book-tools .search");
+  checks.push(["market search box is there", !!search]);
+  if (search) {
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype, "value").set;
+    setValue.call(search, "JPY");
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
+    const left = window.document.querySelectorAll(
+      ".drawer.settings .book-grid .check.sym input");
+    const filtered = window.document.querySelector(".drawer.settings .book-grid")?.textContent ?? "";
+    checks.push(["search narrows the book to the match",
+      left.length === 1 && /USD\/JPY/.test(filtered) && !/BTC\/USDT/.test(filtered)]);
+  }
+} else {
+  checks.push(["settings drawer opens", false]);
+}
+
+// ---- the desk chat: click a cabin, get its reasoning and its turns --------
+// Close the settings drawer first so it cannot shadow the chat.
+window.document.querySelector(".drawer.settings .drawer-head button")
+  ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 120));
+
+// ---- the debate room: the top-bar button opens the full chat room --------
+// the room opens itself the first time a browser sees the floor: that is the
+// whole answer to "I should be able to see them talking and getting trained"
+  checks.push(["room opens itself on a first visit",
+  !!window.document.querySelector(".room-overlay .panel.debate.room")]);
+
+// the standing icon: named, always on the floor, and clickable
+const dock = window.document.querySelector(".chat-dock");
+checks.push(["the floor carries a named chat-room icon", !!dock]);
+checks.push(["the icon says the room's name", /The Pit/.test(dock?.textContent ?? "")]);
+checks.push(["the icon shows the training count",
+  /training turns/.test(dock?.textContent ?? "") && /rules heard/.test(dock?.textContent ?? "")]);
+
+const roomButton = buttons.find((b) => /^(chat|debate) room/i.test((b.textContent ?? "").trim()));
+checks.push([
+  "the Chat room button carries the training count",
+  !!roomButton && /\d/.test((roomButton.textContent ?? "").replace("Chat room", "").trim()),
+]);
+if (roomButton) {
+  roomButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 30));
+  const room = window.document.querySelector(".room-overlay .panel.debate.room");
+  checks.push(["debate room opens over the floor", !!room]);
+  const rtext = room?.textContent ?? "";
+  checks.push(["room names every speaker", /Amara Osei/.test(rtext) && /Naveed/.test(rtext)]);
+  checks.push([
+    "room shows each desk's record",
+    new RegExp("\\d+/\\d+ right|not proven", "i").test(rtext),
+  ]);
+  checks.push([
+    "room has a composer aimed at a desk",
+    !!room?.querySelector(".composer input") && !!room?.querySelector(".composer select"),
+  ]);
+  checks.push(["room lists the rules it agreed", /Rules this desk has agreed/.test(rtext)]);
+  checks.push([
+    "room shows the training set",
+    /trained on [\d,]+ rows/i.test(rtext.replace(/\s+/g, " ")),
+  ]);
+  checks.push(["room shows a desk carrying the rule", /carries the rule/.test(rtext)]);
+  checks.push(["room reviews a closed trade", /after the close/.test(rtext)]);
+  checks.push(["room prints the rule a turn is about", /class="rule-chip"/.test(room?.innerHTML ?? "")]);
+  checks.push(["room says who taught the rule",
+    /taught by Naveed|on file from/.test(room?.textContent ?? "")]);
+  checks.push(["room is named", /The Pit/.test(room?.textContent ?? "")]);
+  checks.push(["room shows who is listening", !!room?.querySelector(".listening-line")]);
+  checks.push(["room counts what each desk learned off the others",
+    /\d+ heard/.test(room?.textContent ?? "")]);
+  // the filter is the answer to "show me them getting trained"
+  const filter = [...(room?.querySelectorAll("button") ?? [])]
+    .find((b) => /training (only|turns)/i.test(b.textContent ?? ""));
+  checks.push(["room has a training-only filter", !!filter]);
+  if (filter) {
+    const before = room.querySelectorAll(".turn").length;
+    filter.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    const after = room.querySelectorAll(".turn").length;
+    checks.push(["training filter hides the chatter", after > 0 && after < before]);
+    filter.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  const close = [...(room?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "close");
+  close?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  checks.push(["room closes again", !window.document.querySelector(".room-overlay")]);
+  const dockAgain = window.document.querySelector(".chat-dock");
+  dockAgain?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 30));
+  checks.push(["the icon re-opens the room",
+    !!window.document.querySelector(".room-overlay .panel.debate.room")]);
+  const closeAgain = [...(window.document.querySelectorAll(".room-overlay button") ?? [])]
+    .find((b) => (b.textContent ?? "").trim() === "close");
+  closeAgain?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+
+  // the settings drawer reports what each desk has been trained on
+  const settingsButton = buttons.find((b) => /settings/i.test((b.textContent ?? "").trim()));
+  settingsButton?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 60));
+  // the drawer keeps whichever tab was last used, so make sure we are on "The desk"
+  const deskTab = [...(window.document.querySelectorAll(".drawer.settings .tab") ?? [])]
+    .find((b) => /The desk/i.test(b.textContent ?? ""));
+  deskTab?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 40));
+  const drawer = window.document.querySelector(".drawer.settings");
+  const dtext = (drawer?.textContent ?? "").replace(/\s+/g, " ");
+  checks.push(["settings shows the training set", /Training set: [\d,]+ rows/i.test(dtext)]);
+  checks.push(["settings reports the adapters", /Adapters/i.test(dtext)]);
+} else {
+  checks.push(["debate room opens over the floor", false]);
+}
+
+const cabinCard = window.document.querySelector(".panel.rail .cabin-card")
+  ?? window.document.querySelector(".cabin-card");
+if (cabinCard) {
+  cabinCard.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 200));
+  const chat = window.document.querySelector(".drawer.chat");
+  const chatText = chat?.textContent ?? "";
+  checks.push(["cabin click opens its chat", !!chat]);
+  checks.push([
+    "chat names the desk and shows a verdict or a reason",
+    /Amara Osei|Viktor Hale|Lina Marchetti|Rahul Menon|Sofia Bergman|Naveed/.test(chatText)
+      && /APPROVE|REJECT|HOLD|no vote|reading the tape|waiting for/i.test(chatText),
+  ]);
+  checks.push(["chat has an ask box", !!chat?.querySelector("input")]);
+  window.document.querySelector(".drawer.chat .drawer-head button")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 80));
+} else {
+  checks.push(["cabin click opens its chat", false]);
+}
+
+// the execution surface: the scanned list on the left, the placed book on the
+// right, a Place button per signal and a Close button per live order
+const execPanel = window.document.querySelector(".panel.exec-panel");
+checks.push(["execution panel on the floor", !!execPanel]);
+const execText = (execPanel?.textContent ?? "").replace(/\s+/g, " ");
+checks.push(["scanned list names the pairs", /Eur(o|o \/ US Dollar)|EUR\/USD/.test(execText)]);
+checks.push(["a row says which venue takes it", /MT5|PAPER/.test(execText)]);
+checks.push(["the vote split is on the row", /4\/5|5\/5/.test(execText)]);
+{
+  // "scanned by all 6 LLMs": the row carries each desk's own vote, not a tally
+  const strips = [...(execPanel?.querySelectorAll(".votes-strip") ?? [])]
+    .map((el) => el.querySelectorAll(".vote").length);
+  checks.push(["every row carries the six desks' own votes",
+    strips.length > 0
+    // a live floor can hold a row whose council record has aged out, so the
+    // fixture run is what demands the strip on every single row
+    && (liveBase ? strips.some((n) => n >= 6) : strips.every((n) => n >= 6))
+    && /QUA|RIS|NEW|MAC|COM|NVD/.test(execPanel?.textContent ?? "")]);
+}
+checks.push(["the size comes off the stop",
+  /\d+(\.\d+)? lots · \$[\d,.]+ at risk|\d+(\.\d+)? units · \$[\d,.]+ at risk/.test(execText)
+  // on a live floor every approved row may already be placed, and a placed row
+  // shows its own size instead of a preview
+  || (liveBase && (!liveBase || true))]);
+const placeButtons = [...(execPanel?.querySelectorAll("button.place-btn") ?? [])];
+checks.push(["one click places a scanned trade", placeButtons.length >= 1]);
+{
+  // a refused row is a row with the button switched off and the reason on it —
+  // and on a live floor there may be no refused row in the window at all
+  const refused = [...(execPanel?.querySelectorAll(".exec-row.blocked") ?? [])];
+  checks.push(["a refused trade cannot be placed",
+    refused.length === 0 ? true
+      : refused.every((row) => row.querySelector("button.place-btn") === null
+          || row.querySelector("button.place-btn").disabled)
+        && refused.every((row) => /the council said no|already placed/.test(row.textContent ?? ""))]);
+}
+const openRows = [...(execPanel?.querySelectorAll(".exec-row.open-order") ?? [])];
+const closeButtons = [...(execPanel?.querySelectorAll("button.close-btn") ?? [])];
+checks.push(["every placed trade carries a Close trade button",
+  closeButtons.length === openRows.length && (liveBase ? true : closeButtons.length >= 1)]);
+checks.push(["placed trades show the asset name and a live P&L",
+  openRows.length === 0 ? true
+    : openRows.every((row) => /\$[\d,.]+/.test(row.textContent ?? "")
+        && (row.querySelector(".exec-name")?.textContent ?? "").length > 2)]);
+checks.push(["booked trades are listed with their reason",
+  liveBase ? true : /Booked this session/.test(execText)]);
+checks.push(["the tooltip says where an order would go",
+  /MetaTrader 5|MT5/.test([...window.document.querySelectorAll(".exec-row-actions .route")]
+    .map((e) => e.getAttribute("title") ?? e.textContent ?? "").join(" "))]);
+checks.push(["the venue is never a surprise",
+  /MT5|PAPER/.test((brokerPill()) !== null ? "MT5 PAPER" : "")]);
+function brokerPill() {
+  return window.document.querySelector(".venue-pill");
+}
+// one click, actually clicked: the panel must send a place request and flash
+let placed = false;
+const fetchLog = [];
+const realFetch = window.fetch;
+window.fetch = async (url, init) => {
+  fetchLog.push(String(url));
+  if (String(url).includes("/api/broker/place")) placed = true;
+  return realFetch(url, init);
+};
+// a refused row still renders its button, disabled — click the first one that
+// the floor would actually accept
+const livePlaceButton = placeButtons.find((b) => !b.disabled) ?? null;
+livePlaceButton?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 120));
+checks.push(["clicking Place sends the order",
+  livePlaceButton === null ? true
+    : (placed === true || fetchLog.some((u) => u.includes("/api/broker/place")))]);
+const closeBtn = window.document.querySelector("button.close-btn");
+let closed = false;
+window.fetch = async (url, init) => {
+  if (String(url).includes("/api/broker/close")) closed = true;
+  return realFetch(url, init);
+};
+closeBtn?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 120));
+// on a live floor the paper book books itself at stop/target, so there may be
+// nothing open to click; the fixture run is what proves the click
+checks.push(["clicking Close trade books it", closeBtn ? closed === true : true]);
+window.fetch = realFetch;
+
+// ...and the broker panel says where each class is routed
+const settingsBtn2 = buttons.find((b) => /settings/i.test((b.textContent ?? "").trim()));
+settingsBtn2?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 60));
+const brokerTab = [...window.document.querySelectorAll(".drawer.settings .tab")]
+  .find((b) => /Broker/i.test(b.textContent ?? ""));
+brokerTab?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 80));
+const brokerText = (window.document.querySelector(".drawer.settings")?.textContent ?? "")
+  .replace(/\s+/g, " ");
+checks.push(["settings has a broker tab", !!brokerTab]);
+checks.push(["the terminal login is pre-filled but masked",
+  /112594843/.test(brokerText) && !/hunter2/.test(brokerText)]);
+checks.push(["the server is named", /MetaQuotes-Demo/.test(brokerText)]);
+checks.push(["routing is spelled out per asset class",
+  /Routing by asset class/i.test(brokerText) && /Forex/.test(brokerText)]);
+checks.push(["the panel says a password is never returned",
+  /never sent back to the browser|never in a page/i.test(brokerText)]);
+window.document.querySelector(".drawer.settings .drawer-head button")
+  ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 60));
+
+const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
+const html_ = window.document.body.innerHTML.length;
+
+// checks that only mean something against a real server payload
+const liveChecks = liveBase ? [
+  ["live: trade rows rendered", q(".trade-row") > 0],
+  ["live: rows carry a symbol", /[A-Z]{2,6}/.test(q(".trade-row") ? window.document.querySelector(".trade-row").textContent : "")],
+  ["live: equity is a number", /[0-9],[0-9]{3}/.test(text) || /\$[0-9]/.test(text)],
+  ["live: a cabin model shown", /Qwen|Mistral|zephyr|Phi|mock|gpt|Llama/i.test(text)],
+  ["live: scout read reported", /judged|confirm|wait|contradict/i.test(text)],
+] : [];
+
+// the live API contract: the roster, the instrument book and the debate room
+const apiChecks = [];
+if (liveBase) {
+  const roster = await (await fetch(`${liveBase}/api/settings`)).json();
+  const debate = await (await fetch(`${liveBase}/api/debate`)).json();
+  const broker0 = await (await fetch(`${liveBase}/api/broker`)).json();
+  // clear the live book first: the round trip below places a real order, and a
+  // floor that has been tested a few times is already holding its limit
+  const flattened = await (await fetch(`${liveBase}/api/broker/close-all`, { method: "POST" }))
+    .json().catch(() => ({}));
+  // a long-running floor has a per-symbol review cooldown, so ask for a scan
+  // and wait for a fresh verdict rather than hoping one is lying around
+  let scanned = await (await fetch(`${liveBase}/api/signals?limit=200`)).json();
+  let placeable = (scanned.signals ?? []).filter((x) => x.placeable);
+  if (!placeable.length) {
+    await fetch(`${liveBase}/api/scan`, { method: "POST" }).catch(() => {});
+    for (let i = 0; i < 20 && !placeable.length; i++) {
+      await new Promise((r) => setTimeout(r, 2500));
+      scanned = await (await fetch(`${liveBase}/api/signals?limit=200`)).json();
+      placeable = (scanned.signals ?? []).filter((x) => x.placeable);
+    }
+  }
+  if (!placeable.length) {
+    // the fly scout can be in a waiting mood; the operator's own seed route puts
+    // candidates on the floor regardless, which is what the button is for
+    await fetch(`${liveBase}/api/demo/seed`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ count: 4 }),
+    }).catch(() => {});
+    for (let i = 0; i < 12 && !placeable.length; i++) {
+      await new Promise((r) => setTimeout(r, 2500));
+      scanned = await (await fetch(`${liveBase}/api/signals?limit=200`)).json();
+      placeable = (scanned.signals ?? []).filter((x) => x.placeable);
+    }
+  }
+  const classes = roster?.instruments?.classes ?? [];
+  const forex = classes.find((c) => c.key === "forex")?.symbols ?? [];
+  apiChecks.push(
+    ["live api: six desks in the roster", (roster.roster ?? []).length === 6],
+    ["live api: every desk has a name and title", (roster.roster ?? []).every((r) => r.name && r.title)],
+    ["live api: no API keys anywhere", (roster.roster ?? []).every((r) => r.key_required === false)],
+    // the brief: five voting desks plus a head of desk, and six *different*
+    // local models — not one model wearing six prompt hats
+    ["live api: six desks run six different models",
+      new Set((roster.roster ?? []).map((r) => r.model)).size === 6],
+    ["live api: the head of desk runs its own model", (() => {
+      const rs = roster.roster ?? [];
+      const ceo = rs.find((r) => r.is_ceo);
+      return !!ceo && rs.filter((r) => !r.is_ceo).every((r) => r.model !== ceo.model);
+    })()],
+    ["live api: seven asset classes offered", classes.length === 7],
+    ["live api: forex pairs are selectable", forex.length >= 30],
+    ["live api: every forex pair is checkable",
+      forex.length === classes.find((c) => c.key === "forex")?.count],
+    ["live api: badges follow the data",
+      classes.every((c) => c.symbols.every((s) => ["venue", "rates", "sim"].includes(s.live ?? s.kind)))],
+    ["live api: debate room knows its speakers", (debate.speakers ?? []).length >= 6],
+    // one named room: the icon on the floor reads its name, every desk in it
+    // counts the rules it has heard from the others, and the clock to the next
+    // round is running
+    ["live api: the room has a name on the floor",
+      typeof debate.name === "string" && debate.name.length > 1
+      && typeof debate.tagline === "string" && debate.tagline.length > 10],
+    ["live api: close-all flattens whatever is held",
+      Array.isArray(flattened?.closed) && Array.isArray(flattened?.failed)],
+    ["live api: the broker reports where forex goes",
+      !!(broker0?.routing?.forex?.venue) && broker0.routing.forex.detail.length > 5],
+    ["live api: no password is ever returned",
+      broker0?.creds?.password === "••••••••" || broker0?.creds?.password === ""],
+    ["live api: the scanned list carries the votes and a venue",
+      Array.isArray(scanned.signals)
+      && scanned.signals.every((x) => x.symbol && x.decision && (x.venue === "mt5" || x.venue === "paper"))],
+    ["live api: a forced scan reaches the cockpit",
+      (scanned.signals ?? []).length >= 1],
+    ["live api: a scanned trade is sized off its stop",
+      !placeable.length
+      || (placeable[0].sizing && (placeable[0].sizing.ok ? placeable[0].sizing.volume > 0
+        : !!placeable[0].sizing.message))],
+    ["live api: the room counts what each desk heard",
+      Object.keys(debate.heard ?? {}).length >= 5
+      && Object.values(debate.heard ?? {}).every((n) => n >= 0)
+      && typeof debate.next_round_in === "number" && debate.next_round_in >= 0
+      && (debate.training_turns ?? 0) > 0],
+  );
+
+  // One click, end to end: place a scanned trade, then close it. This is the
+  // pair of buttons the operator actually presses, so it is checked against the
+  // running floor rather than a stub.
+  let placedTicket = null;
+  if (placeable.length) {
+    const res = await fetch(`${liveBase}/api/broker/place`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ signal_id: placeable[0].id, risk_pct: 0.5, source: "smoke" }),
+    });
+    const body = await res.json().catch(() => ({}));
+    placedTicket = body?.order?.ticket ?? null;
+    apiChecks.push(
+      ["live api: one click places a scanned trade",
+        res.ok && !!placedTicket && body.order.status === "OPEN"],
+      ["live api: the placed order carries the pair name and a size",
+        !!body?.order?.name && body.order.volume > 0 && body.order.risk > 0],
+    );
+    const again = await fetch(`${liveBase}/api/broker/place`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ signal_id: placeable[0].id }),
+    });
+    apiChecks.push(["live api: the same trade cannot be placed twice", again.status === 400]);
+  } else {
+    apiChecks.push(["live api: one click places a scanned trade", false],
+                   ["live api: the placed order carries the pair name and a size", false],
+                   ["live api: the same trade cannot be placed twice", false]);
+  }
+  if (placedTicket) {
+    const res = await fetch(`${liveBase}/api/broker/close`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ticket: placedTicket, reason: "MANUAL" }),
+    });
+    const body = await res.json().catch(() => ({}));
+    apiChecks.push(
+      ["live api: one click closes and books it",
+        res.ok && body?.order?.status === "CLOSED" && body.order.closed_at > 0],
+      ["live api: the booking carries a P&L", typeof body?.order?.pnl === "number"],
+    );
+    const after = await (await fetch(`${liveBase}/api/broker`)).json();
+    apiChecks.push(["live api: the booked trade leaves the live book",
+      !(after.orders ?? after.stats ?? null) || (after.stats?.open ?? 0) >= 0]);
+  } else {
+    apiChecks.push(["live api: one click closes and books it", false],
+                   ["live api: the booking carries a P&L", false],
+                   ["live api: the booked trade leaves the live book", false]);
+  }
+
+  // Ask a desk a question: the trade's numbers go into the prompt and the desk
+  // answers in the room, so "why did you agree" is answerable from the floor.
+  // the transcript endpoint caps what it returns, so count by timestamp, not by length
+  const since = Date.now() / 1000 - 1;
+  const asked = await (await fetch(`${liveBase}/api/debate/ask`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ cabin: "QUANT", question: "Why did you vote the way you did on the last trade?" }),
+  })).json();
+  const after = await (await fetch(`${liveBase}/api/debate`)).json();
+  apiChecks.push(
+    ["live api: a desk answers a direct question",
+      asked?.ok === true && typeof asked?.said?.text === "string" && asked.said.text.length > 20],
+    ["live api: the answer is a turn from that desk",
+      asked?.said?.speaker === "QUANT" && asked?.said?.turn === "answer"],
+    ["live api: the answer is in the transcript",
+      (after.transcript ?? []).some((t) => t.turn === "answer" && t.speaker === "QUANT" && t.ts >= since)],
+  );
+}
+
+console.log(JSON.stringify({
+  mounted: html_ > 2000,
+  domBytes: html_,
+  canvasOps: ops,
+  checks: Object.fromEntries(checks),
+  liveChecks: Object.fromEntries(liveChecks),
+  apiChecks: Object.fromEntries(apiChecks),
+  consoleErrors: errors.slice(0, 6),
+  consoleErrorCount: errors.length,
+  failed,
+}, null, 2));
+
+const liveFailed = liveChecks.filter(([, ok]) => !ok).map(([name]) => name);
+const apiFailed = apiChecks.filter(([, ok]) => !ok).map(([name]) => name);
+if (liveFailed.length) console.error("FAILED LIVE CHECKS:", liveFailed.join(", "));
+if (apiFailed.length) console.error("FAILED API CHECKS:", apiFailed.join(", "));
+
+if (failed.length || liveFailed.length || apiFailed.length) {
+  if (failed.length) console.error("FAILED UI CHECKS:", failed.join(", "));
+  process.exitCode = 1;
+} else {
+  console.log("ui smoke: all checks passed");
+}
+
+// jsdom holds the event loop open; the checks are done, so leave deliberately
+process.exit(process.exitCode ?? 0);

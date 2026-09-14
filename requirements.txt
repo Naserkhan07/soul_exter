@@ -1,0 +1,25 @@
+# ---- core (needed for the mock / CPU path and the server) -------------------
+fastapi>=0.110
+uvicorn[standard]>=0.27
+httpx>=0.27
+numpy>=1.26
+pydantic>=2.6
+
+# ---- live public market data (no API key; ccxt hits public REST endpoints) --
+ccxt>=4.2
+
+# ---- open-weight brains on a GPU (Kaggle T4x2) -----------------------------
+# Installed separately by the Kaggle notebook so the CPU path stays light.
+# 4-bit loading needs a CUDA GPU; transformers alone is fine for a smoke test.
+# transformers>=4.44
+# accelerate>=0.33
+# bitsandbytes>=0.43
+# sentencepiece>=0.2
+
+# ---- test / dev ------------------------------------------------------------
+pytest>=8.0
+# Execution is wired to a MetaTrader 5 terminal when one is reachable.
+# Windows only, imported lazily: the floor runs on the paper venue without it.
+# MetaTrader5>=5.0.45
+# From Linux/macOS against a terminal on another box: mt5linux (SOUL_MT5_BRIDGE=host:port)
+# mt5linux>=0.1.9
