@@ -586,6 +586,138 @@ class FloorEngine:
             w.pause_left = 0.5
         self._finalize(trade, accepted=accepted)
 
+    # --------------------------------------------------------------- desks
+    def desk_context(self, seat_id: Optional[str] = None) -> dict:
+        """Live context every desk answers from: book, tape, its own rulings."""
+        import time as _time
+        now = _time.time()
+        cache = getattr(self, "_desk_ctx_cache", None)
+        if cache and now - cache[0] < 4.0:
+            markets = cache[1]
+        else:
+            from ..brain.features import compute_metrics
+            snap = {row["symbol"]: row for row in self.feed.snapshot()}
+            markets = []
+            for sym, row in snap.items():
+                m = compute_metrics(self.feed.tickers.get(sym))
+                if m:
+                    tc = 0.62 * math.tanh(m.get("slope21", 0.0) * 120.0) + \
+                         0.38 * math.tanh(m.get("slope50", 0.0) * 60.0)
+                    row["features"] = dict(trend_composite=round(tc, 3),
+                                           efficiency=round(m.get("efficiency", 0.0), 3),
+                                           rsi=round(m.get("rsi", 50.0), 1),
+                                           atr_pct=round(m.get("atr_pct", 0.0), 5),
+                                           atr_rank=round(m.get("atr_rank", 0.5), 3))
+                markets.append(row)
+            self._desk_ctx_cache = (now, markets)
+        recent = []
+        for t in sorted(self.trades.values(), key=lambda x: x.created_at, reverse=True)[:24]:
+            recent.append(dict(ticket=t.id, symbol=t.symbol, asset_class=t.asset_class,
+                               direction=t.direction, outcome=t.outcome, state=t.state,
+                               votes_for=t.votes_for, votes_against=t.votes_against,
+                               pnl_r=t.pnl_r, cf_r=t.cf_r, label=t.label,
+                               verdicts=[dict(judge=st.judge_name,
+                                              judge_id=st.judge_id,
+                                              verdict=(st.verdict.verdict if st.verdict else None),
+                                              confidence=round(st.verdict.confidence, 2)
+                                              if st.verdict else None,
+                                              reasoning=(st.verdict.reasoning[:260]
+                                                         if st.verdict else ""))
+                                         for st in t.stages if st.verdict]))
+        own = []
+        if seat_id:
+            for t in sorted(self.trades.values(), key=lambda x: x.created_at, reverse=True):
+                for st in t.stages:
+                    if st.verdict and st.judge_id == seat_id:
+                        own.append(dict(ticket=t.id, symbol=t.symbol, direction=t.direction,
+                                        verdict=st.verdict.verdict,
+                                        confidence=round(st.verdict.confidence, 2),
+                                        reasoning=st.verdict.reasoning,
+                                        key_points=list(st.verdict.key_points or []),
+                                        risks=list(st.verdict.risks or []),
+                                        stop_loss=(t.signal or {}).get("stop_loss"),
+                                        take_profit=(t.signal or {}).get("take_profit"),
+                                        entry=(t.signal or {}).get("entry"),
+                                        outcome=t.outcome, pnl_r=t.pnl_r, ts=st.ended_at))
+                if len(own) >= 14:
+                    break
+        opinions = self.seat_opinions(seat_id) if seat_id else []
+        return dict(stats=dict(self.stats), markets=markets[:48], recent=recent, own=own,
+                    opinions=opinions,
+                    lessons=[dict(l) for l in self.playbook.lessons[-6:]],
+                    seats=[s.dict() for s in self.council.seats])
+
+    def seat_opinions(self, seat_id: str, limit: int = 6) -> List[dict]:
+        """Score the freshest tickets through one desk's *own* model.
+
+        Every desk therefore always has a reasoned opinion on the live tickets,
+        even for tickets that have not physically reached its cabin yet — the
+        numbers it would have used are the same ones the floor is trading.
+        """
+        seat = self.council.by_id.get(seat_id)
+        if seat is None:
+            return []
+        out: List[dict] = []
+        recent = sorted(self.trades.values(), key=lambda x: x.created_at, reverse=True)[:limit * 2]
+        for t in recent:
+            try:
+                from ..agents.schemas import Signal
+                from ..llm.analyst import StageContext, evaluate as builtin_evaluate
+                sig = Signal(**{k: v for k, v in (t.signal or {}).items()
+                                if k in Signal.__dataclass_fields__})
+                ctx = StageContext(sig, history=[], playbook=self.playbook.lookup(sig),
+                                   desk_name=seat.name)
+                v = builtin_evaluate(seat, ctx)
+                out.append(dict(ticket=t.id, symbol=t.symbol, direction=t.direction,
+                                state=t.state, outcome=t.outcome, entry=sig.entry,
+                                stop_loss=sig.stop_loss, take_profit=sig.take_profit, rr=sig.rr,
+                                verdict=v.get("verdict"), confidence=round(float(v.get("confidence", 0.0)), 3),
+                                reasoning=v.get("reasoning", ""),
+                                key_points=list(v.get("key_points") or [])[:3],
+                                risks=list(v.get("risks") or [])[:3],
+                                expectancy=v.get("expectancy"), live_read=True))
+            except Exception:
+                continue
+            if len(out) >= limit:
+                break
+        return out
+
+    async def ask_desk(self, seat_id: str, question: str,
+                       trade_id: Optional[str] = None) -> dict:
+        """Operator asks any desk anything — always comes back with an answer."""
+        trade = self.trades.get(trade_id) if trade_id else None
+        ctx = self.desk_context(seat_id)
+        self.emit("desk_chat", trade=dict(seat=seat_id, question=question[:160]))
+        return await self.council.ask_any(seat_id, question, context=ctx, trade=trade)
+
+    def seat_rulings(self) -> dict:
+        """Most recent verdict *and reason* per desk.
+
+        A desk that has not physically heard a ticket yet still has a reasoned
+        opinion: its own model scored the freshest tickets against the same tape,
+        so the answer to "why would you pass or reject this trade?" is never empty.
+        """
+        out: Dict[str, dict] = {}
+        for t in sorted(self.trades.values(), key=lambda x: x.created_at, reverse=True):
+            for st in t.stages:
+                if not st.verdict or st.judge_id in out:
+                    continue
+                out[st.judge_id] = dict(ticket=t.id, symbol=t.symbol, direction=t.direction,
+                                        verdict=st.verdict.verdict,
+                                        confidence=round(st.verdict.confidence, 2),
+                                        reasoning=st.verdict.reasoning,
+                                        key_points=list(st.verdict.key_points or [])[:3],
+                                        risks=list(st.verdict.risks or [])[:3],
+                                        pnl_r=t.pnl_r, outcome=t.outcome, ts=st.ended_at,
+                                        live_read=False)
+        for seat in self.council.seats:
+            if seat.id in out:
+                continue
+            for row in self.seat_opinions(seat.id, limit=1):
+                out[seat.id] = row
+                break
+        return out
+
     # ------------------------------------------------------------- finalize
     def _finalize(self, trade: Trade, accepted: bool, manual: bool = False) -> None:
         if trade.finalized_at is not None:

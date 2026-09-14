@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FloorScene } from '../three/scene'
 import { api, FloorSocket, type Snapshot } from '../net/api'
 import type { DebateMsg, FrameMsg, Layout, SeatFrame, TradeFrame } from '../three/types'
-import { AnalyticsPanel, CouncilPanel, DebatePanel, EventTicker, FlyPanel, MarketsPanel,
+import { AnalyticsPanel, CommsPanel, CouncilPanel, DebatePanel, EventTicker, FlyPanel, MarketsPanel,
   SettingsPanel, TradeDetail, TradeDock } from './panels'
 import { CLASS_META, fmtPrice } from '../three/types'
 
-type Tab = 'council' | 'debate' | 'fly' | 'markets' | 'settings' | 'analytics'
+type Tab = 'comms' | 'council' | 'debate' | 'fly' | 'markets' | 'settings' | 'analytics'
 
 export function App() {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -45,6 +45,7 @@ export function App() {
   const [chatRequest, setChatRequest] = useState<{ seatId: string; tradeId: string } | null>(null)
   const [lights, setLights] = useState<'bright' | 'moody'>('bright')
   const [orderBusy, setOrderBusy] = useState<Record<string, string>>({})
+  const [commsFocus, setCommsFocus] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   /* ---------------------------------------------------------------- boot */
@@ -179,14 +180,10 @@ export function App() {
   }, [selected, trades])
 
   const askSeatFromCouncil = useCallback((seatId: string) => {
-    const live = trades.find((t) => t.state !== 'exited') || trades[0]
-    if (live) select(live.id)
-    setTab('council')
-    setTimeout(() => {
-      const el = document.querySelector('.detail .tabs button:nth-child(2)') as HTMLButtonElement
-      el?.click()
-    }, 60)
-  }, [trades, select])
+    setChatRequest(null)
+    setCommsFocus(seatId)
+    setTab('comms')
+  }, [])
 
   const counts = useMemo(() => ({
     live: trades.filter((t) => t.state !== 'exited').length,
@@ -308,13 +305,20 @@ export function App() {
 
           <aside className="right">
             <div className="right-tabs">
-              {([['council', 'COUNCIL'], ['debate', 'DEBATE'], ['fly', 'FLY BRAIN'],
-                 ['markets', 'MARKETS'], ['analytics', 'ANALYTICS'], ['settings', 'SETTINGS']] as [Tab, string][])
+              {([['comms', 'ASK ANY DESK'], ['council', 'COUNCIL'], ['debate', 'DEBATE'],
+                 ['fly', 'FLY BRAIN'], ['markets', 'MARKETS'], ['analytics', 'ANALYTICS'],
+                 ['settings', 'SETTINGS']] as [Tab, string][])
                 .map(([k, label]) => (
                   <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
                 ))}
             </div>
             <div className="right-body">
+              {tab === 'comms' && (
+                <CommsPanel seats={seats} focusSeat={commsFocus}
+                            onConsumeFocus={() => setCommsFocus(null)}
+                            onAsk={async (seatId, question, tradeId) =>
+                              api.askDesk(seatId, question, tradeId)} />
+              )}
               {tab === 'council' && <CouncilPanel seats={seats} trades={trades} selected={selected}
                                                   onSeatClick={askSeatFromCouncil} />}
               {tab === 'debate' && <DebatePanel messages={debate} lessons={playbook?.lessons || []}

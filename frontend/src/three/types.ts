@@ -107,6 +107,22 @@ export interface SeatFrame {
   active_key_masked?: string
   key_source?: string
   engine?: string
+  /** most recent recorded verdict from this desk, with its written reason */
+  ruling?: SeatRuling | null
+}
+
+export interface SeatRuling {
+  ticket: string; symbol: string; direction: string
+  verdict: string; confidence: number; reasoning: string
+  key_points?: string[]; risks?: string[]; pnl_r?: number; outcome?: string; ts?: number
+  /** true when the desk has not heard the ticket yet and scored it on its own model */
+  live_read?: boolean
+}
+
+export interface DeskReply {
+  seat_id: string; name: string; role?: string; specialty?: string
+  question: string; answer: string; engine: string; model?: string; live?: boolean
+  topic?: string | null; evidence?: string[] | null; ts?: number
 }
 
 export interface ProviderKey {

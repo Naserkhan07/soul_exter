@@ -489,7 +489,7 @@ def build_floor_plan() -> FloorPlan:
         p.prop("light_panel", ceo_x + dx, -4.4, w=2.6, d=1.4, h=0.08, y=4.0, blocks=False)
     p.sign("EXECUTIVE CHAMBER", EXEC["x0"] - 0.3, -2.2, 3.5, "cabin",
            sub="HEAD OF COUNCIL", accent="#c084fc", width=4.6)
-    p.sign("EXECUTIVE CHAMBER", ceo_x, EXEC["z0"] + 0.28, 4.6, "cabin",
+    p.sign("HEAD OF COUNCIL · NAVEED", ceo_x, EXEC["z0"] + 0.28, 4.6, "cabin",
            sub="CHIEF INVESTMENT OFFICE", accent="#c084fc", width=7.6)
 
     vault_rect = Rect(VAULT["x0"], VAULT["z0"], VAULT["x1"], VAULT["z1"])

@@ -253,16 +253,23 @@ def _narrate(seat: LLMSeat, ctx: StageContext, score: float, verdict: str,
     sig = ctx.signal
     lead = {
         "approve": [
-            f"{seat.name} clears the ticket: structure and risk line up for a "
-            f"{sig.direction} in {sig.symbol}.",
-            f"{seat.name}: I'll sign this one. The numbers on my desk are internally consistent.",
+            f"{seat.name} clears this {sig.direction} in {sig.symbol} — passed on my mandate "
+            f"({seat.specialty}).",
+            f"{seat.name}: I'll sign it. On {seat.specialty} this ticket is internally consistent.",
+            f"Approved at the {seat.name} desk: my mandate is {seat.specialty} and the setup holds "
+            f"on it.",
         ],
         "reject": [
-            f"{seat.name} refuses the ticket: the edge does not survive this desk's checks.",
-            f"{seat.name}: sending it back. The setup as written is not investable.",
+            f"{seat.name} refuses this {sig.direction} in {sig.symbol} — it fails on my mandate "
+            f"({seat.specialty}).",
+            f"{seat.name}: sending it back. Judged on {seat.specialty}, the setup as written is "
+            f"not investable.",
+            f"Held back at the {seat.name} desk: my mandate is {seat.specialty} and this one does "
+            f"not clear it.",
         ],
         "abstain": [
-            f"{seat.name} abstains — the sample is thin and the levels are inconclusive.",
+            f"{seat.name} abstains — on my mandate ({seat.specialty}) the sample is too thin to "
+            f"sign either way.",
         ],
     }[verdict]
     idx = int(abs(hash(seat.id + sig.symbol)) % len(lead))

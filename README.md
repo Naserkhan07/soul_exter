@@ -5,7 +5,7 @@
 A fly-brain market hunter sniffs the tape, and every trade it finds walks into a real 3D
 trading hall through the *welcome door*, sits at a desk, stands up, and then goes cabin to
 cabin — five LLM desks, one at a time, physically inside each cabin — before a sixth desk
-(**SOVEREIGN**, the Head of Council / CEO) rules on any split. Agreed tickets walk to the
+(**NAVEED**, the Head of Council / CEO) rules on any split. Agreed tickets walk to the
 entry gate. Rejected tickets walk out of the exit door.
 
 The whole product runs on a **free Kaggle GPU** — nothing heavy on your laptop.
@@ -44,6 +44,29 @@ Floating labels ride above every head — seated, walking, inside a cabin — wi
 agent it belongs to. Above each cabin: the judge's name, model and its verdict on the ticket
 currently in front of it, plus a chat box to interrogate that judge about that specific ticket.
 
+## Every desk answers everything
+
+Open **ASK ANY DESK** in the right-hand rail and you are talking to all seven desks (five
+cabins, **NAVEED**, and the hunter). No ticket and no API key are required: each desk answers
+from the built-in analyst engine when no hosted model is configured, and the answer always
+carries the desk's own reasoning.
+
+* **Ticket questions** — “why did you refuse the last ticket?”, “what would make you flip?”,
+  “how would you size it?” Every desk answers with its recorded ruling *or*, if the walker has
+  not reached its cabin yet, with its own model's live read of that ticket against the same
+  tape: verdict, confidence, the evidence, the invalidation level and the clip.
+* **Market questions** — “your read on gold?”, “should I short oil?” Live price, trend
+  composite, efficiency, RSI and ATR percentile straight off the tape the scanner hunts on.
+* **Process questions** — expectancy, R multiples, sizing, stops, greeks, basis and carry,
+  execution, drawdown, psychology, backtesting, MT5.
+* **Anything else** — arithmetic, the floor's own numbers, small talk; and if a question is
+  genuinely outside the tape the desk says so honestly and tells you how to give it a hosted
+  model that can answer it, rather than bluffing.
+
+Every desk also shows a standing answer: its latest ruling (or live read) — symbol, verdict,
+confidence and the written reason — in the COUNCIL tab, in the ASK ANY DESK header, and on the
+plates floating above each cabin in the 3D hall.
+
 ## The six desks
 
 | Cabin | Name | Mandate | Default open-source model |
@@ -53,7 +76,7 @@ currently in front of it, plus a chat box to interrogate that judge about that s
 | 03 | **MERIDIAN** | Macro & session liquidity | DeepSeek-V3 |
 | 04 | **VOLTA** | Volatility & options expression | Mixtral 8x22B |
 | 05 | **VECTOR** | Execution & microstructure | phi-4 |
-| — | **SOVEREIGN** | Head of Council · final mandate | Hermes-3 405B |
+| — | **NAVEED** | Head of Council · final mandate | Hermes-3 405B |
 | hunt | **DROSOPHILA** | Fly-brain market hunter | Qwen2.5 32B (narrates its strikes) |
 
 Every seat runs a **built-in analyst engine** by default (no keys, no network, microseconds

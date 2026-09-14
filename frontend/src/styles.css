@@ -436,3 +436,42 @@ button:disabled { opacity: 0.5; cursor: default; }
   padding: 9px 15px; border-radius: 9px; font-size: 11.5px; box-shadow: 0 12px 34px rgba(3,8,18,0.55);
   max-width: 70vw; }
 .model-grid label.wide, .grid2 label.wide { grid-column: 1 / -1; }
+
+/* ------------------------------------------------------ open desk channel */
+.comms { height: 100%; }
+.comms-head { display: flex; flex-direction: column; gap: 3px; }
+.comms-title { font-size: 11px; letter-spacing: 0.16em; color: var(--accent); font-weight: 700; }
+.comms-roles { display: flex; flex-wrap: wrap; gap: 5px; }
+.comms-desk {
+  border: 1px solid var(--line); border-left: 3px solid var(--accent, var(--accent));
+  border-radius: 9px; padding: 8px 10px; background: rgba(50, 65, 88, 0.92);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.comms-desk-line { font-size: 11px; }
+.comms-ruling {
+  margin-top: 5px; border-radius: 7px; padding: 6px 8px; font-size: 11px;
+  background: rgba(30, 42, 60, 0.9); border: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.comms-ruling.approve { border-color: rgba(52, 211, 153, 0.5); }
+.comms-ruling.reject { border-color: rgba(248, 113, 113, 0.5); }
+.comms-ruling.abstain { border-color: rgba(250, 204, 21, 0.4); }
+.cr-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 5px;
+  background: rgba(125, 163, 214, 0.22); }
+.comms-ruling.approve .cr-badge { background: rgba(52, 211, 153, 0.25); color: #d1fae5; }
+.comms-ruling.reject .cr-badge { background: rgba(248, 113, 113, 0.25); color: #fee2e2; }
+.cr-sym { font-family: var(--mono); font-size: 10.5px; }
+.cr-conf { font-size: 10px; color: var(--muted); }
+.cr-why { flex-basis: 100%; font-size: 11px; line-height: 1.55; color: #dbe6f5; }
+.comms-scroll { flex: 1; min-height: 150px; max-height: 44vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 7px; padding-right: 2px; }
+.comms-reply .bubble-name { display: flex; align-items: center; gap: 6px; }
+.eng-badge { font-size: 8.5px; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 4px;
+  background: rgba(56, 189, 248, 0.18); border: 1px solid rgba(56, 189, 248, 0.4); color: #bae6fd; }
+.eng-badge.live { background: rgba(168, 85, 247, 0.2); border-color: rgba(192, 132, 252, 0.5); color: #ede9fe; }
+.ev-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.ev-chip { font-size: 9.5px; padding: 2px 6px; border-radius: 5px; color: #cfe4ff;
+  background: rgba(56, 74, 100, 0.75); border: 1px solid var(--line); }
+.comms-suggest { display: flex; flex-wrap: wrap; gap: 5px; }
+.comms-suggest button { font-size: 10px; }
+.pad { padding: 2px 0; }

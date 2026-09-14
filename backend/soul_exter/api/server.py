@@ -83,7 +83,20 @@ async def trade_chat(trade_id: str, payload: dict) -> dict:
     question = str(payload.get("question") or "").strip()
     if not question:
         raise HTTPException(400, "empty question")
-    return await engine.council.ask(seat_id, trade, question)
+    # route through the floor so the desk answers with the whole book + tape,
+    # not just this ticket
+    return await engine.ask_desk(seat_id, question, trade_id)
+
+
+@app.post("/api/chat")
+async def desk_chat(payload: dict) -> dict:
+    """Ask any desk anything — outside a ticket, any topic. Always answers."""
+    seat_id = str(payload.get("seat_id") or payload.get("desk") or "ceo")
+    question = str(payload.get("question") or payload.get("q") or "").strip()
+    trade_id = payload.get("trade_id")
+    if not question:
+        raise HTTPException(400, "empty question")
+    return await engine.ask_desk(seat_id, question, str(trade_id) if trade_id else None)
 
 
 from ..llm import keys as keyreg
@@ -139,7 +152,12 @@ async def broker_save(patch: dict) -> dict:
 
 @app.get("/api/seats")
 async def seats() -> dict:
-    seats_ = [s.dict() for s in engine.council.seats]
+    rulings = engine.seat_rulings()
+    seats_ = []
+    for s in engine.council.seats:
+        row = s.dict()
+        row["ruling"] = rulings.get(s.id)
+        seats_.append(row)
     live = [s for s in seats_ if s["live"]]
     return dict(seats=seats_, llm=CLIENT.stats, live_capable=True,
                 providers=host_key_report(),
@@ -153,6 +171,14 @@ async def seats() -> dict:
                           if not live else
                           "Hosted models are answering; the built-in engine remains the fallback."),
                 ))
+
+
+@app.get("/api/desks")
+async def desks() -> dict:
+    rulings = engine.seat_rulings()
+    return dict(desks=[dict(seat=s.dict(), ruling=rulings.get(s.id))
+                       for s in engine.council.seats],
+                chat_log=dict((k, v[-40:]) for k, v in list(engine.council.chat_log.items())[-6:]))
 
 
 @app.post("/api/seats/{seat_id}")
@@ -328,10 +354,12 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     continue
                 if data.get("type") == "chat":
                     trade = engine.trades.get(str(data.get("trade_id")))
-                    if trade:
-                        res = await engine.council.ask(str(data.get("seat_id") or "ceo"), trade,
-                                                       str(data.get("question") or ""))
-                        await ws.send_text(json.dumps(dict(type="chat_reply", trade_id=trade.id,
+                    question = str(data.get("question") or "").strip()
+                    if question:
+                        res = await engine.ask_desk(str(data.get("seat_id") or "ceo"), question,
+                                                    trade.id if trade else None)
+                        await ws.send_text(json.dumps(dict(type="chat_reply",
+                                                           trade_id=(trade.id if trade else None),
                                                            payload=res), default=str))
     except WebSocketDisconnect:
         pass

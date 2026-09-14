@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../net/api'
-import type { DebateMsg, FrameMsg, SeatFrame, TradeFrame } from '../three/types'
+import type { DebateMsg, DeskReply, FrameMsg, SeatFrame, TradeFrame } from '../three/types'
 import { CLASS_META, STATE_LABEL, fmtPrice, pct } from '../three/types'
 
 /* ------------------------------------------------------------------ shared */
@@ -375,6 +375,150 @@ function Step({ icon, title, body, tone, done, transcript }: any) {
   )
 }
 
+
+/* ------------------------------------------------- open desk channel (comms) */
+/**
+ * Every desk answers anything here: tickets, markets, risk, the floor itself or a
+ * plain question. No ticket is required, and no key is required — the built-in
+ * analyst engine answers whenever a hosted model is not configured.
+ */
+export function CommsPanel({ seats, onAsk, focusSeat, onConsumeFocus }: {
+  seats: SeatFrame[]
+  onAsk: (seatId: string, question: string, tradeId?: string) => Promise<DeskReply>
+  focusSeat?: string | null
+  onConsumeFocus?: () => void
+}) {
+  const [seatId, setSeatId] = useState<string>('ceo')
+  const [thread, setThread] = useState<Record<string, any[]>>({})
+  const [q, setQ] = useState('')
+  const [busy, setBusy] = useState(false)
+  const scroll = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (focusSeat) { setSeatId(focusSeat); onConsumeFocus?.() }
+  }, [focusSeat])
+
+  const desk = seats.find((s) => s.id === seatId) || seats[0]
+  const msgs = thread[desk?.id || 'ceo'] || []
+
+  useEffect(() => {
+    scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: 'smooth' })
+  }, [msgs.length, seatId, busy])
+
+  async function send(text?: string) {
+    const question = (text ?? q).trim()
+    if (!question || !desk || busy) return
+    setQ('')
+    setThread((t) => ({ ...t, [desk.id]: [...(t[desk.id] || []), { role: 'you', text: question }] }))
+    setBusy(true)
+    try {
+      const res = await onAsk(desk.id, question)
+      setThread((t) => ({ ...t, [desk.id]: [...(t[desk.id] || []), { role: 'desk', ...res }] }))
+    } catch (e: any) {
+      setThread((t) => ({ ...t, [desk.id]: [...(t[desk.id] || []),
+        { role: 'desk', name: desk.name, answer: `The channel dropped: ${e.message}`, engine: 'error' }] }))
+    }
+    setBusy(false)
+  }
+
+  const SUGGESTIONS = [
+    'Why did you pass or reject the last ticket?',
+    'What is your read on gold?',
+    'How would you size with a 1 ATR stop?',
+    'Are we net profitable, and why?',
+  ]
+
+  return (
+    <div className="panel-body comms">
+      <div className="comms-head">
+        <div className="comms-title">ASK ANY DESK</div>
+        <div className="muted small">
+          All six desks answer anything — a ticket, a market, risk, process or a plain question.
+          No API key needed: each desk falls back to the built-in analyst engine and still answers
+          with its own reasoning.
+        </div>
+      </div>
+
+      <div className="comms-roles">
+        {seats.map((s) => (
+          <button key={s.id} className={`chip${desk?.id === s.id ? ' on' : ''}`}
+                  style={{ ['--chip' as any]: s.accent }}
+                  title={`${s.role}${s.specialty ? ' · ' + s.specialty : ''}`}
+                  onClick={() => setSeatId(s.id)}>
+            {s.name}{s.cabin ? ` · C${String(s.cabin).padStart(2, '0')}` : s.id === 'ceo' ? ' · CEO' : ' · HUNTER'}
+          </button>
+        ))}
+      </div>
+
+      {desk && (
+        <div className="comms-desk" style={{ ['--accent' as any]: desk.accent }}>
+          <div className="comms-desk-line">
+            <b>{desk.name}</b> · {desk.role} · {desk.specialty}
+          </div>
+          <div className="comms-desk-line muted small">
+            {desk.model} · {desk.live ? 'hosted model answering' : 'built-in analyst engine'}
+          </div>
+          {desk.ruling && (
+            <div className={`comms-ruling ${desk.ruling.verdict}`}>
+              <span className="cr-badge">{String(desk.ruling.verdict || '').toUpperCase()}</span>
+              <span className="cr-sym">{desk.ruling.symbol} {String(desk.ruling.direction || '').toUpperCase()}</span>
+              <span className="cr-conf">{Math.round((desk.ruling.confidence || 0) * 100)}%</span>
+              <div className="cr-why">{desk.ruling.reasoning}</div>
+            </div>
+          )}
+          {!desk.ruling && (
+            <div className="muted small pad">No ruling recorded yet — the first ticket through a cabin lands here.</div>
+          )}
+        </div>
+      )}
+
+      <div className="comms-scroll" ref={scroll}>
+        {msgs.length === 0 && (
+          <div className="chat-hint">
+            Ask {desk?.name} anything — “why did you refuse the last ticket?”, “what’s your read on
+            EURUSD?”, “explain expectancy”, “how much should we risk per trade?”, or just say hello.
+          </div>
+        )}
+        {msgs.map((m, i) => (
+          m.role === 'you' ? (
+            <div key={i} className="bubble you"><div className="bubble-text">{m.text}</div></div>
+          ) : (
+            <div key={i} className="bubble llm comms-reply">
+              <div className="bubble-name">
+                {m.name || desk?.name}
+                <span className={`eng-badge${m.live ? ' live' : ''}`}>
+                  {m.live ? (m.model || 'hosted') : 'built-in engine'}
+                </span>
+              </div>
+              <div className="bubble-text">{m.answer}</div>
+              {!!(m.evidence || []).length && (
+                <div className="ev-chips">
+                  {(m.evidence || []).slice(0, 6).map((e: string, k: number) =>
+                    <span key={k} className="ev-chip">{e}</span>)}
+                </div>
+              )}
+            </div>
+          )
+        ))}
+        {busy && <div className="bubble llm"><div className="bubble-text muted">{desk?.name} is thinking…</div></div>}
+      </div>
+
+      {msgs.length === 0 && (
+        <div className="comms-suggest">
+          {SUGGESTIONS.map((s) => <button key={s} className="ghost small" onClick={() => send(s)}>{s}</button>)}
+        </div>
+      )}
+
+      <div className="chat-input">
+        <input value={q} placeholder={`Ask ${desk?.name || 'the desk'} anything…`}
+               onChange={(e) => setQ(e.target.value)}
+               onKeyDown={(e) => e.key === 'Enter' && send()} />
+        <button disabled={busy || !q.trim()} onClick={() => send()}>SEND</button>
+      </div>
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------- council view */
 export function CouncilPanel({ seats, trades, selected, onSeatClick }: {
   seats: SeatFrame[]; trades: TradeFrame[]; selected: string | null
@@ -411,7 +555,26 @@ export function CouncilPanel({ seats, trades, selected, onSeatClick }: {
               </div>
             )}
             {v && <div className="seat-reason">{v.reasoning}</div>}
-            <button className="mini" onClick={() => onSeatClick(s.id)}>ASK {s.name}</button>
+            {!v && s.ruling && (
+              <>
+                <div className="seat-verdict">
+                  <VerdictPill v={s.ruling.verdict} />
+                  <span className="muted small">{Math.round((s.ruling.confidence || 0) * 100)}%</span>
+                  <span className="muted small">
+                    {s.ruling.live_read
+                      ? `live read · ${s.ruling.symbol} ${String(s.ruling.direction || '').toUpperCase()}`
+                      : `last ruling · ${s.ruling.symbol} ${String(s.ruling.direction || '').toUpperCase()}`}
+                  </span>
+                </div>
+                <div className="seat-reason">{s.ruling.reasoning}</div>
+              </>
+            )}
+            {!v && !s.ruling && (
+              <div className="seat-reason muted small">
+                No ticket has reached this cabin yet — ask and I will rule on any live ticket.
+              </div>
+            )}
+            <button className="mini" onClick={() => onSeatClick(s.id)}>ASK {s.name} ANYTHING</button>
           </div>
         )
       })}
@@ -426,7 +589,28 @@ export function CouncilPanel({ seats, trades, selected, onSeatClick }: {
           </div>
           <div className="seat-spec">{ceo.specialty}</div>
           <div className="seat-model">{ceo.open_source_family || ceo.model}</div>
-          <button className="mini" onClick={() => onSeatClick(ceo.id)}>ASK THE HEAD</button>
+          {(() => {
+            const v = trade?.verdicts?.find((x) => x.judge_id === ceo.id)
+            const r = v || ceo.ruling
+            if (!r) return (
+              <div className="seat-reason muted small">
+                No split ticket has reached the chamber yet — ask me anything and I will answer.
+              </div>
+            )
+            return (
+              <>
+                <div className="seat-verdict">
+                  <VerdictPill v={r.verdict} />
+                  <span className="muted small">{Math.round((r.confidence || 0) * 100)}%</span>
+                  <span className="muted small">
+                    {v ? 'final ruling' : 'live read on the freshest ticket'}
+                  </span>
+                </div>
+                <div className="seat-reason">{r.reasoning}</div>
+              </>
+            )
+          })()}
+          <button className="mini" onClick={() => onSeatClick(ceo.id)}>ASK {ceo.name} ANYTHING</button>
         </div>
       )}
     </div>

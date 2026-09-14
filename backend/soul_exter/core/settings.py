@@ -49,6 +49,9 @@ class Settings:
         for raw in self.seats:
             data = {k: v for k, v in raw.items()
                     if k in LLMSeat.__dataclass_fields__}
+            # migrate the legacy head-of-council name: NAVEED runs the executive floor
+            if data.get("id") == "ceo" and data.get("name") in ("SOVEREIGN", "", None):
+                data["name"] = "NAVEED"
             out.append(LLMSeat(**data))
         return out
 

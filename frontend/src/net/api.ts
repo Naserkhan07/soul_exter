@@ -1,5 +1,5 @@
 /** REST + WebSocket client for the SOUL EXTER floor. */
-import type { DebateMsg, FlyFrame, FrameMsg, Layout, SeatFrame, SeatsResponse, TradeFrame } from '../three/types'
+import type { DebateMsg, DeskReply, FlyFrame, FrameMsg, Layout, SeatFrame, SeatsResponse, TradeFrame } from '../three/types'
 
 export interface Snapshot {
   clock: number
@@ -42,6 +42,10 @@ export const api = {
   chat: (id: string, seatId: string, question: string) =>
     jpost<any>(`/api/trades/${id}/chat`, { seat_id: seatId, question }),
   seats: () => jget<{ seats: SeatFrame[]; llm: Record<string, any> }>('/api/seats'),
+  desks: () => jget<{ desks: { seat: SeatFrame; ruling: any }[] }>('/api/desks'),
+  /** Ask any desk anything — no ticket required, always answers. */
+  askDesk: (seatId: string, question: string, tradeId?: string) =>
+    jpost<DeskReply>('/api/chat', { seat_id: seatId, question, trade_id: tradeId }),
   updateSeat: (id: string, patch: Record<string, unknown>) =>
     jpost<SeatFrame>(`/api/seats/${id}`, patch),
   testSeat: (id: string) => jpost<any>(`/api/seats/${id}/test`, {}),

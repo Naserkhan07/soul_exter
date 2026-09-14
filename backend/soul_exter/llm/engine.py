@@ -8,6 +8,7 @@ import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..agents.schemas import Signal, Trade, Verdict_
+from . import qa as desk_qa
 from .analyst import StageContext, evaluate as builtin_evaluate
 from .client import CLIENT
 from .playbook import Playbook, session_bucket
@@ -33,6 +34,21 @@ CEO_SYSTEM = (
     '"reasoning":"3-5 sentences referencing the votes, dissent and the playbook",'
     '"mandate":"one-line order for the execution desk",'
     '"size_multiplier":0.2-1.5}}'
+)
+
+
+DESK_CHAT_SYSTEM = (
+    "You are {name}, {role} of the SOUL EXTER autonomous trading floor. Your mandate is: "
+    "{specialty}. You are a professional institutional trader — rigorous, direct, numerate and "
+    "never vague. The operator can ask you ANYTHING: a specific ticket, a market, risk and "
+    "sizing, how the floor is performing, trading theory, or a general question. Always answer "
+    "helpfully and in character; if the question is outside trading, still answer it as the "
+    "professional you are, using the live context you are given and refusing to invent numbers "
+    "you were not given. You may disagree with your colleagues, but you must be able to justify "
+    "every position with the evidence supplied. Answer with STRICT JSON only:\n"
+    '{{"answer":"4-8 sentences, first person, concrete and specific",'
+    '"evidence":["the numbers or facts you relied on, max 6 short strings"],'
+    '"topic":"one word"}}'
 )
 
 
@@ -246,8 +262,12 @@ class CouncilEngine:
                 answer = str(data["answer"])
                 engine = f"{seat.provider}:{seat.model}"
         if answer is None:
-            answer = self._builtin_answer(seat, ctx, mine, question)
-        entry = dict(ts=time.time(), seat_id=seat.id, name=seat.name, question=question,
+            built = desk_qa.reply(seat, question, {}, ticket=self._ticket_context(seat, trade,
+                                                                                 verdicts, signal))
+            answer = built["answer"]
+            engine = built.get("engine", "soul-exter-analyst")
+        entry = dict(ts=time.time(), seat_id=seat.id, name=seat.name, role=seat.role,
+                     specialty=seat.specialty, question=question,
                      answer=answer, engine=engine, verdict=(mine.verdict if mine else None))
         self.chat_log.setdefault(trade.id, []).append(entry)
         return entry
@@ -290,6 +310,82 @@ class CouncilEngine:
             body = (f"{mine.reasoning if mine else 'The ticket is still in my queue.'} "
                     f"Key numbers: {', '.join(facts[:3])}.")
         return f"{lead}{body}"
+
+    async def ask_any(self, seat_id: str, question: str, context: Optional[dict] = None,
+                      trade: Optional[Trade] = None) -> dict:
+        """Answer *anything*, for any seat, with or without a provider key.
+
+        A hosted desk gets the live context (book, tape, its own rulings, the ticket)
+        and answers in its own voice; the built-in engine answers through
+        `llm.qa.reply`, which covers tickets, markets, process questions and general
+        knowledge. Both paths always return text.
+        """
+        seat = self.by_id.get(seat_id) or self.by_id.get("ceo")
+        if seat is None:
+            ids = [s.id for s in self.seats]
+            seat = self.seats[0]
+            question = f"{question} (asked for {seat_id}; desks available: {', '.join(ids)})"
+        ctx = dict(context or {})
+        ticket_brief = None
+        if trade is not None:
+            verdicts = [st.verdict for st in trade.stages if st.verdict]
+            sig = Signal(**{k: v for k, v in trade.signal.items()
+                            if k in Signal.__dataclass_fields__})
+            ticket_brief = self._ticket_context(seat, trade, verdicts, sig)
+            ctx["ticket"] = ticket_brief
+        answer, engine_name, model = None, "soul-exter-analyst", seat.model
+        built: Optional[dict] = None
+        if seat.live():
+            prior = [st.verdict.dict() for st in trade.stages if st.verdict] if trade else []
+            sys = DESK_CHAT_SYSTEM.format(name=seat.name, role=seat.role,
+                                          specialty=seat.specialty)
+            payload = dict(question=question,
+                           floor=dict(stats=ctx.get("stats"), roster=ctx.get("seats"),
+                                      lessons=(ctx.get("lessons") or [])[-3:]),
+                           tape=(ctx.get("markets") or [])[:24],
+                           my_recent_rulings=(ctx.get("own") or [])[:6],
+                           ticket=ticket_brief,
+                           prior_cabins=[dict(judge=v.get("judge_name"), verdict=v.get("verdict"),
+                                              confidence=v.get("confidence"),
+                                              reasoning=str(v.get("reasoning"))[:220])
+                                         for v in prior])
+            msgs = [dict(role="system", content=sys),
+                    dict(role="user", content=("Live context (JSON):\n"
+                                               + json.dumps(payload, default=str)[:6000]
+                                               + f"\n\nOperator question: {question}"))]
+            data = await CLIENT.chat_json(seat, msgs)
+            if data and data.get("answer"):
+                answer = str(data["answer"])
+                engine_name, model = f"{seat.provider}:{seat.model}", seat.model
+        if answer is None:
+            built = desk_qa.reply(seat, question, ctx, ticket=ticket_brief)
+            answer = built["answer"]
+            engine_name = built.get("engine", "soul-exter-analyst")
+        entry = dict(ts=time.time(), seat_id=seat.id, name=seat.name, role=seat.role,
+                     specialty=seat.specialty, question=question, answer=answer,
+                     engine=engine_name, model=model, live=seat.live(),
+                     topic=(built or {}).get("topic"),
+                     evidence=(built or {}).get("evidence"))
+        self.chat_log.setdefault(trade.id if trade else "floor", []).append(entry)
+        return entry
+
+    def _ticket_context(self, seat: LLMSeat, trade: Trade, verdicts: Sequence[Verdict_],
+                        sig: Signal) -> dict:
+        mine = next((v for v in verdicts if v.judge_id == seat.id), None)
+        return dict(ticket=trade.id, symbol=trade.symbol, direction=trade.direction,
+                    asset_class=trade.asset_class, state=trade.state, outcome=trade.outcome,
+                    entry=sig.entry, stop_loss=sig.stop_loss, take_profit=sig.take_profit,
+                    rr=sig.rr, atr=sig.atr, fly_confidence=sig.score,
+                    votes_for=trade.votes_for, votes_against=trade.votes_against,
+                    verdict=(mine.verdict if mine else None),
+                    confidence=(mine.confidence if mine else None),
+                    reasoning=(mine.reasoning if mine else ""),
+                    key_points=(mine.key_points if mine else []),
+                    risks=(mine.risks if mine else []),
+                    cabin_verdicts=[dict(judge=v.judge_name, verdict=v.verdict,
+                                         confidence=round(v.confidence, 2),
+                                         reasoning=v.reasoning[:220]) for v in verdicts],
+                    thesis=trade.thesis, exec_note=trade.exec_note)
 
     # --------------------------------------------------------------- debate
     DEBATE_KINDS = ["claim", "evidence", "challenge", "concession", "agreement", "training_note"]
@@ -401,7 +497,7 @@ class CouncilEngine:
                 "claim": [f"As Head of Council: {bucket_row()}. Capital follows discipline, and "
                           f"the council's discipline is what we are training here."],
                 "evidence": [f"Mandate review: {num_row()} — the override record stands."],
-                "challenge": [f"SOVEREIGN challenges every desk: name the condition that "
+                "challenge": [f"NAVEED challenges every desk: name the condition that "
                               f"invalidates your edge, or the edge is a story."],
                 "concession": [f"I accept the dissent recorded in the last block; the council "
                                f"reviews it in the next."],

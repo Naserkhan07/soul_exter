@@ -115,7 +115,7 @@ DEFAULT_SEATS: List[LLMSeat] = [
         avatar=dict(style="dark turtleneck, headset", chair="ergonomic task chair"),
     ),
     LLMSeat(
-        id="ceo", name="SOVEREIGN", role="Head of Council · CEO",
+        id="ceo", name="NAVEED", role="Head of Council · CEO",
         specialty="Capital allocation & final mandate", model="NousResearch/Hermes-3-Llama-3.1-405B",
         provider="builtin", api_key_env="OPENROUTER_API_KEY", cabin=None, accent="#c084fc",
         temperature=0.2, open_source_family="Hermes 3 · 405B Llama 3.1",
