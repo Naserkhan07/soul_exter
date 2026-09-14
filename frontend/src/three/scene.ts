@@ -7,13 +7,14 @@
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { FrameMsg, Layout, MarketRow, TradeFrame, WalkerFrame } from './types'
+import type { FrameMsg, Layout, MarketRow, StageFrame, TradeFrame, WalkerFrame } from './types'
 import { Person, hexA, radialTexture } from './person'
 import { buildCity, buildDesks, buildDoors, buildFloor, buildProps, buildSigns, buildSky,
   buildWalls, makeTextTexture } from './world'
 
 interface LabelEl {
   el: HTMLDivElement
+  subEl: HTMLDivElement
   anchor: THREE.Vector3
   visible: boolean
 }
@@ -32,6 +33,8 @@ interface WalkerVis {
 
 export interface SceneOptions {
   onSelect?: (id: string | null) => void
+  /** Clicking a judge above a cabin opens that desk's chat on the live ticket. */
+  onJudgeClick?: (seatId: string, tradeId: string | null) => void
   quality?: 'high' | 'balanced' | 'performance'
 }
 
@@ -54,6 +57,7 @@ export class FloorScene {
   private clock = new THREE.Clock()
   private walkers = new Map<string, WalkerVis>()
   private seats = new Map<string, Person>()
+  private seatLabels = new Map<string, LabelEl>()
   private labelHost: HTMLDivElement
   private labels: LabelEl[] = []
   private pickables: THREE.Object3D[] = []
@@ -83,6 +87,8 @@ export class FloorScene {
   private tmp = new THREE.Vector3()
   private frame: FrameMsg | null = null
   private tradeInfo = new Map<string, TradeFrame>()
+  private seatLive = new Map<string, { tradeId: string; text: string }>()
+  private seatIdByName = new Map<string, string>()
   private panelEl: HTMLDivElement
   private verdictFlashes: { mesh: THREE.Mesh; life: number; color: THREE.Color }[] = []
   private hubLights: THREE.PointLight[] = []
@@ -264,6 +270,7 @@ export class FloorScene {
   // ------------------------------------------------------------ LLM avatars
   setSeats(seats: any[]) {
     for (const seat of seats) {
+      if (seat?.name && seat?.id) this.seatIdByName.set(seat.name, seat.id)
       if (seat.cabin == null) {
         if (seat.id !== 'ceo') continue
       }
@@ -278,8 +285,11 @@ export class FloorScene {
         p.setHighlight(0.25)
         this.scene.add(p.group)
         this.seats.set('ceo', p)
-        this.addLabel(`CEO · ${seat.name}`, seat.open_source_family || seat.model, seat.accent,
+        const ceoLabel = this.addLabel(`CEO · ${seat.name}`,
+          seat.open_source_family || seat.model, seat.accent,
           p.group.position.clone().setY(2.4), 'judge')
+        this.seatLabels.set(seat.id, ceoLabel)
+        this.bindSeatClick(ceoLabel, seat.id)
         continue
       }
       if (seat.cabin == null) continue
@@ -291,13 +301,65 @@ export class FloorScene {
       p.setHighlight(0.2)
       this.scene.add(p.group)
       this.seats.set(seat.id, p)
-      this.addLabel(`${seat.name} · CABIN ${String(seat.cabin).padStart(2, '0')}`,
+      const label = this.addLabel(`${seat.name} · CABIN ${String(seat.cabin).padStart(2, '0')}`,
         `${seat.specialty} · ${seat.open_source_family || seat.model}`, seat.accent,
         p.group.position.clone().setY(2.3), 'judge')
+      this.seatLabels.set(seat.id, label)
+      this.bindSeatClick(label, seat.id)
     }
   }
 
   // ------------------------------------------------------------------ labels
+  /** Judge plates are interactive: they carry the live verdict and open the chat. */
+  private bindSeatClick(label: LabelEl, seatId: string) {
+    if (!this.opts.onJudgeClick) return
+    label.el.classList.add('plate-clickable')
+    label.el.style.pointerEvents = 'auto'
+    label.el.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      this.opts.onJudgeClick?.(seatId, this.seatTradeId(seatId))
+    })
+  }
+
+  /** Which ticket is in front of this desk right now (by stage history). */
+  private seatTradeId(seatId: string): string | null {
+    const info = this.seatLive.get(seatId)
+    return info?.tradeId ?? null
+  }
+
+  /** Update judge plates with the ticket under hearing and its verdict. */
+  private updateSeatPlates() {
+    const f = this.frame
+    if (!f) return
+    const live = new Map<string, { tradeId: string; text: string }>()
+    for (const t of f.trades) {
+      if (t.state === 'exited' || t.outcome !== 'pending') continue
+      const stages = (t.stages || []) as StageFrame[]
+      for (const st of stages) {
+        const seatId = this.seatIdByName.get(st.judge_name) || ''
+        if (!seatId) continue
+        if (st.verdict) {
+          live.set(seatId, {
+            tradeId: t.id,
+            text: `${t.symbol} ${t.direction} → ${String(st.verdict).toUpperCase()} ` +
+                  `${Math.round((st.confidence || 0) * 100)}%`,
+          })
+        } else if (st.state === 'hearing' && !live.has(seatId)) {
+          live.set(seatId, { tradeId: t.id, text: `${t.symbol} ${t.direction} — hearing…` })
+        } else if (!live.has(seatId)) {
+          live.set(seatId, { tradeId: t.id, text: `${t.symbol} ${t.direction} — queued` })
+        }
+      }
+    }
+    this.seatLive = live
+    for (const [seatId, label] of this.seatLabels) {
+      if (label.el.dataset.base === undefined) label.el.dataset.base = label.subEl.textContent || ''
+      const info = live.get(seatId)
+      label.subEl.textContent = info ? info.text : (label.el.dataset.base || '')
+      label.el.classList.toggle('plate-live', !!info)
+    }
+  }
+
   private addLabel(text: string, sub: string, accent: string, anchor: THREE.Vector3,
                    kind: 'walker' | 'judge' | 'fly' = 'walker', id?: string): LabelEl {
     const el = document.createElement('div')
@@ -313,7 +375,9 @@ export class FloorScene {
       })
     }
     this.labelHost.appendChild(el)
-    const item: LabelEl = { el, anchor: anchor.clone(), visible: true }
+    const subEl = el.querySelector('.plate-sub') as HTMLDivElement
+    const item: LabelEl = { el, subEl: subEl || document.createElement('div'),
+                            anchor: anchor.clone(), visible: true }
     this.labels.push(item)
     return item
   }
@@ -659,6 +723,7 @@ export class FloorScene {
 
     this.controls.update()
     this.drawTicker()
+    this.updateSeatPlates()
     this.updateLabels()
     this.renderer.render(this.scene, this.camera)
   }

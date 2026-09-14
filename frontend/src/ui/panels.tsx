@@ -84,11 +84,12 @@ export function TradeDock({ trades, selected, onSelect }: {
 }
 
 /* ----------------------------------------------------------- trade detail */
-export function TradeDetail({ trade, seats, onClose, onAsk }: {
+export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat }: {
   trade: TradeFrame | null
   seats: SeatFrame[]
   onClose: () => void
   onAsk: (seatId: string, q: string) => Promise<any>
+  focusSeat?: string | null
 }) {
   const [detail, setDetail] = useState<any>(null)
   const [tab, setTab] = useState<'journey' | 'chat'>('journey')
@@ -113,6 +114,12 @@ export function TradeDetail({ trade, seats, onClose, onAsk }: {
   useEffect(() => {
     if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight
   }, [chat.length])
+
+  useEffect(() => {
+    if (!focusSeat) return
+    setSeatId(focusSeat)
+    setTab('chat')
+  }, [focusSeat, trade?.id])
 
   if (!trade) return null
   const sig = trade.signal || {}

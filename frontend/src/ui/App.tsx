@@ -41,6 +41,7 @@ export function App() {
   const [live, setLive] = useState<any>(null)
   const [cinema, setCinema] = useState(false)
   const [fps, setFps] = useState(60)
+  const [chatRequest, setChatRequest] = useState<{ seatId: string; tradeId: string } | null>(null)
 
   /* ---------------------------------------------------------------- boot */
   useEffect(() => {
@@ -52,7 +53,13 @@ export function App() {
         ])
         if (disposed || !hostRef.current) return
         const scene = new FloorScene(hostRef.current, layout as Layout, {
-          onSelect: (id) => { setSelected(id); if (id) scene.select(id, true) }
+          onSelect: (id) => { setSelected(id); if (id) scene.select(id, true) },
+          onJudgeClick: (seatId, tradeId) => {
+            if (!tradeId) return
+            setSelected(tradeId)
+            scene.select(tradeId, true)
+            setChatRequest({ seatId, tradeId })
+          }
         })
         scene.setSeats(seatData.seats)
         sceneRef.current = scene
@@ -292,6 +299,7 @@ export function App() {
 
           {selectedTrade && (
             <TradeDetail trade={selectedTrade} seats={seats} onClose={() => select(null)}
+                         focusSeat={chatRequest?.tradeId === selectedTrade.id ? chatRequest.seatId : null}
                          onAsk={async (seatId, q) => askJudge(seatId, q)} />
           )}
         </>

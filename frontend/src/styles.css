@@ -365,6 +365,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 .plate-walker { border-left-color: var(--accent); }
 .plate-judge { background: rgba(12, 8, 24, 0.82); border-left-width: 3px; }
 .plate-selected { border-color: #fff; box-shadow: 0 0 16px rgba(255,255,255,0.35); }
+.plate-clickable { cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease; }
+.plate-clickable:hover { box-shadow: 0 0 0 1px var(--accent), 0 6px 18px rgba(2,6,14,0.6);
+  transform: translateY(-1px); }
+.plate-live { background: rgba(10, 16, 27, 0.92); border-color: var(--accent);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.25); }
+.plate-live .plate-sub { color: #e2e8f0; }
 .plate::after {
   content: ''; position: absolute; left: 50%; bottom: -6px; width: 1px; height: 6px;
   background: var(--line-strong);
