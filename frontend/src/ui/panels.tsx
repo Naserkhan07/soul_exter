@@ -253,6 +253,50 @@ export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat }: {
   )
 }
 
+/** Copy helper that also works on plain-http origins (localhost / LAN). */
+export async function copyText(text: string): Promise<boolean> {
+  if (!text) return false
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch { /* fall through to the legacy path */ }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
+export function CopyButton({ value, label = 'COPY', onDone, className = 'mini' }: {
+  value: string; label?: string; onDone?: (ok: boolean) => void; className?: string
+}) {
+  const [state, setState] = useState<'idle' | 'ok' | 'fail'>('idle')
+  return (
+    <button className={className} disabled={!value}
+            title={value ? 'Copy to clipboard' : 'nothing to copy'}
+            onClick={async () => {
+              const ok = await copyText(value)
+              setState(ok ? 'ok' : 'fail')
+              onDone?.(ok)
+              setTimeout(() => setState('idle'), 1600)
+            }}>
+      {state === 'ok' ? '✓ COPIED' : state === 'fail' ? '✗ FAILED' : label}
+    </button>
+  )
+}
+
 export function maskKey(key: string): string {
   if (!key) return ''
   if (key.length <= 10) return '•'.repeat(key.length)
@@ -541,6 +585,7 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
   const [dirty, setDirty] = useState(false)
   const [reveal, setReveal] = useState<Record<string, boolean>>({})
   const [showAllKeys, setShowAllKeys] = useState(true)
+  const [copied, setCopied] = useState<Record<string, boolean>>({})
   const enabled = useMemo(() => new Set(settings?.enabled_symbols || []), [settings?.enabled_symbols])
 
   useEffect(() => { setLocal(settings || {}) }, [settings])
@@ -620,6 +665,15 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
                 ? engine.env_files.join(' · ')
                 : 'host environment only — add a .env with OPENROUTER_API_KEY to run hosted models'}</code>
             </div>
+            <div className="model-actions">
+              <CopyButton className="mini" label="COPY ALL RUNNING KEYS"
+                value={seats.map((x) => `${x.name}\t${x.engine}\t${x.active_key || '(built-in engine — no key)'}`)
+                  .join('\n')} />
+              <CopyButton className="mini" label="COPY SEAT REPORT"
+                value={seats.map((x) => `${x.name} · ${x.role} · ${x.specialty} · ` +
+                    `${x.provider}:${x.model} · ${x.live ? 'hosted' : 'built-in'} · ` +
+                    `${x.active_key ? x.key_source : 'no key'}`).join('\n')} />
+            </div>
             <div className="eb-keys">
               <b>Keys on this host:</b>{' '}
               {providers && Object.values(providers).some((p) => p.set)
@@ -629,6 +683,7 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
                       <button className="eye" onClick={() => setShowAllKeys(!showAllKeys)}>
                         {showAllKeys ? 'HIDE' : 'SHOW'}
                       </button>
+                      <CopyButton className="eye" label="COPY" value={p.value} />
                     </span>
                   ))
                 : <span className="muted">none set — the built-in engine needs no key. Export e.g.
@@ -668,6 +723,9 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
                       <button className="eye" onClick={() => setReveal((r) => ({ ...r, [s.id]: !shown }))}>
                         {shown ? 'HIDE' : 'SHOW'}
                       </button>
+                      <CopyButton value={active} label="COPY KEY"
+                        onDone={(ok) => setCopied((c) => ({ ...c, [s.id]: ok }))} />
+                      {copied[s.id] && <span className="rk-src">copied to clipboard</span>}
                     </>
                   ) : (
                     <span className="rk-none">

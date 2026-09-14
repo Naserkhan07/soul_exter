@@ -129,27 +129,59 @@ crypto, Yahoo chart data for everything else — no API keys. When a venue is un
 floor keeps trading a regime-switching synthetic tape anchored to the last real print, so the
 product never stops. The footer of the UI always says which tape you are watching.
 
-## Run it
+## View it in a browser tab (localhost)
 
-### On a free Kaggle GPU (recommended)
+The interface needs the floor engine, which cannot run in a browser tab on its own — so the
+"another tab" path is your own machine, in one command:
+
+```bash
+git clone https://github.com/Naserkhan07/soul_exter.git
+cd soul_exter
+./scripts/run_local.sh          # Windows: .\scripts\run_local.ps1
+```
+
+It installs the backend deps, installs and builds the interface, then serves **UI + API + live
+feed on one origin**:
+
+```
+→  http://localhost:8000          ← open this in any tab, any browser
+   http://localhost:8000/docs     ← the REST API explorer
+```
+
+Other switches:
+
+```bash
+PORT=9000 ./scripts/run_local.sh     # different port
+DEV=1     ./scripts/run_local.sh     # hot-reload UI on http://localhost:5173 + API on :8000
+```
+
+On `localhost` the page is a secure context, so clipboard, WebGL and the 12 Hz WebSocket all
+work without any proxy. If you want hosted LLM desks, put your key in a `.env` at the repo root
+(`OPENROUTER_API_KEY=...`) before starting — the script loads it and the Settings → LLM Council
+tab will show each desk's running key with a COPY button.
+
+### On a free Kaggle GPU (no local install)
 
 Open `kaggle/soul_exter_kaggle.ipynb` (GPU T4, Internet on) and run the cells: it installs the
 two API dependencies, builds the React/three.js interface, optionally runs the track-record
 test, starts the floor, and prints a public URL. Nothing is installed on your laptop and no
 GPU is used locally.
 
-### Locally, for development
+### Manually, step by step
 
 ```bash
 # backend
 cd backend
-pip install fastapi "uvicorn[standard]" httpx numpy
+pip install -r requirements.txt
 python3 -m uvicorn soul_exter.api.server:app --host 0.0.0.0 --port 8000
 
-# interface (proxies /api and /ws to the backend)
+# interface, dev mode (proxies /api and /ws to the backend)
 cd frontend
 npm install
 npm run dev            # http://localhost:5173
+
+# or build it into the API server (single port, no proxy)
+npm run build          # then open http://localhost:8000
 ```
 
 Headless checks:
