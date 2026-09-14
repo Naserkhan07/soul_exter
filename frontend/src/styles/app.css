@@ -473,6 +473,55 @@ button.ghost.tiny { padding: 3px 8px; font-size: 11px; }
 .ghost.tiny.on { border-color: var(--accent); color: var(--text); }
 .ghost.tiny .pill { margin-left: 4px; }
 .training-line { margin: 4px 0 0; }
+/* ------------------------------------------------- the chat-room icon ----- */
+.chat-dock {
+  position: fixed; right: 16px; bottom: 16px; z-index: 55;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 13px 9px 11px; max-width: 320px;
+  background: rgba(13, 19, 27, 0.96);
+  border: 1px solid var(--line-strong); border-radius: 14px;
+  color: var(--text); cursor: pointer; text-align: left;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.chat-dock:hover { transform: translateY(-2px); border-color: var(--accent); }
+.chat-dock .dock-icon { position: relative; color: var(--accent); display: flex; }
+.chat-dock .dock-pulse {
+  position: absolute; inset: -3px; border-radius: 50%;
+  border: 2px solid var(--accent); animation: dock 1.4s ease-out infinite;
+}
+@keyframes dock {
+  0% { transform: scale(0.7); opacity: 0.9; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+.chat-dock .dock-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.chat-dock .dock-text b { font-size: 12.5px; letter-spacing: 0.02em; }
+.chat-dock .dock-text i { font-style: normal; font-size: 10.5px; color: var(--text-dim); }
+.chat-dock .dock-text em { font-style: normal; font-size: 9.5px; color: var(--text-faint); }
+.chat-dock.live { border-color: var(--accent); }
+.chat-dock.unread { border-color: var(--gold, #ffd479); }
+.chat-dock .dock-badge {
+  min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  background: var(--gold, #ffd479); color: #14100a;
+  font-size: 10px; font-weight: 700; display: grid; place-items: center;
+}
+.tagline { color: var(--text-dim); font-weight: 400; }
+.speaker-learned { font-style: normal; font-size: 9px; color: var(--accent); }
+.listening-line, .heard-line {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  font-size: 10px; color: var(--text-faint); padding: 3px 0 0 6px;
+}
+.listening-tag, .heard-tag {
+  text-transform: uppercase; letter-spacing: 0.07em; font-size: 8.5px;
+  border: 1px solid var(--line-strong); border-radius: 5px; padding: 0 4px;
+}
+.listener {
+  padding: 1px 5px; border-radius: 6px;
+  background: rgba(126, 200, 255, 0.07); color: var(--text-dim);
+}
+.listener.addressed { background: rgba(126, 200, 255, 0.18); color: var(--text); }
+.heard-line b { color: var(--text); }
+.heard-line i { margin-left: 4px; font-size: 9.5px; color: var(--text-faint); }
 .training-line b { color: var(--text); }
 .note.training { border-left-color: var(--accent); margin-bottom: 10px; }
 .roster-train { font-size: 10.5px; color: var(--text-dim); margin-top: 3px; }

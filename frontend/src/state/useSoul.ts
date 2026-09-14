@@ -227,6 +227,11 @@ export interface DebateSnapshot {
   rounds?: number;
   /** how many turns in the room were the desks being trained */
   training_turns?: number;
+  /** the room's name, and how many rules each desk has heard another desk write */
+  name?: string;
+  tagline?: string;
+  heard?: Record<string, number>;
+  next_round_in?: number | null;
   topic?: string | null;
   transcript?: DebateTurn[];
   lessons?: Array<{ topic: string; speaker: string; speaker_label: string; text: string; ts: number; round: number }>;
@@ -287,6 +292,8 @@ export interface SoulEvents {
   /** turns as they are spoken, for the live debate panel and the cabins */
   debate: Array<{ cabin: string; name: string; turn: string; text: string; topic: string;
                   to?: string; to_name?: string }>;
+  /** a desk hearing another desk's rule: training by listening */
+  heard: Array<{ listener: string; name: string; speaker_name: string; rule: string; round: number }>;
 }
 
 export function useSoul(pollMs = 4000): {
@@ -302,6 +309,7 @@ export function useSoul(pollMs = 4000): {
   const [state, setState] = useState<SoulState>(EMPTY);
   const eventsRef = useRef<SoulEvents>({
     spawns: [], moves: [], cabinThinking: [], cabinVerdicts: [], ends: [], floats: [], debate: [],
+    heard: [],
   });
   const [seq, setSeq] = useState(0);
   const [thinking, setThinking] = useState<{ key: string; name: string } | null>(null);
@@ -432,6 +440,17 @@ export function useSoul(pollMs = 4000): {
           text: String(p?.topic ?? ""), topic: String(p?.topic ?? ""),
         });
         break;
+      case "debate_heard": {
+        // somebody in the room just learned a rule off another desk
+        if (p?.listener && p?.rule) {
+          push("heard", {
+            listener: String(p.listener), name: String(p.name ?? p.listener),
+            speaker_name: String(p.speaker_name ?? ""), rule: String(p.rule),
+            round: Number(p.round ?? 0),
+          });
+        }
+        break;
+      }
       case "debate_message": {
         if (p?.speaker && p?.text) {
           setThinking((t) => (t && t.key === String(p.speaker) ? null : t));

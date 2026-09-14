@@ -11,6 +11,7 @@ import {
   BookPanel, CouncilRail, EquitySpark, MarketTape, ScoutPanel, TopBar, TradeList, TraderList,
 } from "./components/Panels";
 import { CabinChat } from "./components/CabinChat";
+import { ChatDock } from "./components/ChatDock";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { DebateRoomPanel, type DeskRecord } from "./components/DebateRoom";
 import { TradeDrawer } from "./components/TradeDrawer";
@@ -50,6 +51,16 @@ export default function App() {
   const deskRecord = (key: string) =>
     (state.council as any)?.scoreboard?.desks?.[key] ?? null;
   const [fps, setFps] = useState<number | undefined>(undefined);
+  // rules heard off another desk since this page loaded, and the last few of
+  // them, so the room can show the training happening while it happens
+  const [heard, setHeard] = useState<
+    Array<{ listener: string; name: string; speaker_name: string; rule: string; round: number }>
+  >([]);
+  useEffect(() => {
+    const fresh = events.heard.splice(0);
+    if (!fresh.length) return;
+    setHeard((prev) => [...prev, ...fresh].slice(-60));
+  }, [seq, events.heard]);
   // what the room shows about each desk: its settled record (the training
   // channel's scoreboard) and whoever is composing a turn right now
   const records = useMemo<Record<string, DeskRecord>>(
@@ -79,6 +90,15 @@ export default function App() {
     if (!fresh.length) return;
     setLiveTurns((prev) => [...prev, ...fresh].slice(-80));
   }, [seq, events.debate]);
+
+  const heardTotals = useMemo(() => {
+    const out: Record<string, number> = { ...(state.debate?.heard ?? {}) };
+    // live events can land ahead of the next snapshot; the bigger number wins
+    const live: Record<string, number> = {};
+    for (const h of heard) live[h.listener] = (live[h.listener] ?? 0) + 1;
+    for (const [k, v] of Object.entries(live)) out[k] = Math.max(out[k] ?? 0, v);
+    return out;
+  }, [state.debate?.heard, heard]);
 
   const debateTurns = useMemo<DebateTurn[]>(() => {
     const hist = (state.debate?.transcript ?? []) as DebateTurn[];
@@ -228,6 +248,8 @@ export default function App() {
             records={records}
             thinking={thinking}
             training={state.training ?? null}
+            heardTotals={heardTotals}
+            roomName={state.debate?.name}
             hours24
           />
           <TraderList traders={traders} onSelect={(id) => onPick(id)} />
@@ -256,6 +278,16 @@ export default function App() {
         />
       )}
 
+      <ChatDock
+        name={state.debate?.name}
+        open={roomOpen}
+        trainingTurns={state.debate?.training_turns ?? 0}
+        thinking={thinking}
+        nextRoundIn={state.debate?.next_round_in}
+        heardCount={Object.values(heardTotals).reduce((a, b) => a + b, 0)}
+        onOpen={() => setRoomOpen(true)}
+      />
+
       {roomOpen && (
         <div className="room-overlay" onMouseDown={closeRoom}>
           <div className="room-shell" onMouseDown={(e) => e.stopPropagation()}>
@@ -271,6 +303,10 @@ export default function App() {
               records={records}
               thinking={thinking}
               training={state.training ?? null}
+              heard={heard}
+              heardTotals={heardTotals}
+              roomName={state.debate?.name}
+              tagline={state.debate?.tagline}
               hours24
               onClose={closeRoom}
             />

@@ -68,6 +68,10 @@ export function DebateRoomPanel({
   records,
   thinking,
   training,
+  heard,
+  heardTotals,
+  roomName,
+  tagline,
   hours24,
   variant = "rail",
   onClose,
@@ -84,6 +88,13 @@ export function DebateRoomPanel({
   records?: Partial<Record<string, DeskRecord>>;
   /** the desk currently composing a turn, if any */
   thinking?: { key: string; name: string } | null;
+  /** rules heard off another desk, newest last — training by listening */
+  heard?: Array<{ listener: string; name: string; speaker_name: string; rule: string; round: number }>;
+  /** how many rules each desk has heard written */
+  heardTotals?: Record<string, number>;
+  /** the room's name, straight from the engine */
+  roomName?: string;
+  tagline?: string;
   /** what the desks have been trained on, straight from the engine */
   training?: {
     rows: number; settled_rows: number; curriculum_rows: number; lesson_rows: number;
@@ -137,12 +148,13 @@ export function DebateRoomPanel({
   };
 
   const room = variant === "room";
+  const last = turns.length ? turns[turns.length - 1] : null;
 
   return (
     <section className={`panel debate${room ? " room" : ""}`}>
       <header className="panel-head">
         <h3>
-          Debate room <span className="pill">{rounds} rounds</span>
+          {roomName ?? "The chat room"} <span className="pill">{rounds} rounds</span>
         </h3>
         <div className="head-actions">
           <button className="ghost tiny" onClick={() => setPinned((p) => !p)}>
@@ -174,6 +186,7 @@ export function DebateRoomPanel({
 
       {room && (
         <p className="room-intro">
+          {tagline ? <b className="tagline">{tagline}. </b> : null}
           Six desks in one room: they claim, challenge, ask, answer, agree — and then they
           teach each other. A desk opens a round by naming the rule on file that bears on it
           (<b>↺</b> recalled), the head of desk writes the round&apos;s rule (<b>★</b>),
@@ -192,11 +205,17 @@ export function DebateRoomPanel({
             : rec
               ? `${rec.calls} settled · not proven`
               : "";
+          const learned = heardTotals?.[s.key];
           return (
             <span className="speaker-chip" key={s.key} title={s.title}>
               <b>{s.name}</b>
               <em>{s.title}</em>
               {record && <i className="speaker-record">{record}</i>}
+              {learned ? (
+                <i className="speaker-learned" title="rules this desk has heard another desk write">
+                  ↺ {learned} heard
+                </i>
+              ) : null}
             </span>
           );
         })}
@@ -262,6 +281,30 @@ export function DebateRoomPanel({
           <div className="thinking-line">
             <span className="dot" />
             <b>{thinking.name}</b> is thinking…
+          </div>
+        )}
+        {last && (
+          <div className="listening-line">
+            <span className="listening-tag">listening</span>
+            {speakers
+              .filter((sp) => sp.key !== last.speaker)
+              .map((sp) => (
+                <span
+                  key={sp.key}
+                  className={`listener${sp.key === last.to ? " addressed" : ""}`}
+                  title={sp.key === last.to ? `${last.name} is answering ${sp.name}` : sp.name}
+                >
+                  {sp.name.split(" ").slice(-1)[0]}
+                </span>
+              ))}
+          </div>
+        )}
+        {heard && heard.length > 0 && (
+          <div className="heard-line">
+            <span className="heard-tag">learned</span>
+            <b>{heard[heard.length - 1].name}</b> heard{" "}
+            <b>{heard[heard.length - 1].speaker_name}</b>&apos;s rule
+            <i className="mono">{heard[heard.length - 1].rule.slice(0, 70)}</i>
           </div>
         )}
       </div>

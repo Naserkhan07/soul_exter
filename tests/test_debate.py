@@ -115,6 +115,25 @@ def test_a_clean_win_is_filed_without_blame(room):
     assert "right side" in msg["text"] or "settled" in msg["text"]
 
 
+def test_everyone_in_the_room_hears_the_rule(room):
+    """Training by listening: the desks that did not write the rule still learn it."""
+    before = dict(room.heard)
+    asyncio.run(room.run_round(dict(TOPIC)))
+    listeners = [k for k in room.brains if k != room.ceo_key()]
+    for key in listeners:
+        assert room.heard.get(key, 0) == before.get(key, 0) + 1, f"{key} did not hear the rule"
+
+
+def test_the_room_is_named_and_says_when_it_speaks_next(room):
+    from soul.debate import ROOM_NAME
+
+    snap = room.snapshot()
+    assert snap["name"] == ROOM_NAME
+    assert snap["tagline"]
+    assert isinstance(snap["heard"], dict) and snap["heard"]
+    assert "next_round_in" in snap
+
+
 def test_the_prompt_a_real_model_gets_carries_the_taught_rules(room):
     spec = room.brains["QUANT"].spec
     prompt = spec.debate_prompt(

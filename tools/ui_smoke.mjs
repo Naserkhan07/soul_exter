@@ -164,6 +164,10 @@ const fixture = {
   debate: {
     rounds: 4,
     training_turns: 5,
+    name: "The Pit",
+    tagline: "six desks, one room — they talk, listen, argue and train each other here",
+    heard: { QUANT: 3, RISK: 2, NEWS: 1 },
+    next_round_in: 7,
     topic: "SOL/USDT LONG (MOMENTUM_BREAKOUT) — the council passed it 4-1. Is that the right call?",
     speakers: [
       { key: "QUANT", name: "Dr. Amara Osei", title: "Head of Quantitative Research" },
@@ -427,8 +431,15 @@ await new Promise((r) => setTimeout(r, 120));
 // ---- the debate room: the top-bar button opens the full chat room --------
 // the room opens itself the first time a browser sees the floor: that is the
 // whole answer to "I should be able to see them talking and getting trained"
-checks.push(["room opens itself on a first visit",
+  checks.push(["room opens itself on a first visit",
   !!window.document.querySelector(".room-overlay .panel.debate.room")]);
+
+// the standing icon: named, always on the floor, and clickable
+const dock = window.document.querySelector(".chat-dock");
+checks.push(["the floor carries a named chat-room icon", !!dock]);
+checks.push(["the icon says the room's name", /The Pit/.test(dock?.textContent ?? "")]);
+checks.push(["the icon shows the training count",
+  /training turns/.test(dock?.textContent ?? "") && /rules heard/.test(dock?.textContent ?? "")]);
 
 const roomButton = buttons.find((b) => /^(chat|debate) room/i.test((b.textContent ?? "").trim()));
 checks.push([
@@ -460,6 +471,10 @@ if (roomButton) {
   checks.push(["room prints the rule a turn is about", /class="rule-chip"/.test(room?.innerHTML ?? "")]);
   checks.push(["room says who taught the rule",
     /taught by Naveed|on file from/.test(room?.textContent ?? "")]);
+  checks.push(["room is named", /The Pit/.test(room?.textContent ?? "")]);
+  checks.push(["room shows who is listening", !!room?.querySelector(".listening-line")]);
+  checks.push(["room counts what each desk learned off the others",
+    /\d+ heard/.test(room?.textContent ?? "")]);
   // the filter is the answer to "show me them getting trained"
   const filter = [...(room?.querySelectorAll("button") ?? [])]
     .find((b) => /training (only|turns)/i.test(b.textContent ?? ""));
@@ -477,6 +492,15 @@ if (roomButton) {
   close?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 20));
   checks.push(["room closes again", !window.document.querySelector(".room-overlay")]);
+  const dockAgain = window.document.querySelector(".chat-dock");
+  dockAgain?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 30));
+  checks.push(["the icon re-opens the room",
+    !!window.document.querySelector(".room-overlay .panel.debate.room")]);
+  const closeAgain = [...(window.document.querySelectorAll(".room-overlay button") ?? [])]
+    .find((b) => (b.textContent ?? "").trim() === "close");
+  closeAgain?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
 
   // the settings drawer reports what each desk has been trained on
   const settingsButton = buttons.find((b) => /settings/i.test((b.textContent ?? "").trim()));
@@ -555,6 +579,17 @@ if (liveBase) {
     ["live api: badges follow the data",
       classes.every((c) => c.symbols.every((s) => ["venue", "rates", "sim"].includes(s.live ?? s.kind)))],
     ["live api: debate room knows its speakers", (debate.speakers ?? []).length >= 6],
+    // one named room: the icon on the floor reads its name, every desk in it
+    // counts the rules it has heard from the others, and the clock to the next
+    // round is running
+    ["live api: the room has a name on the floor",
+      typeof debate.name === "string" && debate.name.length > 1
+      && typeof debate.tagline === "string" && debate.tagline.length > 10],
+    ["live api: the room counts what each desk heard",
+      Object.keys(debate.heard ?? {}).length >= 5
+      && Object.values(debate.heard ?? {}).every((n) => n >= 0)
+      && typeof debate.next_round_in === "number" && debate.next_round_in >= 0
+      && (debate.training_turns ?? 0) > 0],
   );
 
   // Ask a desk a question: the trade's numbers go into the prompt and the desk

@@ -62,6 +62,11 @@ ROUND_SHAPE = ["claim", "challenge", "question", "answer", "ack", "lesson", "car
 #: twice as long.
 CARRIERS_PER_ROUND = 2
 
+#: One room, one name. It is on the icon on the floor, in the room header and in
+#: the API payload, so there is no ambiguity about where the desks talk.
+ROOM_NAME = "The Pit"
+ROOM_TAGLINE = "six desks, one room — they talk, listen, argue and train each other here"
+
 
 @dataclass
 class DebateMessage:
@@ -135,7 +140,12 @@ class DebateRoom:
         self.registry = registry
         self.transcript: List[Dict[str, Any]] = []
         self.lessons: List[Dict[str, Any]] = []
+        #: how many rules each desk has *heard* another desk write. Listening is
+        #: the cheapest training there is, and it is now countable: a desk that
+        #: heard the rule is a desk that will be prompted with it next trade.
+        self.heard: Dict[str, int] = {}
         self.rounds = 0
+        self.next_round_at: float = 0.0
         self.current_topic: Optional[str] = None
         self._queued: List[Dict[str, Any]] = []
         self._lock = asyncio.Lock()
@@ -208,6 +218,18 @@ class DebateRoom:
         self.transcript.append(msg)
         self.transcript = self.transcript[-160:]
         if kind == "lesson":
+            # everyone in the room hears a rule being written: this is the desks
+            # training each other by listening, and it is published as its own
+            # event so the room can show who just learned what
+            for listener in self.brains.keys():
+                if listener == key:
+                    continue
+                self.heard[listener] = self.heard.get(listener, 0) + 1
+                await self.bus.publish("debate_heard", room="desk", listener=listener,
+                                       name=self._name_of(listener), speaker=key,
+                                       speaker_name=self._name_of(key),
+                                       rule=str(text)[:200], round=self.rounds + 1,
+                                       heard=self.heard[listener])
             entry = {
                 "topic": topic, "speaker": key, "rule": str(inner.get("rule") or "")[:200],
                 "speaker_label": f"{spec.name or spec.label}, {spec.title or spec.role}",
@@ -441,6 +463,11 @@ class DebateRoom:
             "topic": self.current_topic,
             "transcript": self.transcript[-40:],
             "lessons": self.lessons[-12:],
+            "name": ROOM_NAME,
+            "tagline": ROOM_TAGLINE,
+            "heard": dict(self.heard),
+            "next_round_in": max(0.0, round(self.next_round_at - time.time(), 1))
+            if self.next_round_at else None,
             "training_turns": sum(1 for m in self.transcript[-160:]
                                   if m.get("training") or m.get("turn") == "lesson"),
             "speakers": [

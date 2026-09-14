@@ -281,6 +281,10 @@ class Engine:
             try:
                 if self.debate is not None and not self.paused:
                     await self.debate.run_round()
+                if self.debate is not None:
+                    # the room says when it will speak next, so the floor can
+                    # show a live pulse instead of a panel that looks dead
+                    self.debate.next_round_at = time.time() + self.cfg.debate_seconds
             except Exception as exc:                       # pragma: no cover
                 log.warning("debate round failed: %s", exc)
             try:
