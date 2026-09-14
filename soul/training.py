@@ -34,6 +34,7 @@ pointing the same way.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -169,7 +170,7 @@ class TrainingBook:
                     key, "curriculum", system,
                     f"Desk check — {name}. State the rule you trade by on this, and the "
                     f"condition that would make you break it.",
-                    f"{text} On my desk that shows up as: {self._desk_angle(key, name)}",
+                    f"{text.rstrip('.')}. On my desk that shows up as: {self._desk_angle(key, name)}",
                     weight=0.5,
                 ))
             for i, rule in enumerate(_playbook_rules(), start=1):
@@ -177,21 +178,44 @@ class TrainingBook:
                     key, "curriculum", system,
                     f"House playbook rule {i}: {rule}\n\nHow does {spec.name or key} apply this "
                     f"at the {spec.label} desk?",
-                    f"{rule} As {spec.title or spec.role}: {self._desk_angle(key, 'playbook')}",
+                    f"{rule.rstrip('.')}. As {spec.title or spec.role}: {self._desk_angle(key, 'playbook')}",
                     weight=0.5,
                 ))
         self._curriculum = rows
         return rows
 
     def _desk_angle(self, key: str, about: str) -> str:
+        """The first thing this desk was schooled on, as a whole sentence.
+
+        The schooling is written with wrapped lines, so joining the bullet block
+        first is the difference between a training answer and a fragment that
+        stops mid-clause.
+        """
         focus = FOCUS.get(key, "")
-        # the first concrete sentence of the desk's schooling, which is the line
-        # it argues from in the room
+        bullets: List[str] = []
+        buf: List[str] = []
         for line in focus.splitlines():
-            line = line.strip()
-            if line.startswith("- ") and len(line) > 40:
-                return line[2:]
-        return "the rule is only worth what it saves on the next bad tape."
+            text = line.strip()
+            if text.startswith("- "):
+                if buf:
+                    bullets.append(" ".join(buf).strip())
+                buf = [text[2:]]
+            elif buf and text:
+                buf.append(text)
+        if buf:
+            bullets.append(" ".join(buf).strip())
+        if not bullets:
+            return "the rule is only worth what it saves on the next bad tape."
+        # rotate through what this desk was schooled on, so ten drills do not
+        # produce ten identical answers
+        idx = int.from_bytes(hashlib.sha256(f"{key}|{about}".encode()).digest()[:2], "big")
+        angle = bullets[idx % len(bullets)]
+        if not angle:
+            return "the rule is only worth what it saves on the next bad tape."
+        end = angle.find(". ")
+        if 0 < end < 240:
+            return angle[: end + 1]
+        return angle[:240].rstrip() + ("…" if len(angle) > 240 else "")
 
     # ------------------------------------------------------------------
     # 2. the trades: what the desk said, and what it was worth
@@ -299,25 +323,29 @@ class TrainingBook:
             return 0
         money = f"{pnl:+.2f} ({pnl_pct:+.2f}%)"
         right = (verdict == "APPROVE") == won
-        flags = ", ".join(v.get("risk_flags") or []) or "no flag on file"
+        flags = ", ".join(v.get("risk_flags") or [])
         if right:
             meta_kind, weight = "settled", 1.0
             target = _verdict_json(v, ceo=ceo)
         elif verdict == "APPROVE":                     # approved a loser
             meta_kind, weight = "reflection", 1.5
-            target = _refusal_json(
-                v,
-                (f"This one closed {money}. My own flags said it — {flags} — and I sized it "
-                 f"anyway. Next time on a {rec['strategy']} into the same tape: refuse, or "
-                 f"take it at a quarter size with the flag written into the plan."),
-                size=0.25, ceo=ceo,
-            )
+            if flags:
+                why = (f"This one closed {money}. My own flags said it — {flags} — and I "
+                       f"sized it anyway. Next time on a {rec['strategy']} into the same "
+                       f"tape: refuse, or take it at a quarter size with the flag written "
+                       f"into the plan.")
+            else:
+                why = (f"This one closed {money} and nothing on my list caught it — that is "
+                       f"the finding. On the next {rec['strategy']} setup I check what this "
+                       f"one taught me: name the level that invalidates it before sizing it.")
+            target = _refusal_json(v, why, size=0.25, ceo=ceo)
         else:                                          # refused a winner
             meta_kind, weight = "reflection", 1.2
+            objection = flags or "the objection I raised"
             target = _smaller_yes_json(
                 v,
-                (f"It closed {money} without me — my objection was {flags}. Right call to "
-                 f"flag it, wrong call to make it a veto: the version that pays for the "
+                (f"It closed {money} without me — my objection was {objection}. Right call "
+                 f"to flag it, wrong call to make it a veto: the version that pays for the "
                  f"objection is a half-size entry with the flag in the plan."),
                 size=0.5, ceo=ceo,
             )
@@ -362,8 +390,8 @@ class TrainingBook:
                 rows.append(self._row(
                     key, "lesson", spec.system_prompt,
                     f"Desk meeting — the room argued: {topic}\n\nWhat did we agree, and how "
-                    f"does the {spec.label} desk implement it?",
-                    f"{text} On my desk: {self._desk_angle(key, 'lesson')}",
+                    f"does this desk implement it?",
+                    f"{text.rstrip('.')}. On the {spec.label}: {self._desk_angle(key, 'lesson')}",
                     weight=0.8,
                     meta={"topic": topic, "round": lesson.get("round")},
                 ))
