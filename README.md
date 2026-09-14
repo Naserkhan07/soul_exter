@@ -66,6 +66,57 @@ Open **ORDERS** in the right rail. Everything on this desk is one click:
 Every ticket card in the trade dock carries the same two buttons, plus the venue ticket once it
 is routed. A **"n ready to place"** chip in the status bar updates live.
 
+### Why a PLACE TRADE can be "placed" without appearing in your MT5
+
+Because the floor can only send an order **from the machine where the MetaTrader 5 terminal
+runs** — the `MetaTrader5` python package drives a local terminal (Windows, or Linux/Wine); it
+cannot dial a terminal over the internet. If the floor is hosted somewhere else (Kaggle, a
+sandbox, a VPS) with Broker set to `mt5`, the desk falls back to the paper book and says so in
+amber. Your account, login, server and password are stored and used *only* where that terminal
+is reachable. Press **DIAGNOSE** in the ORDERS desk for a step-by-step verdict:
+
+```
+FAIL | MetaTrader5 package — ModuleNotFoundError: No module named 'MetaTrader5'
+FAIL | everything else    — cannot continue without the package
+```
+
+Three ways to get real fills, pick one:
+
+| Setup | What to do | Where the floor runs |
+| --- | --- | --- |
+| **A · local** | Broker = `mt5`, paste login / password / server, SAVE & CONNECT → badge turns MT5, DIAGNOSE goes green | same PC as the terminal |
+| **B · bridge** | Broker = `mt5-bridge`, then run `tools/mt5_bridge.py` on the terminal PC → orders are executed there and the real tickets appear in the ORDERS desk | anywhere (Kaggle included) |
+| **C · paper** | nothing to do — the paper book simulates fills | anywhere |
+
+### The bridge (Kaggle floor + your home terminal)
+
+```bash
+# on your PC, next to the MetaTrader 5 terminal (logged into your account)
+pip install MetaTrader5
+python3 tools/mt5_bridge.py --floor https://<your-floor-url> \
+    --login 112594843 --password 'your-password' --server MetaQuotes-Demo
+```
+
+It polls the floor's `/api/exec/queue`, sends the order with `order_send` (suffix-aware symbol
+mapping, IOC filling, deviation cap, magic 770001, `SOUL-EXTER <ticket>` comment), and posts the
+real ticket, fill price and position list back to `/api/exec/report`. The ORDERS desk then shows
+`QUEUED FOR THE MT5 BRIDGE → MT5 <ticket>` plus the terminal's own live positions, and BOOK TRADE
+sends a closing deal for that position ticket. No bridge running? The desk says
+**BRIDGE OFFLINE** and nothing is faked.
+
+Prove the pipe without a terminal first: `python3 tools/mt5_bridge.py --floor <url> --dry-run`
+simulates the venue and reports back — that is exactly how this path is tested in CI.
+
+### Check your own machine
+
+```bash
+python3 tools/mt5_check.py --login 112594843 --password '…' --server MetaQuotes-Demo
+python3 tools/mt5_check.py --login … --server … --place EURUSD    # one 0.01 lot round trip
+```
+
+It prints the same checklist as DIAGNOSE (package → terminal → login → algo trading allowed →
+symbol mapping incl. suffixes → live ticks) and, with `--place`, fires and closes a test order.
+
 ### Routing to MetaTrader 5 (why forex needs a local terminal)
 
 The MT5 python package only works where the **terminal runs** — Windows, or Linux under Wine.

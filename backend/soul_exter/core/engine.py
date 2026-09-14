@@ -146,6 +146,12 @@ class FloorEngine:
         self.live_status: Dict[str, Any] = dict(enabled=self.settings.live_venues, ok=False,
                                                 updated=None, error="", symbols=[])
         self.broker = self._make_broker()
+        # remote executor (a bridge process running next to the MT5 terminal)
+        self.exec_queue: Dict[str, dict] = {}
+        self.exec_done: List[dict] = []
+        self.bridge_seen: Optional[float] = None
+        self.bridge_info: Dict[str, Any] = {}
+        self.bridge_positions: List[dict] = []
         self._spawn_npcs()
 
     # ---------------------------------------------------------------- broker
@@ -165,6 +171,20 @@ class FloorEngine:
         status["configured_server"] = st.mt5_server or None
         status["want_mode"] = st.broker_mode
         status["routing"] = status.get("mode", "paper")
+        if self.bridge_mode:
+            # nothing runs on this host; the bridge next to the terminal is the venue
+            status["mode"] = "mt5-bridge"
+            status["routing"] = "mt5-bridge"
+            link = self.bridge_status()
+            status["connected"] = bool(link["linked"])
+            status["bridge"] = link
+            status["note"] = ("Orders are handed to the MT5 bridge on your PC. Run "
+                              "tools/mt5_bridge.py next to the terminal — the floor shows the "
+                              "real ticket as soon as the bridge reports it."
+                              if not link["linked"] else
+                              "Bridge is polling this floor — orders are being executed in the "
+                              "MetaTrader 5 terminal.")
+            return status
         # be blunt about the difference between "MT5 configured" and "MT5 working"
         if (st.broker_mode or "").lower() == "mt5" and status.get("mode") != "mt5":
             status["note"] = ("MT5 is configured but the terminal is not reachable — orders are "
@@ -188,6 +208,38 @@ class FloorEngine:
         self.emit("broker_connect", verdict=("connected" if status.get("connected") else "failed"),
                   message=dict(text=f"Broker {status.get('mode')}: {status.get('message')}"))
         return status
+
+    def diagnose(self, symbols: Optional[List[str]] = None) -> List[dict]:
+        """Explain *exactly* why orders are or are not reaching a venue."""
+        st = self.settings
+        if self.bridge_mode:
+            link = self.bridge_status()
+            steps = [dict(step="routing mode", ok=True,
+                          detail="mt5-bridge — the floor queues orders; a bridge process next to "
+                                 "your MetaTrader 5 terminal executes them."),
+                     dict(step="bridge connected", ok=link["linked"],
+                          detail=(f"linked, last poll {time.time() - (link['last_seen'] or 0):.0f}s "
+                                  f"ago · account {link['info'].get('account') or '?'}"
+                                  if link["linked"] else
+                                  "no bridge has polled yet. On the machine with the terminal run: "
+                                  "python3 tools/mt5_bridge.py --floor <this floor url> --login … "
+                                  "--server …")),
+                     dict(step="queue", ok=True,
+                          detail=f"{link['queue']} instruction(s) waiting, {link['inflight']} in "
+                                 f"flight, {link['completed']} completed since boot")]
+            if link["linked"]:
+                steps.append(dict(step="terminal", ok=True,
+                                  detail=str(link["info"].get("terminal") or "bridge reported "
+                                         "healthy")))
+            return steps
+        if (st.broker_mode or "").lower() == "mt5" and self.broker.mode != "mt5":
+            # show the MT5 checklist even though the adapter fell back to paper
+            from ..broker.mt5 import MT5Broker
+            probe = MT5Broker(login=st.mt5_login, password=st.mt5_password, server=st.mt5_server,
+                              path=st.mt5_path, symbol_suffix=st.mt5_symbol_suffix)
+            probe._last_attempt = 0.0
+            return probe.diagnose(symbols)
+        return self.broker.diagnose(symbols)
 
     def _price(self, symbol: str) -> Optional[float]:
         t = self.feed.tickers.get(symbol)
@@ -233,11 +285,13 @@ class FloorEngine:
         * ``closed``  — booked/realised tickets with their P&L
         * ``positions`` — the venue's own position list (MT5 terminal truth)
         """
-        ready, open_, closed, vetoed = [], [], [], []
+        ready, open_, closed, vetoed, queued = [], [], [], [], []
         for t in sorted(self.trades.values(), key=lambda x: x.created_at, reverse=True):
             row = dict(t.dict(), unrealised_r=self._unrealised_r(t), price=self._price(t.symbol),
                        age=round(time.time() - t.created_at, 1))
-            if t.broker_ticket:
+            if t.exec_id and t.exec_state in ("queued", "book_queued") and not t.broker_ticket:
+                queued.append(row)
+            elif t.broker_ticket:
                 if t.booked_at or t.closed_manual:
                     row["held_s"] = round((t.booked_at or time.time()) - (t.placed_at or t.created_at), 1)
                     closed.append(row)
@@ -254,15 +308,19 @@ class FloorEngine:
         except Exception as exc:
             positions = []
             status["positions_error"] = str(exc)
+        if self.bridge_mode:
+            positions = list(self.bridge_positions)
         if isinstance(self.broker, object) and hasattr(self.broker, "deal_history"):
             try:
                 status["deals"] = self.broker.deal_history(12)
             except Exception:
                 status["deals"] = []
         return dict(ready=ready[:48], open=open_[:48], closed=closed[:48], vetoed=vetoed[:24],
+                    queued=queued[:24], bridge=self.bridge_status(),
                     positions=positions, broker=status,
                     counts=dict(ready=len(ready), open=len(open_), closed=len(closed),
-                                vetoed=len(vetoed), live_positions=len(positions),
+                                vetoed=len(vetoed), queued=len(queued),
+                                live_positions=len(positions),
                                 realised_r=round(sum(t.pnl_r for t in self.trades.values()
                                                      if t.broker_ticket and (t.booked_at or t.closed_manual)), 2),
                                 open_lots=round(sum(t.lots for t in self.trades.values()
@@ -271,6 +329,144 @@ class FloorEngine:
 
     def trades_by_symbol(self) -> List[str]:
         return sorted({t.symbol for t in self.trades.values()})
+
+    @property
+    def bridge_mode(self) -> bool:
+        return (self.settings.broker_mode or "").lower() in ("mt5-bridge", "bridge", "mt5remote")
+
+    def bridge_status(self) -> dict:
+        seen = self.bridge_seen
+        return dict(mode="mt5-bridge", enabled=self.bridge_mode,
+                    linked=bool(seen and time.time() - seen < 15),
+                    last_seen=seen, info=dict(self.bridge_info),
+                    positions=len(self.bridge_positions),
+                    queue=len([q for q in self.exec_queue.values() if not q.get("inflight_at")]),
+                    inflight=len([q for q in self.exec_queue.values() if q.get("inflight_at")]),
+                    completed=len(self.exec_done),
+                    instruction=("Run tools/mt5_bridge.py on the machine with the MetaTrader 5 "
+                                 "terminal; it drains this queue and reports real tickets back."))
+
+    def _queue_exec(self, trade, action: str, lots: float, note: str = "") -> dict:
+        """Hand a place/close instruction to the bridge next to the terminal."""
+        ex_id = f"EX-{trade.id}-{int(time.time() * 1000) % 10**6}"
+        sig = trade.signal or {}
+        self.exec_queue[ex_id] = dict(
+            id=ex_id, action=action, trade_id=trade.id, symbol=trade.symbol,
+            asset_class=trade.asset_class, direction=trade.direction,
+            lots=float(lots), entry=trade.place_price or self._price(trade.symbol)
+            or sig.get("entry"),
+            market=self._price(trade.symbol),
+            stop_loss=sig.get("stop_loss"), take_profit=sig.get("take_profit"),
+            ticket=trade.broker_ticket, ts=time.time(), note=note)
+        trade.exec_id = ex_id
+        trade.exec_state = "queued" if action == "place" else "book_queued"
+        trade.broker_mode = "mt5-bridge"
+        trade.broker_message = (f"queued for the local MT5 bridge ({ex_id}) — "
+                               f"the terminal on your PC will fill it and report the ticket")
+        self.emit("exec_queued", trade=dict(id=trade.id, symbol=trade.symbol, action=action),
+                  verdict="queued", message=dict(text=trade.broker_message))
+        return dict(ok=True, queued=True, order=dict(ok=True, mode="mt5-bridge", ticket=None,
+                                                     price=self._price(trade.symbol),
+                                                     lots=float(lots),
+                                                     message=trade.broker_message),
+                    trade=trade.dict(), broker=self.broker_status(),
+                    exec=dict(id=ex_id, action=action))
+
+    def apply_exec_report(self, payload: dict) -> dict:
+        """A bridge reports back: real ticket filled, or the venue refused it."""
+        ex_id = str((payload or {}).get("id") or "")
+        action = str((payload or {}).get("action") or "place")
+        item = self.exec_queue.pop(ex_id, None)
+        self.bridge_seen = time.time()
+        if (payload or {}).get("bridge"):
+            self.bridge_info = dict(payload["bridge"])
+        if (payload or {}).get("positions") is not None:
+            self.bridge_positions = list(payload.get("positions") or [])
+        if action == "heartbeat":
+            return dict(ok=True, heartbeat=True, bridge=self.bridge_status())
+        trade = self.trades.get(str((payload or {}).get("trade_id") or
+                                    (item or {}).get("trade_id") or ""))
+        ok = bool((payload or {}).get("ok"))
+        action = action if action != "place" or item else str((item or {}).get("action") or action)
+        price = (payload or {}).get("price")
+        ticket = (payload or {}).get("ticket")
+        message = str((payload or {}).get("message") or "")
+        lots = float((payload or {}).get("lots") or (item or {}).get("lots") or 0.0)
+        if trade is None:
+            return dict(ok=False, message=f"unknown trade for {ex_id}")
+        trade.exec_state = "filled" if ok and action == "place" else \
+                           "failed" if not ok else "booked"
+        if action == "place":
+            if ok:
+                trade.broker_ticket = str(ticket or trade.broker_ticket or "")
+                trade.broker_mode = "mt5"
+                trade.lots = lots or trade.lots
+                trade.place_price = float(price) if price else trade.place_price
+                trade.placed_at = time.time()
+                trade.broker_message = message or f"MT5 fill {trade.broker_ticket}"
+                w = self.walkers.get(f"W-{trade.id}")
+                if w is not None:
+                    self._walk_out(trade, "entry")
+                self.emit("trade_placed",
+                          trade=dict(id=trade.id, symbol=trade.symbol, ticket=trade.broker_ticket,
+                                     mode="mt5", price=trade.place_price, lots=trade.lots),
+                          verdict="placed",
+                          message=dict(text=f"MT5 {trade.broker_ticket} on {trade.symbol}: "
+                                            f"{trade.broker_message}"))
+            else:
+                trade.broker_message = f"MT5 refused the order: {message}"
+                self.emit("order_rejected", trade=dict(id=trade.id, symbol=trade.symbol),
+                          verdict="rejected", message=dict(text=trade.broker_message))
+        else:
+            if ok:
+                sig = trade.signal or {}
+                entry = float(trade.place_price or sig.get("entry") or 0.0)
+                stop = float(sig.get("stop_loss") or 0.0)
+                risk = max(abs(entry - stop), 1e-9)
+                close = float(price or self._price(trade.symbol) or entry)
+                sgn = 1.0 if trade.direction == "long" else -1.0
+                pnl_r = (close - entry) * sgn / risk if entry else 0.0
+                trade.book_price = close
+                trade.booked_at = time.time()
+                trade.broker_mode = "mt5"
+                trade.pnl_usd = float((payload or {}).get("pnl_usd") or 0.0)
+                trade.broker_message = message or f"MT5 close {ticket or trade.broker_ticket}"
+                self.pending_outcomes.pop(trade.id, None)
+                self._record_outcome(trade, pnl_r, True)
+                trade.state = TradeState.EXITED.value
+                trade.closed_manual = True
+                w = self.walkers.get(f"W-{trade.id}")
+                if w is not None:
+                    self._route(w, "exit_outside")
+                    w.carry = False
+                self.emit("trade_booked",
+                          trade=dict(id=trade.id, symbol=trade.symbol, pnl_r=round(pnl_r, 2),
+                                     price=close, ticket=trade.broker_ticket, mode="mt5"),
+                          verdict="booked",
+                          message=dict(text=f"MT5 closed {trade.symbol} @ {close:.5g} for "
+                                            f"{pnl_r:+.2f}R"))
+            else:
+                trade.exec_state = "failed"
+                trade.broker_message = f"MT5 could not close: {message}"
+                self.emit("order_rejected", trade=dict(id=trade.id, symbol=trade.symbol),
+                          verdict="rejected", message=dict(text=trade.broker_message))
+        self.exec_done.append(dict(id=ex_id, action=action, ok=ok, trade_id=trade.id,
+                                   ticket=ticket, price=price, ts=time.time(), message=message))
+        self.exec_done = self.exec_done[-60:]
+        return dict(ok=True, trade=trade.dict(), exec_state=trade.exec_state)
+
+    def exec_instructions(self) -> List[dict]:
+        """Instructions for the bridge: fresh ones, plus leases that expired."""
+        now = time.time()
+        out: List[dict] = []
+        for ex_id, item in sorted(self.exec_queue.items(), key=lambda kv: kv[1]["ts"]):
+            inflight = item.get("inflight_at")
+            if inflight and now - inflight < 25.0:
+                continue
+            item["inflight_at"] = now
+            item["attempts"] = int(item.get("attempts", 0)) + 1
+            out.append(dict(item, attempts=item["attempts"]))
+        return out
 
     def place_trade(self, trade_id: str, lots: Optional[float] = None) -> dict:
         """Operator clicked PLACE — route the ticket to the broker right now."""
@@ -289,6 +485,8 @@ class FloorEngine:
                 w.pause_left = 0.0
             self._finalize(trade, accepted=True, manual=True)
         size = float(lots if lots is not None else self.settings.lots)
+        if self.bridge_mode:
+            return self._queue_exec(trade, "place", size)
         res = self.broker.place(self._trade_brief(trade), size)
         if not res.ok:
             self.emit("order_rejected", trade=dict(id=trade.id, symbol=trade.symbol),
@@ -330,6 +528,20 @@ class FloorEngine:
             return dict(ok=False, message="unknown ticket")
         if trade.booked_at or trade.closed_manual:
             return dict(ok=False, message="ticket is already closed", trade=trade.dict())
+        if self.bridge_mode:
+            if not trade.broker_ticket:
+                # nothing on the venue yet: cancel the queued placement instead of closing it
+                if trade.exec_id and trade.exec_state == "queued":
+                    self.exec_queue.pop(trade.exec_id, None)
+                    trade.exec_state = ""
+                    trade.exec_id = None
+                    trade.broker_message = "queued placement cancelled by the operator"
+                    self.emit("exec_cancelled", trade=dict(id=trade.id, symbol=trade.symbol),
+                              message=dict(text=f"{trade.symbol}: queued MT5 placement cancelled"))
+                    return dict(ok=True, message="queued placement cancelled", trade=trade.dict(),
+                                broker=self.broker_status())
+            return self._queue_exec(trade, "book", float(trade.lots or lots
+                                                         or self.settings.lots))
         pre = None
         if not trade.broker_ticket:
             # nothing was routed yet: place it first so the close is a real round trip

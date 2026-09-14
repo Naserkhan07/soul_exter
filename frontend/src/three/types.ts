@@ -88,6 +88,8 @@ export interface TradeFrame {
   booked_at?: number | null
   pnl_usd?: number
   unrealised_r?: number
+  exec_id?: string | null
+  exec_state?: string
   price?: number | null
   age?: number
   held_s?: number

@@ -54,6 +54,10 @@ class Broker:
         """Live positions at the venue, so the operator can *see* what is working."""
         raise NotImplementedError
 
+    def diagnose(self, probe_symbols: Optional[List[str]] = None) -> List[dict]:
+        """Step-by-step readiness check, rendered as a checklist in the UI."""
+        return []
+
 
 class PaperBroker(Broker):
     mode = "paper"
@@ -80,6 +84,14 @@ class PaperBroker(Broker):
         return dict(mode="paper", connected=False, message=self.reason,
                     positions=len(self.positions), closed=len(self.history),
                     account=None)
+
+    def diagnose(self, probe_symbols: Optional[List[str]] = None) -> List[dict]:
+        return [dict(step="routing mode", ok=True,
+                     detail="paper broker — fills are simulated on this host. "
+                            "Choose mt5 (terminal on this machine) or mt5-bridge "
+                            "(terminal on your PC) to trade a real account."),
+                dict(step="credentials", ok=True,
+                     detail="not needed in paper mode")]
 
     def place(self, trade: dict, lots: float) -> OrderResult:
         entry = float(trade.get("entry") or 0.0)
@@ -189,6 +201,76 @@ class MT5Broker(Broker):
                     login=self.login or None, server=self.server or None,
                     symbol_suffix=self.suffix, account=account,
                     positions=len(positions), tickets=dict(self.tickets))
+
+    # ------------------------------------------------------------ diagnostics
+    def diagnose(self, probe_symbols: Optional[List[str]] = None) -> List[dict]:
+        """Checklist: package → terminal → login → trading → symbols → ticks."""
+        out: List[dict] = []
+        try:
+            import MetaTrader5 as mt5            # type: ignore
+            out.append(dict(step="MetaTrader5 package", ok=True,
+                            detail=f"imported (build {getattr(mt5, '__version__', '?')})"))
+        except Exception as exc:
+            out.append(dict(step="MetaTrader5 package", ok=False,
+                            detail=f"{type(exc).__name__}: {exc}. Install it on the machine that "
+                                   f"runs the terminal: pip install MetaTrader5"))
+            out.append(dict(step="everything else", ok=False,
+                            detail="cannot continue without the package"))
+            return out
+        terminal = None
+        try:
+            terminal = mt5.terminal_info()
+        except Exception:
+            terminal = None
+        if terminal is None:
+            self._last_attempt = 0.0
+            ok = self.connect(force=True)
+            terminal = mt5.terminal_info() if ok else None
+        out.append(dict(step="terminal running", ok=terminal is not None,
+                        detail=(f"found at {getattr(terminal, 'path', '?')}" if terminal else
+                                f"no running terminal for this user ({self.reason}). Start "
+                                f"MetaTrader 5, log in, and keep it open.")))
+        info = mt5.account_info()
+        want = self.login
+        match = bool(info) and (not want or int(info.login) == int(want))
+        out.append(dict(step="account login", ok=match,
+                        detail=(f"logged in as {info.login} on {info.server} · balance "
+                                f"{info.balance:.2f} {info.currency} · "
+                                f"{'DEMO' if getattr(info, 'trade_mode', 0) == 0 else 'LIVE'}"
+                                if info else
+                                f"no account_info (configured login {want or 'any'})")))
+        if info:
+            allowed = bool(getattr(terminal, "trade_allowed", True))
+            connected = bool(getattr(terminal, "connected", True))
+            out.append(dict(step="trading enabled", ok=allowed and connected,
+                            detail=(f"terminal connected={connected}, algo trading "
+                                    f"allowed={allowed}. If algo trading is off, enable the "
+                                    f"'Algo Trading' button in the terminal toolbar.")))
+        symbols = list(probe_symbols or ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD"])
+        resolved, missing, ticks = [], [], []
+        for sym in symbols:
+            got = self._resolve(sym)
+            if got is None:
+                missing.append(sym)
+                continue
+            resolved.append(got)
+            tick = mt5.symbol_info_tick(got)
+            if tick and (tick.bid or tick.ask):
+                spread = (tick.ask - tick.bid) if (tick.ask and tick.bid) else 0.0
+                ticks.append(f"{got} {tick.bid}/{tick.ask} (spread {spread:.5g})")
+            else:
+                ticks.append(f"{got} — no tick (market closed or symbol not subscribed)")
+        out.append(dict(step="symbol mapping", ok=not missing,
+                        detail=(f"resolved {', '.join(resolved) or 'nothing'}"
+                                + (f" · missing {', '.join(missing)} — set the symbol suffix "
+                                   f"(e.g. '.m') to match your broker" if missing else ""))))
+        out.append(dict(step="ticks / market open", ok=bool(ticks),
+                        detail="; ".join(ticks[:4]) or "no symbols to probe"))
+        out.append(dict(step="volume step", ok=True,
+                        detail=f"orders will be sent at the configured clip "
+                               f"(check the symbol's volume_min/step before sizing up)"))
+        self.connected = bool(info) and match
+        return out
 
     # ------------------------------------------------------------------ order
     def _resolve(self, symbol: str) -> Optional[str]:

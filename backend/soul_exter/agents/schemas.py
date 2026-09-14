@@ -171,6 +171,8 @@ class Trade:
     placed_at: Optional[float] = None
     booked_at: Optional[float] = None
     pnl_usd: float = 0.0                     # venue-level P&L of the closed position
+    exec_id: Optional[str] = None            # bridge execution id (remote MT5 executor)
+    exec_state: str = ""                     # "" | queued | filled | failed | book_queued
     manual: bool = False                     # operator cleared it by hand
     closed_manual: bool = False              # operator booked it out by hand                  # counterfactual R for vetoed tickets
     trajectory: List[Dict[str, Any]] = field(default_factory=list)
@@ -194,6 +196,7 @@ class Trade:
             lots=round(self.lots, 4), place_price=self.place_price,
             book_price=self.book_price, placed_at=self.placed_at, booked_at=self.booked_at,
             pnl_usd=round(self.pnl_usd, 2),
+            exec_id=self.exec_id, exec_state=self.exec_state,
             manual=self.manual, closed_manual=self.closed_manual,
             position=self.position,
             label=self.label, rr=self.signal.get("rr", 0.0),

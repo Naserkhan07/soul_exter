@@ -137,6 +137,28 @@ async def place_ready() -> dict:
     return engine.place_ready()
 
 
+@app.get("/api/exec/queue")
+async def exec_queue() -> dict:
+    """Drained by tools/mt5_bridge.py running next to the MetaTrader 5 terminal."""
+    return dict(instructions=engine.exec_instructions(), bridge=engine.bridge_status())
+
+
+@app.post("/api/exec/report")
+async def exec_report(payload: dict) -> dict:
+    """The bridge reports the real venue result back to the floor."""
+    return engine.apply_exec_report(payload or {})
+
+
+@app.get("/api/broker/diagnose")
+async def broker_diagnose(probe: str = "") -> dict:
+    symbols = [x for x in probe.split(",") if x] or None
+    try:
+        steps = engine.diagnose(symbols)
+    except Exception as exc:
+        steps = [dict(step="diagnostics", ok=False, detail=f"{type(exc).__name__}: {exc}")]
+    return dict(broker=engine.broker_status(), bridge=engine.bridge_status(), steps=steps)
+
+
 @app.post("/api/broker/connect")
 async def broker_connect() -> dict:
     return dict(broker=engine.broker_connect(), settings=dict(

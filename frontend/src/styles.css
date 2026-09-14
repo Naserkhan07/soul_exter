@@ -525,3 +525,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 .bs-warn { font-size: 10px; color: #fde68a; background: rgba(120, 53, 15, 0.35);
   border: 1px solid rgba(250, 204, 21, 0.5); border-radius: 6px; padding: 4px 6px; line-height: 1.5; }
 .tk.mt5 { background: rgba(52, 211, 153, 0.24); border-color: rgba(52, 211, 153, 0.6); color: #d1fae5; }
+.ocard.queued { border-left-color: rgba(250, 204, 21, 0.8); }
+.bs-warn.ok { color: #d1fae5; background: rgba(6, 78, 59, 0.35); border-color: rgba(52,211,153,0.6); }
+.diag { display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 8px; background: rgba(30, 42, 60, 0.85); }
+.diag-row { display: grid; grid-template-columns: 14px 1.1fr 3fr; gap: 6px; font-size: 10.5px;
+  align-items: start; }
+.diag-row b { font-size: 10px; letter-spacing: 0.04em; }
+.diag-mark { color: var(--up); font-weight: 700; }
+.diag-row.bad .diag-mark { color: var(--down); }
+.diag-detail { color: #cfe0f5; line-height: 1.5; }
+.bridge-cmd { border: 1px solid var(--line); border-radius: 8px; padding: 8px 9px;
+  background: rgba(30, 42, 60, 0.85); display: flex; flex-direction: column; gap: 6px; }
+.bc-title { font-size: 10px; letter-spacing: 0.1em; color: var(--accent); font-weight: 700; }
+.bridge-cmd code { font-family: var(--mono); font-size: 10px; line-height: 1.7; color: #d7e7ff;
+  white-space: pre-wrap; word-break: break-all; }

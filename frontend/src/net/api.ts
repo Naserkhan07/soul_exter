@@ -54,6 +54,7 @@ export const api = {
   broker: () => jget<any>('/api/broker'),
   brokerConnect: () => jpost<any>('/api/broker/connect', {}),
   orders: () => jget<any>('/api/orders'),
+  diagnose: () => jget<{ steps: any[]; broker: any; bridge: any }>('/api/broker/diagnose'),
   placeReady: () => jpost<any>('/api/orders/place-ready', {}),
   saveBroker: (patch: Record<string, unknown>) => jpost<any>('/api/broker', patch),
   seatsFull: () => jget<SeatsResponse>('/api/seats'),

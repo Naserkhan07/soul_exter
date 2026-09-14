@@ -397,6 +397,7 @@ export function OrdersPanel({ onPlace, onBook, onToast, focusTicket }: {
   const [busy, setBusy] = useState<Record<string, string>>({})
   const [showVetoed, setShowVetoed] = useState(false)
   const [flash, setFlash] = useState<string | null>(null)
+  const [diag, setDiag] = useState<any[] | null>(null)
 
   async function refresh() {
     try { setBook(await api.orders()) } catch { /* keep last */ }
@@ -416,6 +417,8 @@ export function OrdersPanel({ onPlace, onBook, onToast, focusTicket }: {
   const closed: any[] = book?.closed || []
   const vetoed: any[] = book?.vetoed || []
   const positions: any[] = book?.positions || []
+  const queued: any[] = book?.queued || []
+  const bridge = book?.bridge || {}
   const counts = book?.counts || {}
 
   async function place(id: string) {
@@ -446,6 +449,13 @@ export function OrdersPanel({ onPlace, onBook, onToast, focusTicket }: {
     const res = await api.placeReady().catch(() => null)
     if (res) onToast?.(`placed ${res.placed} of ${ready.length} ready tickets`)
     refresh()
+  }
+
+  async function diagnose() {
+    setDiag(null)
+    const res = await api.diagnose().catch((e) => ({ steps: [{ step: 'diagnostics', ok: false,
+      detail: e.message }] }))
+    setDiag((res as any).steps || [])
   }
 
   async function connect() {
@@ -528,9 +538,13 @@ export function OrdersPanel({ onPlace, onBook, onToast, focusTicket }: {
         <div className="bs-row">
           <span className={`bs-badge ${broker.mode}`}>{String(broker.mode || 'paper').toUpperCase()}</span>
           <b>{broker.mode === 'mt5' && broker.connected ? 'MT5 connected — orders go to the terminal'
+            : broker.want_mode === 'mt5-bridge'
+              ? (book?.bridge?.linked ? 'MT5 bridge linked — orders go to your PC terminal'
+                 : 'MT5 bridge mode · waiting for the bridge to connect')
             : broker.want_mode === 'mt5' ? 'MT5 configured · falling back to paper fills'
             : 'paper routing'}</b>
           <button className="mini" onClick={connect}>TEST / CONNECT</button>
+          <button className="mini" onClick={diagnose}>DIAGNOSE</button>
         </div>
         <div className="bs-msg">{broker.message}</div>
         {broker.want_mode === 'mt5' && broker.mode !== 'mt5' && (
@@ -559,6 +573,18 @@ export function OrdersPanel({ onPlace, onBook, onToast, focusTicket }: {
         )}
       </div>
 
+      {diag && (
+        <div className="diag">
+          {diag.map((s: any, i: number) => (
+            <div key={i} className={`diag-row ${s.ok ? 'ok' : 'bad'}`}>
+              <span className="diag-mark">{s.ok ? '✓' : '✕'}</span>
+              <b>{s.step}</b>
+              <span className="diag-detail">{s.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="sec-head">
         <span className="sec-title">READY TO PLACE</span>
         <span className="muted small">{ready.length} cleared, unfilled</span>
@@ -571,6 +597,46 @@ export function OrdersPanel({ onPlace, onBook, onToast, focusTicket }: {
         </div>
       )}
       {ready.map((t) => tCard(t, 'ready'))}
+
+      {(bridge.enabled || queued.length > 0) && (
+        <>
+          <div className="sec-head">
+            <span className="sec-title">QUEUED FOR THE MT5 BRIDGE</span>
+            <span className={`bs-badge ${bridge.linked ? 'mt5' : ''}`}>
+              {bridge.linked ? 'BRIDGE LINKED' : 'BRIDGE OFFLINE'}</span>
+            <span className="muted small">{queued.length} instruction(s) waiting</span>
+          </div>
+          <div className={`bs-warn${bridge.linked ? ' ok' : ''}`}>
+            {bridge.linked
+              ? `The bridge is running${bridge.info?.account ? ` on account ${bridge.info.account}` : ''} — `
+                + 'instructions below are being executed in the MT5 terminal right now.'
+              : 'No bridge has polled yet. On the machine with MetaTrader 5 run: '
+                + 'python3 tools/mt5_bridge.py --floor <this floor url> --login … --server …'}
+          </div>
+          {queued.map((t) => (
+            <div key={`q-${t.id}`} className="ocard queued">
+              <div className="ocard-top">
+                <span className={`dir ${t.direction}`}>{t.direction === 'long' ? '▲' : '▼'}</span>
+                <b>{t.symbol}</b>
+                <Tag dim>{t.exec_state === 'book_queued' ? 'CLOSE' : 'PLACE'}</Tag>
+                <span className="ocard-ticket mono">{t.exec_id}</span>
+              </div>
+              <div className="ocard-grid">
+                <span><i>Lots</i>{t.lots}</span>
+                <span><i>Ref price</i>{fmtPrice(t.signal?.entry)}</span>
+                <span><i>Tries</i>{t.exec_state}</span>
+              </div>
+              <div className="ocard-foot">
+                <span className="muted small">{t.broker_message}</span>
+                <button className="act book big" disabled={!!busy[t.id]}
+                        onClick={() => bookIt(t.id)}>
+                  {t.exec_state === 'book_queued' ? 'CANCEL CLOSE' : 'CANCEL PLACEMENT'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
 
       <div className="sec-head">
         <span className="sec-title">PLACED · OPEN</span>
@@ -1314,7 +1380,8 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
               <select value={brokerEdit.mode || 'paper'}
                       onChange={(e) => setBrokerEdit({ ...brokerEdit, mode: e.target.value })}>
                 <option value="paper">paper — simulate fills</option>
-                <option value="mt5">mt5 — MetaTrader 5</option>
+                <option value="mt5">mt5 — terminal on this machine</option>
+                <option value="mt5-bridge">mt5-bridge — terminal on your PC (bridge)</option>
               </select>
             </label>
             <label>
@@ -1359,6 +1426,28 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
                      onChange={(e) => setBrokerEdit({ ...brokerEdit, auto_place: e.target.checked })} />
             </label>
           </div>
+          {brokerEdit.mode === 'mt5-bridge' && (
+            <div className="bridge-cmd">
+              <div className="bc-title">Run this on the machine with MetaTrader 5</div>
+              <code>
+                python3 tools/mt5_bridge.py --floor {window.location.origin} \<br />
+                &nbsp;&nbsp;--login {brokerEdit.login || '…'} --password '{brokerEdit.mt5_password ? '…' : '…'}' \<br />
+                &nbsp;&nbsp;--server {brokerEdit.server || 'MetaQuotes-Demo'}
+                {brokerEdit.suffix ? ` --suffix ${brokerEdit.suffix}` : ''}
+              </code>
+              <CopyButton label="COPY COMMAND"
+                          value={`python3 tools/mt5_bridge.py --floor ${window.location.origin} `
+                            + `--login ${brokerEdit.login || ''} --password 'your-password' `
+                            + `--server ${brokerEdit.server || 'MetaQuotes-Demo'}`
+                            + (brokerEdit.suffix ? ` --suffix ${brokerEdit.suffix}` : '')} />
+              <div className="muted small">
+                The bridge polls this floor, sends the orders to your terminal and reports the
+                real MT5 ticket back — so PLACE TRADE fills on your account even when the floor
+                itself is running on Kaggle.
+              </div>
+            </div>
+          )}
+
           <div className="model-actions">
             <button className="mini" onClick={async () => {
               const r = await api.saveBroker({
