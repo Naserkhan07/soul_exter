@@ -112,7 +112,8 @@ class Engine:
         await self.market.start()
         self.brains = await asyncio.to_thread(build_brains, self.cfg, self.cuda)
         self.council = Council(self.cfg, self.brains, self.bus)
-        self.registry = brain_registry(self.brains, self.cfg.model_profile)
+        self.registry = brain_registry(self.brains, self.cfg.model_profile,
+                                       adapters_dir=getattr(self.cfg, "adapters_dir", None))
         # the training book: the curriculum, the room's rules and every settled
         # decision, kept as a supervised dataset (see `python -m soul.train`)
         self.training = TrainingBook(self.cfg, self.brains)

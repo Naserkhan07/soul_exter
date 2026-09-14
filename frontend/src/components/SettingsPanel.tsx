@@ -37,6 +37,8 @@ interface RosterEntry {
   key_required: boolean;
   auth: string;
   license: string;
+  /** path to this desk's LoRA adapter, when the trainer has produced one */
+  adapter?: string | null;
 }
 
 interface SymbolEntry {
@@ -213,7 +215,7 @@ export function SettingsPanel({
               packet the desk saw, the verdict it gave, and what it was worth.{" "}
               {tr.trained_now
                 ? `Adapters trained: ${Object.values(tr.desks).filter((d) => d.adapter).length}/6.`
-                : `Adapters: none yet — run \`python -m soul.train\` on a GPU box (Kaggle 2×T4) and this process loads them from ${tr.adapters_dir}.`}
+                : `Adapters: none yet — run \`python -m soul.train\` on a GPU box (Kaggle 2×T4); they load from ${tr.adapters_dir} when the floor restarts.`}
             </div>
           )}
 

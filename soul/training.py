@@ -436,7 +436,15 @@ class TrainingBook:
                 data["trained"][key] = path
         if manifest.exists():
             try:
-                data.update(json.loads(manifest.read_text()))
+                man = json.loads(manifest.read_text())
+                # The manifest says what the trainer did; the filesystem says what
+                # is loadable right now. Disk wins on the union, or a manifest
+                # written by an earlier no-op run would hide a real adapter.
+                trained = dict(man.get("trained") or {})
+                trained.update(data["trained"])
+                man["trained"] = trained
+                man["trained_now"] = bool(trained)
+                data.update(man)
             except Exception:                               # pragma: no cover
                 pass
         return data
@@ -471,7 +479,7 @@ class TrainingBook:
             "adapters_dir": str(self.adapters_dir),
             "adapters": trained,
             "desks": per_desk,
-            "trained_now": bool(trained),
+            "trained_now": bool(adapters.get("trained") or trained),
         }
 
 

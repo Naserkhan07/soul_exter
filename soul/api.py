@@ -146,6 +146,9 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
                     "key_required": False, "auth": r.get("auth", "none"),
                     "license": r.get("license", "open weights"),
                     "note": r.get("note", ""),
+                    # the desk's fine-tune on disk, if `python -m soul.train` has
+                    # produced one (loaded on the next start, see SOUL_ADAPTERS)
+                    "adapter": r.get("adapter"),
                 }
                 for r in engine.registry.values()
             ],

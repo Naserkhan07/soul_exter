@@ -180,3 +180,31 @@ def test_an_adapter_is_only_claimed_when_it_exists(book):
     assert stats["desks"]["QUANT"]["adapter"].endswith("QUANT")
     assert stats["desks"]["RISK"]["adapter"] is None
     assert stats["trained_now"] is True
+
+
+# ------------------------------------------------- the roster + the trainer --
+def test_the_roster_reports_a_trained_adapter_from_disk(tmp_path):
+    """On a CPU box the personas answer, but "has this desk been trained?" is a
+    question about the adapter directory, not about the live backend."""
+    from soul.brains import adapter_path_for
+
+    assert adapter_path_for("QUANT", None) is None
+    assert adapter_path_for("QUANT", str(tmp_path)) is None
+    desk = tmp_path / "QUANT"
+    desk.mkdir()
+    (desk / "adapter_config.json").write_text("{}")
+    assert adapter_path_for("QUANT", str(tmp_path)) == str(desk)
+    assert adapter_path_for("RISK", str(tmp_path)) is None
+
+
+def test_a_stale_manifest_does_not_hide_a_trained_adapter(book, tmp_path):
+    """An earlier no-op run writes `trained: {}`; the adapter on disk is still the
+    truth, and the panel must say so."""
+    book.adapters_dir.mkdir(parents=True, exist_ok=True)
+    (book.adapters_dir / "manifest.json").write_text(json.dumps({"trained": {}, "status": "not-trained"}))
+    desk = book.adapters_dir / "CEO"
+    desk.mkdir()
+    (desk / "adapter_config.json").write_text("{}")
+    stats = book.stats([])
+    assert stats["trained_now"] is True
+    assert stats["desks"]["CEO"]["adapter"] == str(desk)

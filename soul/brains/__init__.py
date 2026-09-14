@@ -23,6 +23,7 @@ Set SOUL_MOCK_LLM=0 to force the real weights even if detection is unsure.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional, Protocol
 
 from ..config import Config
@@ -123,7 +124,21 @@ def build_brains(cfg: Config, cuda_available: bool) -> Dict[str, Brain]:
     return brains
 
 
-def brain_registry(brains: Dict[str, Brain], profile: str = "standard") -> Dict[str, dict]:
+def adapter_path_for(key: str, adapters_dir: Optional[str]) -> Optional[str]:
+    """The desk's fine-tune on disk, if the trainer has produced one.
+
+    Read from the filesystem rather than from the loaded brain: on a CPU box
+    the personas answer, but "has this desk been trained?" is a question about
+    what is in `SOUL_ADAPTERS`, not about which backend happens to be live.
+    """
+    if not adapters_dir:
+        return None
+    path = Path(adapters_dir) / key.upper()
+    return str(path) if (path / "adapter_config.json").exists() else None
+
+
+def brain_registry(brains: Dict[str, Brain], profile: str = "standard",
+                   adapters_dir: Optional[str] = None) -> Dict[str, dict]:
     out: Dict[str, dict] = {}
     for i, spec in enumerate(CABINS + [CEO_SPEC]):
         b = brains.get(spec.key)
@@ -152,6 +167,6 @@ def brain_registry(brains: Dict[str, Brain], profile: str = "standard") -> Dict[
             "expertise": list(spec.expertise),
             "style": spec.style,
             # set once `python -m soul.train` has produced this desk's fine-tune
-            "adapter": getattr(b, "adapter", None),
+            "adapter": getattr(b, "adapter", None) or adapter_path_for(spec.key, adapters_dir),
         }
     return out
