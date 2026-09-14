@@ -70,7 +70,10 @@ class CabinSpec:
     def debate_prompt(self, topic: str, transcript: List[Dict[str, Any]], kind: str,
                       to_name: str = "") -> str:
         """Prompt for one turn in the debate room (the desks training each other)."""
-        said = "\n".join(f"{m.get('name') or m['speaker']} [{m['kind']}]: {m['text']}"
+        # `turn` is the field the transcript actually carries; reading `kind`
+        # here raised a KeyError on the second turn of every round on a real
+        # model, which no mock ever noticed
+        said = "\n".join(f"{m.get('name') or m['speaker']} [{m.get('turn', '?')}]: {m['text']}"
                           for m in transcript[-6:]) or "(nobody has spoken yet)"
         asks = {
             "claim": "Open the discussion with the sharpest thing you know about this.",
@@ -200,7 +203,7 @@ CABINS: List[CabinSpec] = [
 CEO_SPEC = CabinSpec(
     key="CEO",
     label="CEO / HEAD OF DESK",
-    name="Marcus Vale",
+    name="Naveed",
     title="Managing Partner, Head of Desk",
     role="final decision maker",
     expertise=[

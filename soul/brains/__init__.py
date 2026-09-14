@@ -118,7 +118,8 @@ def build_brains(cfg: Config, cuda_available: bool) -> Dict[str, Brain]:
     est = vram_estimate(cfg.model_profile)
     log.info("brains: local open-weight models, profile=%s (~%.1f GB in 4-bit)", cfg.model_profile, est)
     for spec in CABINS + [CEO_SPEC]:
-        brains[spec.key] = LocalHFBrain(spec, pool, model_for(spec, cfg.model_profile))
+        brains[spec.key] = LocalHFBrain(spec, pool, model_for(spec, cfg.model_profile),
+                                        adapters_dir=getattr(cfg, "adapters_dir", None))
     return brains
 
 
@@ -150,5 +151,7 @@ def brain_registry(brains: Dict[str, Brain], profile: str = "standard") -> Dict[
             "auth": "none — local weights, ungated download",
             "expertise": list(spec.expertise),
             "style": spec.style,
+            # set once `python -m soul.train` has produced this desk's fine-tune
+            "adapter": getattr(b, "adapter", None),
         }
     return out

@@ -40,7 +40,7 @@ const ROSTER: Array<[string, string, string, string, string]> = [
   ["NEWS", "zephyr-7b-beta", "news", "Lina Marchetti", "Head of News Flow and Catalysts"],
   ["MACRO", "Qwen2.5-14B-Instruct", "macro", "Rahul Menon", "Global Macro Strategist"],
   ["COMPLIANCE", "Phi-3.5-mini-instruct", "compliance", "Sofia Bergman", "Head of Trading Compliance"],
-  ["CEO", "Qwen2.5-14B-Instruct", "ceo", "Marcus Vale", "Managing Partner, Head of Desk"],
+  ["CEO", "Qwen2.5-14B-Instruct", "ceo", "Naveed", "Managing Partner, Head of Desk"],
 ];
 const cabins: Cabin[] = ROSTER.map(([key, model, role, name, title]) => ({
   key,

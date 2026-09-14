@@ -450,6 +450,10 @@ button.ghost.tiny { padding: 3px 8px; font-size: 11px; }
   background: var(--accent); animation: think 1.1s ease-in-out infinite;
 }
 @keyframes think { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+.training-line { margin: 4px 0 0; }
+.training-line b { color: var(--text); }
+.note.training { border-left-color: var(--accent); margin-bottom: 10px; }
+.roster-train { font-size: 10.5px; color: var(--text-dim); margin-top: 3px; }
 .panel.debate { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; }
 .panel.debate .head-actions { display: flex; gap: 6px; }
 .speakers { display: flex; flex-wrap: wrap; gap: 5px; }

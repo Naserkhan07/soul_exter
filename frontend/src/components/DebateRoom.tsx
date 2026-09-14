@@ -58,6 +58,7 @@ export function DebateRoomPanel({
   onAsk,
   records,
   thinking,
+  training,
   hours24,
   variant = "rail",
   onClose,
@@ -74,6 +75,11 @@ export function DebateRoomPanel({
   records?: Partial<Record<string, DeskRecord>>;
   /** the desk currently composing a turn, if any */
   thinking?: { key: string; name: string } | null;
+  /** what the desks have been trained on, straight from the engine */
+  training?: {
+    rows: number; settled_rows: number; curriculum_rows: number; lesson_rows: number;
+    adapters?: Record<string, string>; trained_now?: boolean;
+  } | null;
   hours24?: boolean;
   variant?: "rail" | "room";
   onClose?: () => void;
@@ -141,8 +147,9 @@ export function DebateRoomPanel({
         <p className="room-intro">
           Six desks in one room: they claim, challenge, ask, answer, agree — and the
           head of desk writes down the rule they agreed. Every rule is fed back into
-          each desk's prompt before the next trade, which is how this desk gets
-          trained as it works.
+          each desk&apos;s prompt before the next trade, and every settled trade is
+          written into that desk&apos;s training set — so tomorrow&apos;s meeting starts
+          from what this one learned.
         </p>
       )}
 
@@ -266,6 +273,17 @@ export function DebateRoomPanel({
             ))}
         </ul>
       </div>
+      {training && (
+        <p className="muted small training-line">
+          trained on <b>{training.rows.toLocaleString()}</b> rows —{" "}
+          {training.curriculum_rows.toLocaleString()} curriculum ·{" "}
+          {training.lesson_rows.toLocaleString()} from the room ·{" "}
+          <b>{training.settled_rows.toLocaleString()}</b> settled decisions
+          {training.trained_now
+            ? ` · adapters: ${Object.keys(training.adapters ?? {}).length}/6 desks`
+            : " · adapters: none trained yet"}
+        </p>
+      )}
       {topic && <p className="muted small topic-line">current topic: {topic}</p>}
     </section>
   );

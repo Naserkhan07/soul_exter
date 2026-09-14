@@ -2,6 +2,9 @@
 
     GET  /                     the 3D trading floor
     GET  /api/state            full snapshot (also used as a polling fallback)
+    GET  /api/training         what the desks have been trained on (rows, adapters)
+    POST /api/training/build   write the supervised dataset to artifacts/
+    GET  /api/training/dataset the dataset itself, as chat JSONL
     GET  /api/trades           audit log of every trade the floor has seen
     GET  /api/trades/{id}      full council transcript for one trade
     POST /api/scan             force a scan now
@@ -159,6 +162,9 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
                 "market_mode": engine.market.mode,
                 "desks": engine.cfg.desks,
             },
+            # what each desk has actually been trained on, and whether the
+            # trainer has produced an adapter for it yet
+            "training": engine.training.stats(engine.lessons()) if engine.training else {"enabled": False},
         }
 
     @app.post("/api/settings/instruments")
@@ -166,6 +172,37 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
         chosen = await engine.set_instruments(payload.symbols)
         return {"ok": True, "selected": chosen, "count": len(chosen),
                 "classes": book.classes_of(chosen)}
+
+    @app.get("/api/training")
+    async def training_state() -> Dict[str, Any]:
+        """The training book: the curriculum, the room's rules, settled outcomes.
+
+        This is the honest answer to "are the models actually trained?". Every
+        desk's rows are counted, and `adapter` is non-null only when
+        `python -m soul.train` has written a LoRA this process can load.
+        """
+        if engine.training is None:
+            return {"enabled": False}
+        return engine.training.stats(engine.lessons())
+
+    @app.post("/api/training/build")
+    async def training_build() -> Dict[str, Any]:
+        if engine.training is None:
+            return {"ok": False, "error": "no training book"}
+        manifest = engine.training.build(lessons=engine.lessons())
+        return {"ok": True, "manifest": manifest}
+
+    @app.get("/api/training/dataset")
+    async def training_dataset() -> FileResponse:
+        if engine.training is None:
+            raise HTTPException(status_code=404, detail="no training book")
+        path = engine.training.dataset_path
+        # Always rebuild before serving: the rows live in this process's memory
+        # (curriculum + room rules + every settled trade of this session), and a
+        # file left on disk by an earlier run would otherwise be served stale —
+        # which is exactly the kind of quiet wrongness a training set must not have.
+        engine.training.build(lessons=engine.lessons())
+        return FileResponse(path, media_type="application/x-ndjson", filename=path.name)
 
     @app.get("/api/debate")
     async def debate(limit: int = 40) -> Dict[str, Any]:

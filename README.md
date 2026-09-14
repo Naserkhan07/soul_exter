@@ -109,6 +109,44 @@ the 3B; `low` is the laptop profile and shares two small models on purpose.)
 2 × T4 = 32 GB, and the pool keeps the most recently used models resident
 (`SOUL_MODEL_CACHE`, default 6). Profiles: `SOUL_MODEL_PROFILE=low|standard|variety`.
 
+### Training the desks
+
+A desk is not a static prompt. Three things train it, in this order of immediacy:
+
+1. **The curriculum** — the house playbook and the desk's own schooling (`soul/knowledge.py`).
+   It is in every system prompt, and the ten seed lessons are read back into every verdict as
+   DESK MEMORY from the first trade of a session, so a desk on its first trade is not a desk
+   with nothing on file.
+2. **The room** — every debate round ends with a rule the head of desk writes down
+   (`soul/debate.py`), and those rules go back into the next prompt. The desks teach each
+   other in context, and the rules are visible in the Chat room.
+3. **The record** — every settled decision becomes supervised data (`soul/training.py`): the
+   exact packet the desk was shown, the verdict it gave, and what that decision was worth
+   when the position closed. That dataset is exported as chat JSONL and turned into a LoRA
+   adapter per desk:
+
+```bash
+python -m soul.train --dataset-only        # just build artifacts/training/desk-sft.jsonl
+python -m soul.train --desks all --epochs 2   # LoRA per desk (needs a GPU + transformers/peft)
+```
+
+```bash
+curl -s localhost:8000/api/training        # rows per desk, and whether an adapter exists
+curl -s localhost:8000/api/training/dataset > session-sft.jsonl   # the dataset itself
+```
+
+The loop is symmetric on purpose: a desk that **approved a loser** is trained on *its own risk
+flags* as the reason to refuse, a desk that **refused a winner** is trained on the same objection
+at half size, and a desk that refused a loser is rewarded exactly like one that approved a winner.
+Nothing in it teaches "always approve" or "always refuse". Put the trained adapters in
+`artifacts/adapters/<DESK>/` (or set `SOUL_ADAPTERS`) and the local-HF backend loads each desk's
+own adapter on top of its own base weights — QUANT and RISK stop being the same model in two hats.
+Guarded by `tests/test_training.py`.
+
+A CPU-only box cannot train and does not pretend to: `python -m soul.train` writes the dataset,
+prints exactly which packages are missing, and exits 0. The floor still runs (mock personas), so
+the rest of the pipeline stays testable.
+
 ---
 
 ## Configuration
@@ -204,6 +242,9 @@ mounts the real React bundle in a DOM (fixture **or** live server) and asserts t
 |---|---|---|
 | `GET` | `/` | the floor |
 | `GET` | `/api/state` | full snapshot (engine, market, council, desk, positions, roster) |
+| `GET` | `/api/training` | training rows per desk, and whether an adapter has been trained |
+| `POST` | `/api/training/build` | write the supervised dataset to `artifacts/training/` |
+| `GET` | `/api/training/dataset` | the dataset itself, as chat JSONL |
 | `GET` | `/api/trades` | audit log of every trade the floor has seen |
 | `GET` | `/api/trades/{id}` | full council transcript for one trade |
 | `POST` | `/api/scan` | force a scan now |
@@ -226,6 +267,9 @@ soul/
   flybrain.py      spiking FlyWire-inspired screen (ORN→LN→PN→KC→MBON, 12k synapses)
   scout.py         the scout: gates and ranks candidates, learns from realised P&L
   council.py       the five cabins, wave scheduling, CEO escalation
+  knowledge.py     the house playbook, per-desk schooling, the seed lessons
+  training.py      the supervised dataset: curriculum, room rules, settled decisions
+  train.py         `python -m soul.train` — LoRA fine-tune per desk, no API keys
   desk.py          paper fills, sizing, stops/targets, P&L
   engine.py        wires it together and publishes events
   api.py           FastAPI + websocket + SSE
@@ -252,6 +296,8 @@ tools/
   tune_flybrain.py calibrate the spiking network
 tests/
   test_council.py  routing, parsing, prompts, cabins, desk, calibration
+  test_roster.py   six desks, six different models, all ungated
+  test_training.py the curriculum, the settled-decision labels, the adapters
 ```
 
 ## Tests

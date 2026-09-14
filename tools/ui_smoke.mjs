@@ -59,6 +59,18 @@ const fixture = {
     },
   },
   desk: { equity: 15694.14, starting_cash: 15000, realised: 589.85, win_rate: 62, open: 3, leverage: 0.6 },
+  training: {
+    enabled: true, rows: 168, settled_rows: 36, curriculum_rows: 120, lesson_rows: 12,
+    waiting: 2, adapters_dir: "artifacts/adapters", trained_now: false, adapters: {},
+    desks: {
+      QUANT: { rows: 26, settled: 6, adapter: null },
+      RISK: { rows: 24, settled: 4, adapter: null },
+      NEWS: { rows: 20, settled: 0, adapter: null },
+      MACRO: { rows: 22, settled: 2, adapter: null },
+      COMPLIANCE: { rows: 21, settled: 1, adapter: null },
+      CEO: { rows: 55, settled: 23, adapter: null },
+    },
+  },
   market: {
     mode: "sim",
     board: [
@@ -91,7 +103,7 @@ const fixture = {
       reason: "The clip is inside every venue limit and the audit trail is complete.", lastVote: "APPROVE", confidence: 80,
       model: "microsoft/Phi-3.5-mini-instruct", role: "compliance", isCeo: false, thinking: false, calls: 38, latency: 280 },
   ],
-  ceo: { key: "CEO", label: "CEO", name: "Marcus Vale", title: "Head of Desk", isCeo: true, thinking: false,
+  ceo: { key: "CEO", label: "CEO", name: "Naveed", title: "Head of Desk", isCeo: true, thinking: false,
     reason: "Rule written: when the trade is a regime call, take the index, not the single name.",
     said: "Rule written: when the trade is a regime call, take the index, not the single name.",
     lastVote: "APPROVE", confidence: 68, model: "Qwen/Qwen2.5-14B-Instruct", role: "ceo", calls: 17, latency: 900 },
@@ -158,7 +170,7 @@ const fixture = {
       { key: "NEWS", name: "Lina Marchetti", title: "Head of News Flow and Catalysts" },
       { key: "MACRO", name: "Rahul Menon", title: "Global Macro Strategist" },
       { key: "COMPLIANCE", name: "Sofia Bergman", title: "Head of Trading Compliance and Mandate" },
-      { key: "CEO", name: "Marcus Vale", title: "Managing Partner, Head of Desk" },
+      { key: "CEO", name: "Naveed", title: "Managing Partner, Head of Desk" },
     ],
     transcript: [
       { room: "desk", topic: "SOL/USDT LONG", speaker: "QUANT", name: "Dr. Amara Osei",
@@ -167,12 +179,12 @@ const fixture = {
       { room: "desk", topic: "SOL/USDT LONG", speaker: "RISK", name: "Viktor Hale",
         label: "RISK", model: "Mistral-7B-Instruct-v0.3", turn: "challenge",
         text: "Where is the loss capped if the venue gaps through your stop?", round: 3, ts: now - 30 },
-      { room: "desk", topic: "SOL/USDT LONG", speaker: "CEO", name: "Marcus Vale",
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "CEO", name: "Naveed",
         label: "CEO", model: "Qwen2.5-14B-Instruct", turn: "lesson",
         text: "Rule written: when a setup is extended, halve the size instead of skipping it.", round: 3, ts: now - 20 },
     ],
     lessons: [
-      { topic: "SOL/USDT LONG", speaker: "CEO", speaker_label: "Marcus Vale, Managing Partner",
+      { topic: "SOL/USDT LONG", speaker: "CEO", speaker_label: "Naveed, Managing Partner",
         text: "when a setup is extended, halve the size instead of skipping it", ts: now - 20, round: 3 },
     ],
   },
@@ -204,6 +216,7 @@ if (liveBase) {
   fixture.recent_councils = live.recent_councils ?? [];
   fixture.trade_log = live.trade_log ?? [];
   fixture.scout = live.scout ?? fixture.scout;
+  fixture.training = live.training ?? fixture.training;
 }
 
 const errors = [];
@@ -247,7 +260,7 @@ const settingsFixture = {
       is_ceo: false, slot: 1, model: "mistralai/Mistral-7B-Instruct-v0.3", backend: "local-hf (4-bit)",
       temperature: 0.15, expertise: ["tail risk"], style: "Asks what breaks first.",
       key_required: false, auth: "none", license: "open weights, ungated" },
-    { key: "CEO", name: "Marcus Vale", title: "Managing Partner, Head of Desk", role: "CEO",
+    { key: "CEO", name: "Naveed", title: "Managing Partner, Head of Desk", role: "CEO",
       is_ceo: true, slot: 5, model: "Qwen/Qwen2.5-14B-Instruct", backend: "local-hf (4-bit)",
       temperature: 0.3, expertise: ["portfolio construction"], style: "Pays for the risk.",
       key_required: false, auth: "none", license: "open weights, ungated" },
@@ -268,6 +281,15 @@ const settingsFixture = {
   },
   selected: ["BTC/USDT", "ETH/USDT"],
   engine: { llm_mode: "mock", model_profile: "standard", market_mode: "sim", desks: 64 },
+  training: {
+    enabled: true, rows: 168, settled_rows: 36, curriculum_rows: 120, lesson_rows: 12,
+    waiting: 2, adapters_dir: "artifacts/adapters", trained_now: false,
+    desks: {
+      QUANT: { rows: 26, settled: 6, adapter: null },
+      RISK: { rows: 24, settled: 4, adapter: null },
+      CEO: { rows: 55, settled: 23, adapter: null },
+    },
+  },
 };
 
 window.fetch = async (url) => {
@@ -313,7 +335,7 @@ const checks = [
   ["fly verdicts", /CONFIRM|WAIT|CONTRADICT/.test(text)],
   ["equity panel", q(".spark") > 0],
   ["debate room panel", q(".panel.debate") > 0],
-  ["debate names shown", /Amara Osei|Viktor Hale|Marcus Vale/.test(text)],
+  ["debate names shown", /Amara Osei|Viktor Hale|Naveed/.test(text)],
   ["debate lesson on file", /halve the size|Rules this desk has agreed/i.test(text)],
 ];
 
@@ -347,7 +369,7 @@ if (settingsButton) {
   checks.push(["settings drawer opens", !!panel]);
   checks.push([
     "settings roster names the desks",
-    /Amara Osei|Viktor Hale|Marcus Vale/.test(t) && /Qwen|Mistral/.test(t),
+    /Amara Osei|Viktor Hale|Naveed/.test(t) && /Qwen|Mistral/.test(t),
   ]);
   checks.push(["settings says there are no keys", /no API keys/i.test(t)]);
   // and the market tree behind the second tab
@@ -396,17 +418,38 @@ if (roomButton) {
   const room = window.document.querySelector(".room-overlay .panel.debate.room");
   checks.push(["debate room opens over the floor", !!room]);
   const rtext = room?.textContent ?? "";
-  checks.push(["room names every speaker", /Amara Osei/.test(rtext) && /Marcus Vale/.test(rtext)]);
-  checks.push(["room shows each desk's record", new RegExp("10/16 right|not proven", "i").test(rtext)]);
+  checks.push(["room names every speaker", /Amara Osei/.test(rtext) && /Naveed/.test(rtext)]);
+  checks.push([
+    "room shows each desk's record",
+    new RegExp("\\d+/\\d+ right|not proven", "i").test(rtext),
+  ]);
   checks.push([
     "room has a composer aimed at a desk",
     !!room?.querySelector(".composer input") && !!room?.querySelector(".composer select"),
   ]);
   checks.push(["room lists the rules it agreed", /Rules this desk has agreed/.test(rtext)]);
+  checks.push([
+    "room shows the training set",
+    /trained on [\d,]+ rows/i.test(rtext.replace(/\s+/g, " ")),
+  ]);
   const close = [...(room?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "close");
   close?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 20));
   checks.push(["room closes again", !window.document.querySelector(".room-overlay")]);
+
+  // the settings drawer reports what each desk has been trained on
+  const settingsButton = buttons.find((b) => /settings/i.test((b.textContent ?? "").trim()));
+  settingsButton?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 60));
+  // the drawer keeps whichever tab was last used, so make sure we are on "The desk"
+  const deskTab = [...(window.document.querySelectorAll(".drawer.settings .tab") ?? [])]
+    .find((b) => /The desk/i.test(b.textContent ?? ""));
+  deskTab?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 40));
+  const drawer = window.document.querySelector(".drawer.settings");
+  const dtext = (drawer?.textContent ?? "").replace(/\s+/g, " ");
+  checks.push(["settings shows the training set", /Training set: [\d,]+ rows/i.test(dtext)]);
+  checks.push(["settings reports the adapters", /Adapters/i.test(dtext)]);
 } else {
   checks.push(["debate room opens over the floor", false]);
 }
@@ -421,7 +464,7 @@ if (cabinCard) {
   checks.push(["cabin click opens its chat", !!chat]);
   checks.push([
     "chat names the desk and shows a verdict or a reason",
-    /Amara Osei|Viktor Hale|Lina Marchetti|Rahul Menon|Sofia Bergman|Marcus Vale/.test(chatText)
+    /Amara Osei|Viktor Hale|Lina Marchetti|Rahul Menon|Sofia Bergman|Naveed/.test(chatText)
       && /APPROVE|REJECT|HOLD|no vote|reading the tape|waiting for/i.test(chatText),
   ]);
   checks.push(["chat has an ask box", !!chat?.querySelector("input")]);

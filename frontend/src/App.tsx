@@ -210,6 +210,7 @@ export default function App() {
             onOpenRoom={() => setRoomOpen(true)}
             records={records}
             thinking={thinking}
+            training={state.training ?? null}
             hours24
           />
           <TraderList traders={traders} onSelect={(id) => onPick(id)} />
@@ -252,6 +253,7 @@ export default function App() {
               onAsk={askDesk}
               records={records}
               thinking={thinking}
+              training={state.training ?? null}
               hours24
               onClose={() => setRoomOpen(false)}
             />

@@ -150,6 +150,11 @@ class Config:
     model_profile: str = _env("SOUL_MODEL_PROFILE", "standard")  # low | standard | variety
     load_in_4bit: bool = _env_bool("SOUL_LOAD_4BIT", True)
     model_cache: int = _env_int("SOUL_MODEL_CACHE", 6)     # how many models stay resident
+    #: where the supervised dataset and the trained LoRA adapters live. The
+    #: trainer writes them; the server reads them back and each desk runs its
+    #: own adapter, so six desks stay six different models after training.
+    training_dataset: str = _env("SOUL_TRAINING_DATASET", "artifacts/training/desk-sft.jsonl")
+    adapters_dir: str = _env("SOUL_ADAPTERS", "artifacts/adapters")
     wave_mode: bool = _env_bool("SOUL_WAVE_MODE", True)    # 2 waves instead of 5 serial calls
     hf_home: Optional[str] = os.environ.get("HF_HOME")
     mock_latency: float = _env_float("SOUL_MOCK_LATENCY", 0.55)   # seconds per cabin

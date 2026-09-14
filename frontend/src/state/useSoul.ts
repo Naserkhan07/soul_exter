@@ -186,6 +186,15 @@ export interface SoulState {
   registry: RegistryEntry[];
   debate: DebateSnapshot;
   instruments: InstrumentState;
+  /** the training book: curriculum rows, the room's rules, settled decisions */
+  training?: {
+    enabled?: boolean;
+    rows: number; settled_rows: number; curriculum_rows: number; lesson_rows: number;
+    waiting: number; adapters_dir: string; trained_now: boolean;
+    adapters?: Record<string, string>;
+    desks: Record<string, { rows: number; settled: number; adapter: string | null;
+                            trained_at?: number | null }>;
+  } | null;
 }
 
 /** One turn of the debate room, exactly as the engine publishes it. */
@@ -241,6 +250,7 @@ const EMPTY: SoulState = {
   ticks: [],
   registry: [],
   debate: { transcript: [], lessons: [] },
+  training: null,
   instruments: { selected: [] },
 };
 
@@ -325,6 +335,7 @@ export function useSoul(pollMs = 4000): {
       scout: raw.scout,
       registry: raw.registry ? Object.values(raw.registry) as RegistryEntry[] : [],
       debate: (raw.debate ?? { transcript: [], lessons: [], speakers: [] }) as DebateSnapshot,
+      training: raw.training ?? null,
       instruments: (raw.instruments ?? { selected: [] }) as SoulState["instruments"],
       traders: [],
     };

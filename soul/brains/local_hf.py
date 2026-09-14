@@ -16,6 +16,7 @@ import asyncio
 import logging
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..models import Verdict
@@ -56,19 +57,25 @@ class ModelPool:
                 pass
             log.info("model pool: evicted %s", name)
 
-    def get(self, name: str) -> Tuple[Any, Any]:
-        """Blocking load (run inside a thread)."""
-        if name in self._cache:
-            return self._cache[name]
-        with self._lock_for(name):
-            if name in self._cache:
-                return self._cache[name]
+    def get(self, name: str, adapter: Optional[str] = None) -> Tuple[Any, Any]:
+        """Blocking load (run inside a thread).
+
+        An adapter makes the pool key `model|adapter`: a desk that has been
+        trained loads *its own* LoRA on top of the base weights, so two desks
+        that share a base model still hold two different opinions.
+        """
+        key = name if not adapter else f"{name}|{adapter}"
+        if key in self._cache:
+            return self._cache[key]
+        with self._lock_for(key):
+            if key in self._cache:
+                return self._cache[key]
             self._evict_if_needed()
-            model, tok = self._load(name)
-            self._cache[name] = (model, tok)
+            model, tok = self._load(name, adapter)
+            self._cache[key] = (model, tok)
             return model, tok
 
-    def _load(self, name: str) -> Tuple[Any, Any]:
+    def _load(self, name: str, adapter: Optional[str] = None) -> Tuple[Any, Any]:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -104,6 +111,16 @@ class ModelPool:
         except (TypeError, ValueError):
             kwargs.pop("attn_implementation", None)
             model = AutoModelForCausalLM.from_pretrained(name, **kwargs)
+        if adapter:
+            # The desk's fine-tune, trained by `python -m soul.train` on its own
+            # settled decisions. Same pipeline, same prompts, personalised read.
+            try:
+                from peft import PeftModel
+
+                model = PeftModel.from_pretrained(model, adapter)
+                log.info("loaded LoRA adapter %s on %s", adapter, name)
+            except Exception as exc:                            # pragma: no cover
+                log.warning("adapter %s failed to load (%s) — base weights only", adapter, exc)
         model.eval()
         log.info("loaded %s in %.1fs", name, time.time() - t0)
         return model, tok
@@ -114,10 +131,17 @@ class LocalHFBrain:
 
     kind = "local-hf"
 
-    def __init__(self, spec: CabinSpec, pool: ModelPool, model_name: Optional[str] = None) -> None:
+    def __init__(self, spec: CabinSpec, pool: ModelPool, model_name: Optional[str] = None,
+                 adapters_dir: Optional[str] = None) -> None:
         self.spec = spec
         self.pool = pool
         self.model_name = model_name or spec.model_prefs[0]
+        #: the desk's own fine-tune, if the trainer has produced one
+        self.adapter: Optional[str] = None
+        if adapters_dir:
+            path = Path(adapters_dir) / spec.key
+            if (path / "adapter_config.json").exists():
+                self.adapter = str(path)
         self.semaphore = asyncio.Semaphore(1)   # one generation at a time per cabin
         self.generation_count = 0
 
@@ -140,7 +164,7 @@ class LocalHFBrain:
     def _generate(self, prompt: str) -> str:
         import torch
 
-        model, tok = self.pool.get(self.model_name)
+        model, tok = self.pool.get(self.model_name, self.adapter)
         text = self._render(tok, prompt)
         inputs = tok(text, return_tensors="pt").to(model.device)
         gen_kwargs: Dict[str, Any] = {

@@ -34,6 +34,15 @@ Cloudflare quick tunnel for viewing. No account, token or API key is needed anyw
 | `variety` | Qwen-3B, Mistral-7B, Zephyr-7B, Qwen-7B, Phi-3.5-mini, **CEO Qwen-14B** | 3–6 min | same |
 | `low` | 3B + Phi-mini throughout, CEO Qwen-7B | 1–2 min | ~3–6 trades/min |
 
+### Training the desks (cell 5b)
+
+The floor trains itself while it trades. Every closed position labels the verdicts that
+produced it, and cell 5b exports that session as a supervised dataset, then LoRA-tunes each
+desk on its own rows and restarts the server with `SOUL_ADAPTERS` set — so the desks come back
+running what they learned. More settled trades first (let it run 15–30 minutes) makes better
+labels. Skip 5b and everything still works; the desks simply argue from the playbook and the
+debate room's rules instead of from their own record.
+
 Watch VRAM with cell 6. If you OOM, lower `SOUL_MODEL_CACHE` (how many models stay resident) or
 switch to `SOUL_MODEL_PROFILE=low`.
 

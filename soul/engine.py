@@ -15,6 +15,8 @@ from .bus import EventBus
 from .council import Council
 from . import universe as book
 from .config import Config
+from .knowledge import SEED_LESSONS
+from .training import TrainingBook
 from .debate import DebateRoom, packet
 from .desk import PaperDesk
 from .market import MarketFeed
@@ -83,10 +85,12 @@ class Engine:
             return {
                 "market": self._market_ctx(trade.symbol, trade.features),
                 "portfolio": self.desk.context(),
-                # what the table has already taught itself, read back into every
+                # What the table has already taught itself, read back into every
                 # verdict: the debate room is the training channel, so its rules
-                # are part of the packet, not a footnote to it.
-                "memory": {"lessons": list(self.debate.lessons) if self.debate else []},
+                # are part of the packet, not a footnote to it. The house
+                # curriculum sits underneath them, so a desk on its first trade
+                # of a session is not a desk with nothing on file.
+                "memory": {"lessons": self.lessons()},
                 "now": time.time(),
             }
         return _ctx
@@ -109,6 +113,9 @@ class Engine:
         self.brains = await asyncio.to_thread(build_brains, self.cfg, self.cuda)
         self.council = Council(self.cfg, self.brains, self.bus)
         self.registry = brain_registry(self.brains, self.cfg.model_profile)
+        # the training book: the curriculum, the room's rules and every settled
+        # decision, kept as a supervised dataset (see `python -m soul.train`)
+        self.training = TrainingBook(self.cfg, self.brains)
         if self.cfg.debate_enabled:
             self.debate = DebateRoom(self.cfg, self.brains, self.bus, self.registry)
         self.llm_mode = "mock" if all(getattr(b, "kind", "") == "mock" for b in self.brains.values()) else "local-hf"
@@ -216,6 +223,11 @@ class Engine:
                         entry["blocked"] = self.desk.blocked.get(trade.id, "not opened")
                 self.trade_log.append(entry)
                 self.trade_log = self.trade_log[-300:]
+                # the decision is recorded with the packet it was made on; the
+                # outcome arrives when the position closes and only then does it
+                # become a training row
+                if self.training is not None:
+                    self.training.note(trade, result, self.ctx_fn(trade)())
                 if self.debate is not None:
                     self.debate.queue_trade(trade, result, extra={
                         "open_positions": len(self.desk.positions),
@@ -228,6 +240,21 @@ class Engine:
                 await self.bus.publish("error", trade_id=trade.id, message=str(exc))
             finally:
                 self.in_flight -= 1
+
+    def lessons(self) -> List[Dict[str, Any]]:
+        """The rules in force: the session's debate lessons over the curriculum.
+
+        The ten seed lessons used to be dead code — written, never read — which
+        left a fresh session with an empty DESK MEMORY block and six desks
+        reasoning from their playbook alone. They are staff training, so they
+        belong in the packet from turn one.
+        """
+        seeds = [
+            {"topic": "house curriculum", "speaker": "HOUSE", "round": 0, "ts": 0.0,
+             "speaker_label": f"House playbook — {name}", "text": text}
+            for name, text in SEED_LESSONS.items()
+        ]
+        return seeds + list(self.debate.lessons if self.debate else [])
 
     async def ask_desk(self, key: str, question: str, trade_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Ask one cabin why it voted the way it did. Returns the turn it said."""
@@ -303,6 +330,15 @@ class Engine:
                                             float(payload.get("risk", 0.0) or 0.0))
                     except Exception as exc:            # pragma: no cover
                         log.warning("scoreboard settle failed: %s", exc)
+                # ...and the desks' verdicts become supervised training rows
+                if self.training is not None:
+                    try:
+                        self.training.settle(str(payload.get("trade_id", "")),
+                                             float(payload.get("pnl", 0.0) or 0.0),
+                                             float(payload.get("risk", 0.0) or 0.0),
+                                             float(payload.get("pnl_pct", 0.0) or 0.0))
+                    except Exception as exc:            # pragma: no cover
+                        log.warning("training settle failed: %s", exc)
         finally:
             self.bus.unsubscribe(queue)
 
@@ -387,6 +423,7 @@ class Engine:
             "cabins": [r for r in self.registry.values() if not r["is_ceo"]],
             "ceo": next((r for r in self.registry.values() if r["is_ceo"]), None),
             "recent_councils": self.council.recent(20) if self.council else [],
+            "training": self.training.stats(self.lessons()) if self.training else None,
             "trade_log": self.trade_log[-60:],
             "scan_index": self.scanner.scan_count,
             "scout": self.scout.stats() if self.scout else {"enabled": False},

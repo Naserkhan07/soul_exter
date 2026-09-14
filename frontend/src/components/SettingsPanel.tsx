@@ -66,6 +66,11 @@ interface SettingsPayload {
   instruments: { classes: ClassEntry[]; default: string[]; total: number };
   selected: string[];
   engine: { llm_mode: string; model_profile: string; market_mode: string; desks: number };
+  training?: {
+    rows: number; settled_rows: number; curriculum_rows: number; lesson_rows: number;
+    waiting: number; adapters_dir: string; trained_now: boolean;
+    desks: Record<string, { rows: number; settled: number; adapter: string | null }>;
+  };
 }
 
 const SOURCE_BADGE: Record<string, string> = {
@@ -152,6 +157,7 @@ export function SettingsPanel({
   };
 
   const roster = data?.roster ?? [];
+  const tr = data?.training;
   const cabins = useMemo(() => roster.filter((r) => !r.is_ceo), [roster]);
   const ceo = roster.find((r) => r.is_ceo);
 
@@ -196,6 +202,21 @@ export function SettingsPanel({
             repositories (Llama, Gemma) are deliberately not used.
           </div>
 
+          {tr && (
+            <div className="note training">
+              <strong>
+                Training set: {tr.rows.toLocaleString()} rows
+                {tr.settled_rows > 0 ? ` · ${tr.settled_rows.toLocaleString()} settled decisions` : ""}
+              </strong>{" "}
+              The house curriculum ({tr.curriculum_rows} rows), the rules the debate room
+              agreed ({tr.lesson_rows} rows), and every trade whose outcome is known — the
+              packet the desk saw, the verdict it gave, and what it was worth.{" "}
+              {tr.trained_now
+                ? `Adapters trained: ${Object.values(tr.desks).filter((d) => d.adapter).length}/6.`
+                : `Adapters: none yet — run \`python -m soul.train\` on a GPU box (Kaggle 2×T4) and this process loads them from ${tr.adapters_dir}.`}
+            </div>
+          )}
+
           {ceo && (
             <div className="roster-card ceo">
               <div className="roster-top">
@@ -212,6 +233,14 @@ export function SettingsPanel({
                 <span className="badge ok">no key</span>
               </div>
               <div className="roster-auth">{ceo.auth} · {ceo.license}</div>
+              {tr?.desks?.[ceo.key] && (
+                <div className="roster-train">
+                  {tr.desks[ceo.key].settled > 0
+                    ? `${tr.desks[ceo.key].settled} settled decisions in the training set`
+                    : "no settled decisions yet — curriculum + room rules only"}
+                  {tr.desks[ceo.key].adapter ? " · adapter trained" : " · adapter: none yet"}
+                </div>
+              )}
               <p className="style">{ceo.style}</p>
             </div>
           )}
@@ -232,6 +261,14 @@ export function SettingsPanel({
                 <span className="badge ok">ungated</span>
               </div>
               <div className="roster-auth">{r.auth} · {r.license}</div>
+              {tr?.desks?.[r.key] && (
+                <div className="roster-train">
+                  {tr.desks[r.key].settled > 0
+                    ? `${tr.desks[r.key].settled} settled decisions in the training set`
+                    : "no settled decisions yet — curriculum + room rules only"}
+                  {tr.desks[r.key].adapter ? " · adapter trained" : " · adapter: none yet"}
+                </div>
+              )}
               <p className="style">{r.style}</p>
               <ul className="expertise">
                 {r.expertise.map((e) => (
