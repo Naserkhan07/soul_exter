@@ -160,7 +160,11 @@ class Trade:
     thesis: str = ""
     exec_note: str = ""
     pnl_r: float = 0.0
-    cf_r: float = 0.0                  # counterfactual R for vetoed tickets
+    cf_r: float = 0.0
+    broker_ticket: Optional[str] = None      # venue order id (MT5 ticket / paper id)
+    broker_mode: str = ""                    # paper | mt5
+    manual: bool = False                     # operator cleared it by hand
+    closed_manual: bool = False              # operator booked it out by hand                  # counterfactual R for vetoed tickets
     trajectory: List[Dict[str, Any]] = field(default_factory=list)
     position: Dict[str, float] = field(default_factory=lambda: dict(x=0.0, z=0.0, yaw=0.0))
 
@@ -177,6 +181,8 @@ class Trade:
             votes_for=self.votes_for, votes_against=self.votes_against,
             avg_confidence=round(self.avg_confidence, 3), thesis=self.thesis,
             exec_note=self.exec_note, pnl_r=round(self.pnl_r, 2), cf_r=round(self.cf_r, 2),
+            broker_ticket=self.broker_ticket, broker_mode=self.broker_mode,
+            manual=self.manual, closed_manual=self.closed_manual,
             position=self.position,
             label=self.label, rr=self.signal.get("rr", 0.0),
             verdicts=[s.verdict.dict() for s in self.stages if s.verdict],

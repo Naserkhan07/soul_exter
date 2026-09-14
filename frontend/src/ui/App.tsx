@@ -44,6 +44,8 @@ export function App() {
   const [fps, setFps] = useState(60)
   const [chatRequest, setChatRequest] = useState<{ seatId: string; tradeId: string } | null>(null)
   const [lights, setLights] = useState<'bright' | 'moody'>('bright')
+  const [orderBusy, setOrderBusy] = useState<Record<string, string>>({})
+  const [toast, setToast] = useState<string | null>(null)
 
   /* ---------------------------------------------------------------- boot */
   useEffect(() => {
@@ -193,6 +195,32 @@ export function App() {
     pnl: stats?.pnl_r ?? 0
   }), [trades, stats])
 
+  const placeTrade = useCallback(async (id: string) => {
+    setOrderBusy((b) => ({ ...b, [id]: 'place' }))
+    try {
+      const res = await api.placeTrade(id)
+      setToast(res?.ok ? `${id} placed — ${res.order?.message}` : `${id}: ${res?.message}`)
+    } catch (e: any) {
+      setToast(`place failed: ${e.message}`)
+    }
+    setOrderBusy((b) => { const n = { ...b }; delete n[id]; return n })
+    setTimeout(() => setToast(null), 6000)
+  }, [])
+
+  const bookTrade = useCallback(async (id: string) => {
+    setOrderBusy((b) => ({ ...b, [id]: 'book' }))
+    try {
+      const res = await api.bookTrade(id)
+      setToast(res?.ok
+        ? `${id} booked — ${res.order?.message} · ${res.order?.pnl_r >= 0 ? '+' : ''}${res.order?.pnl_r}R`
+        : `${id}: ${res?.message}`)
+    } catch (e: any) {
+      setToast(`book failed: ${e.message}`)
+    }
+    setOrderBusy((b) => { const n = { ...b }; delete n[id]; return n })
+    setTimeout(() => setToast(null), 6000)
+  }, [])
+
   const selectedTrade = trades.find((t) => t.id === selected) || null
 
   return (
@@ -274,7 +302,8 @@ export function App() {
       {!cinema && (
         <>
           <aside className="left">
-            <TradeDock trades={trades} selected={selected} onSelect={select} />
+            <TradeDock trades={trades} selected={selected} onSelect={select}
+                       onPlace={placeTrade} onBook={bookTrade} busy={orderBusy} />
           </aside>
 
           <aside className="right">
@@ -314,10 +343,13 @@ export function App() {
           {selectedTrade && (
             <TradeDetail trade={selectedTrade} seats={seats} onClose={() => select(null)}
                          focusSeat={chatRequest?.tradeId === selectedTrade.id ? chatRequest.seatId : null}
+                         onPlace={placeTrade} onBook={bookTrade} busy={orderBusy[selectedTrade.id]}
                          onAsk={async (seatId, q) => askJudge(seatId, q)} />
           )}
         </>
       )}
+
+      {toast && <div className="toast">{toast}</div>}
 
       <footer className="bottombar">
         <EventTicker events={events} />

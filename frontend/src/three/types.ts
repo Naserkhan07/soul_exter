@@ -77,6 +77,10 @@ export interface TradeFrame {
   label: string
   rr: number
   position: { x: number; z: number; yaw: number }
+  broker_ticket?: string | null
+  broker_mode?: string
+  manual?: boolean
+  closed_manual?: boolean
   stages: StageFrame[]
   verdicts: VerdictFrame[]
   signal: any

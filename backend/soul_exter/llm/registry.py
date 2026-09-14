@@ -6,6 +6,7 @@ through the built-in analyst engine, so the floor is fully functional offline.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
@@ -28,6 +29,17 @@ class LLMSeat:
     enabled: bool = True
     open_source_family: str = ""
     avatar: Dict[str, str] = field(default_factory=dict)
+
+    def engine_token(self) -> str:
+        """Deterministic local credential for the built-in analyst engine.
+
+        The keyless engine still authenticates its own seats (order signing, chat
+        sessions), so there is always a key to show and copy in the settings
+        panel — it is just generated on this host instead of pasted by you.
+        """
+        seed = f"{self.id}|{os.environ.get('SOUL_EXTER_SECRET', 'soul-exter-local')}"
+        digest = hashlib.sha256(seed.encode()).hexdigest()[:16].upper()
+        return f"SOULX-{self.name}-{digest[:8]}-{digest[8:16]}"
 
     def key(self) -> str:
         if self.api_key:
@@ -54,12 +66,13 @@ class LLMSeat:
         active = self.key()
         d["has_key"] = bool(active)
         d["live"] = self.live()
+        d["engine_token"] = self.engine_token()
         # what the desk is *actually* running with, so the operator never has to
         # guess whether a key is in play
-        d["active_key"] = active
-        d["active_key_masked"] = (active[:7] + "…" + active[-4:]) if len(active) > 14 else (
-            "set" if active else "")
-        d["key_source"] = self.key_source()
+        shown = active or self.engine_token()
+        d["active_key"] = shown
+        d["active_key_masked"] = (shown[:7] + "…" + shown[-4:]) if len(shown) > 14 else shown
+        d["key_source"] = self.key_source() if active else "local-engine"
         d["engine"] = (f"{self.provider}:{self.model}" if self.live()
                        else "soul-exter-analyst (built-in)")
         return d

@@ -107,7 +107,7 @@ export class FloorScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75))
     this.renderer.setSize(container.clientWidth, container.clientHeight)
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.06
+    this.renderer.toneMappingExposure = 1.32
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -130,7 +130,7 @@ export class FloorScene {
     this.controls.panSpeed = 0.8
     this.controls.screenSpacePanning = true
 
-    this.scene.background = new THREE.Color(0x05070d)
+    this.scene.background = new THREE.Color(0x141d2e)
     this.scene.fog = new THREE.Fog(0x0a0f18, 90, 340)
 
     this.setupLights()
@@ -207,10 +207,10 @@ export class FloorScene {
   private roomLights: THREE.PointLight[] = []
 
   private setupLights() {
-    const hemi = new THREE.HemisphereLight(0xbcd7ff, 0x243040, 1.15)
+    const hemi = new THREE.HemisphereLight(0xd7e6ff, 0x3d4a5e, 1.5)
     this.hemi = hemi
     this.scene.add(hemi)
-    const key = new THREE.DirectionalLight(0xdfeaff, 1.35)
+    const key = new THREE.DirectionalLight(0xf2f7ff, 1.75)
     this.keyLight = key
     key.position.set(38, 46, 26)
     key.castShadow = true
@@ -223,7 +223,7 @@ export class FloorScene {
     key.shadow.camera.far = 160
     key.shadow.bias = -0.0006
     this.scene.add(key)
-    const fill = new THREE.DirectionalLight(0x7aa7ff, 0.4)
+    const fill = new THREE.DirectionalLight(0x9dc0ff, 0.6)
     fill.position.set(-30, 22, -20)
     this.fillLight = fill
     this.scene.add(fill)
@@ -270,10 +270,10 @@ export class FloorScene {
     this.lightingMode = mode
     const bright = mode === 'bright'
     this.lightLevel = bright ? 1.0 : 0.62
-    if (this.hemi) this.hemi.intensity = bright ? 1.15 : 0.62
-    if (this.keyLight) this.keyLight.intensity = bright ? 1.35 : 0.85
+    if (this.hemi) this.hemi.intensity = bright ? 1.5 : 0.8
+    if (this.keyLight) this.keyLight.intensity = bright ? 1.75 : 1.05
     if (this.fillLight) this.fillLight.intensity = bright ? 0.4 : 0.22
-    this.renderer.toneMappingExposure = bright ? 1.16 : 1.0
+    this.renderer.toneMappingExposure = bright ? 1.32 : 1.05
     for (const l of this.hubLights) l.intensity = (bright ? 26 : 17)
     for (const l of this.roomLights) l.intensity = bright ? l.userData.base ?? l.intensity : 0.6 * (l.userData.base ?? l.intensity)
     if (this.rig) {
@@ -834,7 +834,7 @@ export class FloorScene {
       this.renderer.setPixelRatio(1)
       this.renderer.shadowMap.enabled = false
       this.scene.traverse((o) => { (o as any).castShadow = false })
-      this.scene.fog = new THREE.Fog(0x0a0f18, 70, 220)
+      this.scene.fog = new THREE.Fog(0x1b2740, 80, 260)
       // trim the dynamic-light bill: emissive panels and floor pools still carry
       // the look, so the hall stays lit without paying for 16 real lamps
       this.hubLights.forEach((l, i) => { l.visible = i % 2 === 0 })

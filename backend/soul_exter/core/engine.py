@@ -145,7 +145,99 @@ class FloorEngine:
         self.last_debate = 0.0
         self.live_status: Dict[str, Any] = dict(enabled=self.settings.live_venues, ok=False,
                                                 updated=None, error="", symbols=[])
+        self.broker = self._make_broker()
         self._spawn_npcs()
+
+    # ---------------------------------------------------------------- broker
+    def _make_broker(self):
+        from ..broker import get_broker
+        st = self.settings
+        return get_broker(st.broker_mode, login=st.mt5_login, password=st.mt5_password,
+                          server=st.mt5_server, path=st.mt5_path,
+                          symbol_suffix=st.mt5_symbol_suffix)
+
+    def broker_status(self) -> dict:
+        status = self.broker.status()
+        status["lots"] = self.settings.lots
+        status["auto_place"] = self.settings.auto_place
+        status["configured_login"] = self.settings.mt5_login or None
+        status["configured_server"] = self.settings.mt5_server or None
+        return status
+
+    def _trade_brief(self, trade) -> dict:
+        sig = trade.signal or {}
+        return dict(id=trade.id, symbol=trade.symbol, asset_class=trade.asset_class,
+                    direction=trade.direction, entry=sig.get("entry"),
+                    exit_price=self.feed.tickers[trade.symbol].last_price
+                    if trade.symbol in self.feed.tickers else sig.get("entry"))
+
+    def place_trade(self, trade_id: str, lots: Optional[float] = None) -> dict:
+        """Operator clicked PLACE — clear the ticket and route it to the market."""
+        trade = self.trades.get(trade_id)
+        if trade is None:
+            return dict(ok=False, message="unknown ticket")
+        if trade.state == TradeState.EXITED.value:
+            return dict(ok=False, message="ticket already closed")
+        w = self.walkers.get(f"W-{trade.id}")
+        # a forced placement bypasses a pending hearing: the council is recorded as
+        # overruled by the operator, which is visible in the ticket history.
+        if trade.outcome == "pending":
+            if w is not None:
+                w.pause_left = 0.0
+            self._finalize(trade, accepted=True, manual=True)
+        size = float(lots if lots is not None else self.settings.lots)
+        res = self.broker.place(self._trade_brief(trade), size)
+        trade.broker_ticket = res.ticket
+        trade.broker_mode = res.mode
+        if w is not None:
+            self._walk_out(trade, "entry")
+        self.emit("trade_placed", trade=dict(id=trade.id, symbol=trade.symbol, lots=size),
+                  verdict="placed", message=dict(text=f"Operator placed {trade.symbol} "
+                                                 f"({res.mode}) — {res.message}"))
+        return dict(ok=True, order=res.dict(), trade=trade.dict())
+
+    def book_trade(self, trade_id: str, lots: Optional[float] = None) -> dict:
+        """Operator clicked BOOK — close the position now and realise the P&L."""
+        trade = self.trades.get(trade_id)
+        if trade is None:
+            return dict(ok=False, message="unknown ticket")
+        brief = self._trade_brief(trade)
+        res = self.broker.book(brief, float(lots if lots is not None else self.settings.lots))
+        sig = trade.signal or {}
+        entry = float(sig.get("entry") or 0.0)
+        sl = float(sig.get("stop_loss") or 0.0)
+        risk = max(abs(entry - sl), 1e-9)
+        price = float(brief.get("exit_price") or res.price or entry)
+        sgn = 1.0 if trade.direction == "long" else -1.0
+        pnl_r = (price - entry) * sgn / risk
+        if trade.outcome == "pending":
+            self._finalize(trade, accepted=True, manual=True)
+        if trade.pnl_r == 0.0:
+            self._record_outcome(trade, pnl_r, True)
+        else:
+            trade.pnl_r = round(pnl_r, 2)
+        trade.state = TradeState.EXITED.value
+        trade.closed_manual = True
+        w = self.walkers.get(f"W-{trade.id}")
+        if w is not None:
+            self._route(w, "exit_outside")
+            w.carry = False
+        self.emit("trade_booked",
+                  trade=dict(id=trade.id, symbol=trade.symbol, pnl_r=round(pnl_r, 2)),
+                  verdict="booked",
+                  message=dict(text=f"Operator booked {trade.symbol} at {price:.5g} "
+                                    f"for {pnl_r:+.2f}R ({res.mode})"))
+        return dict(ok=True, order=res.dict(), trade=trade.dict())
+
+    def _auto_place(self, trade) -> None:
+        if not self.settings.auto_place:
+            return
+        res = self.broker.place(self._trade_brief(trade), float(self.settings.lots))
+        trade.broker_ticket = res.ticket
+        trade.broker_mode = res.mode
+        self.emit("order_routed", trade=dict(id=trade.id, symbol=trade.symbol),
+                  message=dict(text=f"{'Filled' if res.ok else 'Not routed'} {trade.symbol}: "
+                                    f"{res.message}"))
 
     # ------------------------------------------------------------------ boot
     async def start(self) -> None:
@@ -487,7 +579,7 @@ class FloorEngine:
         self._finalize(trade, accepted=accepted)
 
     # ------------------------------------------------------------- finalize
-    def _finalize(self, trade: Trade, accepted: bool) -> None:
+    def _finalize(self, trade: Trade, accepted: bool, manual: bool = False) -> None:
         if trade.finalized_at is not None:
             return
         trade.outcome = "accepted" if accepted else "rejected"
@@ -504,9 +596,13 @@ class FloorEngine:
                 symbol=trade.symbol, deadline=self.clock + self.settings.outcome_horizon_s,
                 accepted=accepted,
                 risk=max(abs(trade.signal["entry"] - trade.signal["stop_loss"]), 1e-9))
+        if manual:
+            trade.manual = True
         self.emit("trade_finalized", trade=dict(id=trade.id, symbol=trade.symbol,
                                                 accepted=accepted, votes_for=trade.votes_for,
-                                                votes_against=trade.votes_against))
+                                                votes_against=trade.votes_against, manual=manual))
+        if accepted:
+            self._auto_place(trade)
 
     def _walk_out(self, trade: Trade, gate: str) -> None:
         w = self.walkers.get(f"W-{trade.id}")
@@ -793,6 +889,7 @@ class FloorEngine:
         self.free_desks = [d.index for d in self.plan.desks]
         self.rng.shuffle(self.free_desks)
         self.npcs.clear()
+        self.broker = self._make_broker()
         self._spawn_npcs()
         self.stats.update(spawned=0, accepted=0, rejected=0, exited=0, wins=0, losses=0, pnl_r=0.0)
 

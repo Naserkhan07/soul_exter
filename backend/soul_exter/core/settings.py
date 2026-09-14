@@ -33,6 +33,15 @@ class Settings:
     ambient_traders: int = 12            # NPC floor traders
     cabin_dwell_scale: float = 1.0       # hearing length multiplier
     seats: List[dict] = field(default_factory=lambda: [s.dict() for s in default_seats()])
+    # --- execution / broker -------------------------------------------------
+    broker_mode: str = "paper"           # paper | mt5
+    mt5_login: int = 0                   # your MT5 account number
+    mt5_password: str = ""               # stored locally only (never committed)
+    mt5_server: str = ""                 # e.g. MetaQuotes-Demo / ICMarkets-Live
+    mt5_path: str = ""                   # optional path to terminal64.exe
+    mt5_symbol_suffix: str = ""          # brokers that quote EURUSD.m etc.
+    lots: float = 0.10                   # clip size sent to the broker
+    auto_place: bool = False             # send accepted trades to the broker automatically
 
     # ------------------------------------------------------------------ io
     def to_seats(self) -> List[LLMSeat]:

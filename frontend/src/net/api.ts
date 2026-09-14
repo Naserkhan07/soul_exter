@@ -45,6 +45,10 @@ export const api = {
   updateSeat: (id: string, patch: Record<string, unknown>) =>
     jpost<SeatFrame>(`/api/seats/${id}`, patch),
   testSeat: (id: string) => jpost<any>(`/api/seats/${id}/test`, {}),
+  placeTrade: (id: string, lots?: number) => jpost<any>(`/api/trades/${id}/place`, lots ? { lots } : {}),
+  bookTrade: (id: string, lots?: number) => jpost<any>(`/api/trades/${id}/book`, lots ? { lots } : {}),
+  broker: () => jget<any>('/api/broker'),
+  saveBroker: (patch: Record<string, unknown>) => jpost<any>('/api/broker', patch),
   seatsFull: () => jget<SeatsResponse>('/api/seats'),
   universe: () => jget<{ groups: Record<string, any[]>; enabled: string[]; total: number }>('/api/universe'),
   markets: () => jget<any>('/api/markets'),

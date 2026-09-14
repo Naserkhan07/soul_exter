@@ -101,6 +101,42 @@ def host_key_report() -> dict:
     return out
 
 
+@app.post("/api/trades/{trade_id}/place")
+async def place_trade(trade_id: str, patch: dict | None = None) -> dict:
+    lots = (patch or {}).get("lots")
+    return engine.place_trade(trade_id, float(lots) if lots else None)
+
+
+@app.post("/api/trades/{trade_id}/book")
+async def book_trade(trade_id: str, patch: dict | None = None) -> dict:
+    lots = (patch or {}).get("lots")
+    return engine.book_trade(trade_id, float(lots) if lots else None)
+
+
+@app.get("/api/broker")
+async def broker() -> dict:
+    return dict(broker=engine.broker_status(),
+                settings=dict(mode=engine.settings.broker_mode,
+                              login=engine.settings.mt5_login,
+                              password=engine.settings.mt5_password,
+                              server=engine.settings.mt5_server,
+                              path=engine.settings.mt5_path,
+                              suffix=engine.settings.mt5_symbol_suffix,
+                              lots=engine.settings.lots,
+                              auto_place=engine.settings.auto_place))
+
+
+@app.post("/api/broker")
+async def broker_save(patch: dict) -> dict:
+    engine.apply_settings(patch or {})
+    return dict(ok=True, broker=engine.broker_status(),
+                settings=dict(mode=engine.settings.broker_mode,
+                              login=engine.settings.mt5_login,
+                              server=engine.settings.mt5_server,
+                              lots=engine.settings.lots,
+                              auto_place=engine.settings.auto_place))
+
+
 @app.get("/api/seats")
 async def seats() -> dict:
     seats_ = [s.dict() for s in engine.council.seats]

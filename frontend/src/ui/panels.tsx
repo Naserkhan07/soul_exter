@@ -22,8 +22,11 @@ function VerdictPill({ v }: { v: string }) {
 }
 
 /* ------------------------------------------------------------- trade dock */
-export function TradeDock({ trades, selected, onSelect }: {
+export function TradeDock({ trades, selected, onSelect, onPlace, onBook, busy }: {
   trades: TradeFrame[]; selected: string | null; onSelect: (id: string | null) => void
+  onPlace: (id: string) => void
+  onBook: (id: string) => void
+  busy?: Record<string, string>
 }) {
   const live = trades.filter((t) => t.state !== 'exited')
   const done = trades.filter((t) => t.state === 'exited').slice(0, 14)
@@ -56,6 +59,20 @@ export function TradeDock({ trades, selected, onSelect }: {
                 : <span className="muted small">awaiting cabins…</span>}
               {t.outcome !== 'pending' && <span className={`outcome ${t.outcome}`}>{t.outcome.toUpperCase()}</span>}
             </div>
+            <div className="tcard-actions">
+              <button className="act place" disabled={t.state === 'exited' || !!busy?.[t.id]}
+                      onClick={(e) => { e.stopPropagation(); onPlace(t.id) }}
+                      title="Send this ticket to the broker now">
+                {busy?.[t.id] === 'place' ? '…' : '⇪ PLACE TRADE'}
+              </button>
+              <button className="act book" disabled={t.state === 'exited' || !!busy?.[t.id]}
+                      onClick={(e) => { e.stopPropagation(); onBook(t.id) }}
+                      title="Close the position at the current price">
+                {busy?.[t.id] === 'book' ? '…' : '✕ BOOK TRADE'}
+              </button>
+              {t.broker_ticket && <span className="tk" title={`${t.broker_mode} order`}>
+                {t.broker_ticket.slice(0, 14)}</span>}
+            </div>
             <Bar value={t.state === 'in_cabin' ? 0.6 : t.state === 'exited' ? 1 : 0.25}
                  color={t.direction === 'long' ? 'var(--up)' : 'var(--down)'} height={3} />
           </div>
@@ -84,19 +101,22 @@ export function TradeDock({ trades, selected, onSelect }: {
 }
 
 /* ----------------------------------------------------------- trade detail */
-export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat }: {
+export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat, onPlace, onBook, busy }: {
   trade: TradeFrame | null
   seats: SeatFrame[]
   onClose: () => void
   onAsk: (seatId: string, q: string) => Promise<any>
   focusSeat?: string | null
+  onPlace?: (id: string) => void
+  onBook?: (id: string) => void
+  busy?: string
 }) {
   const [detail, setDetail] = useState<any>(null)
   const [tab, setTab] = useState<'journey' | 'chat'>('journey')
   const [seatId, setSeatId] = useState<string>('ceo')
   const [q, setQ] = useState('')
   const [chat, setChat] = useState<any[]>([])
-  const [busy, setBusy] = useState(false)
+  const [sending, setSending] = useState(false)
   const scroll = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -129,7 +149,7 @@ export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat }: {
 
   async function send() {
     if (!trade || !q.trim()) return
-    setBusy(true)
+    setSending(true)
     const question = q.trim()
     setQ('')
     setChat((c) => [...c, { role: 'you', text: question }])
@@ -140,7 +160,7 @@ export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat }: {
     } catch (e: any) {
       setChat((c) => [...c, { role: 'llm', name: 'system', text: `Chat failed: ${e.message}` }])
     }
-    setBusy(false)
+    setSending(false)
   }
 
   return (
@@ -159,6 +179,19 @@ export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat }: {
         </div>
         <button className="ghost" onClick={onClose}>✕</button>
       </div>
+      {onPlace && onBook && (
+        <div className="detail-actions">
+          <button className="act place" disabled={trade.state === 'exited' || !!busy}
+                  onClick={() => onPlace(trade.id)}>
+            {busy === 'place' ? '…' : '⇪ PLACE TRADE'}
+          </button>
+          <button className="act book" disabled={trade.state === 'exited' || !!busy}
+                  onClick={() => onBook!(trade.id)}>
+            {busy === 'book' ? '…' : '✕ BOOK TRADE'}
+          </button>
+          {trade.broker_ticket && <span className="tk">{trade.broker_mode?.toUpperCase()} · {trade.broker_ticket}</span>}
+        </div>
+      )}
 
       <div className="tabs">
         <button className={tab === 'journey' ? 'on' : ''} onClick={() => setTab('journey')}>JOURNEY</button>
@@ -245,7 +278,7 @@ export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat }: {
             <input value={q} placeholder="Why did you approve this? What would make you flip?"
                    onChange={(e) => setQ(e.target.value)}
                    onKeyDown={(e) => e.key === 'Enter' && send()} />
-            <button disabled={busy} onClick={send}>{busy ? '…' : 'SEND'}</button>
+            <button disabled={sending} onClick={send}>{sending ? '…' : 'SEND'}</button>
           </div>
         </div>
       )}
@@ -579,13 +612,23 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
   engine?: { mode: string; hosted: string[]; builtin: string[]; note: string; env_files?: string[] } | null
   providers?: Record<string, { env: string; set: boolean; value: string; seats: string[] }>
 }) {
-  const [tab, setTab] = useState<'markets' | 'models' | 'engine'>('markets')
+  const [tab, setTab] = useState<'markets' | 'models' | 'engine' | 'broker'>('markets')
   const [local, setLocal] = useState<any>(settings || {})
   const [testResult, setTestResult] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState(false)
   const [reveal, setReveal] = useState<Record<string, boolean>>({})
   const [showAllKeys, setShowAllKeys] = useState(true)
   const [copied, setCopied] = useState<Record<string, boolean>>({})
+  const [broker, setBroker] = useState<any>(null)
+  const [brokerEdit, setBrokerEdit] = useState<any>(null)
+  const [showPw, setShowPw] = useState(false)
+
+  useEffect(() => {
+    api.broker().then((d) => {
+      setBroker(d)
+      setBrokerEdit({ ...d.settings, mt5_login: d.settings.login, mt5_password: d.settings.password })
+    }).catch(() => {})
+  }, [])
   const enabled = useMemo(() => new Set(settings?.enabled_symbols || []), [settings?.enabled_symbols])
 
   useEffect(() => { setLocal(settings || {}) }, [settings])
@@ -613,6 +656,7 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
       <div className="tabs">
         <button className={tab === 'markets' ? 'on' : ''} onClick={() => setTab('markets')}>MARKETS</button>
         <button className={tab === 'models' ? 'on' : ''} onClick={() => setTab('models')}>LLM COUNCIL</button>
+        <button className={tab === 'broker' ? 'on' : ''} onClick={() => setTab('broker')}>BROKER</button>
         <button className={tab === 'engine' ? 'on' : ''} onClick={() => setTab('engine')}>ENGINE</button>
       </div>
 
@@ -718,7 +762,7 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
                       <span className="rk-src">
                         {s.key_source === 'seat' ? 'set in this panel'
                           : s.key_source?.startsWith('env:') ? `from host env ${s.key_source.slice(4)}`
-                          : ''}
+                          : 'local engine token (generated on this host)'}
                       </span>
                       <button className="eye" onClick={() => setReveal((r) => ({ ...r, [s.id]: !shown }))}>
                         {shown ? 'HIDE' : 'SHOW'}
@@ -780,6 +824,96 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
               </div>
             )
           })}
+        </div>
+      )}
+
+      {tab === 'broker' && brokerEdit && (
+        <div className="settings-block">
+          <div className={`engine-banner ${broker?.broker?.mode === 'mt5' ? 'hosted' : 'builtin'}`}>
+            <div className="eb-head">
+              <span className="eb-dot" />
+              {broker?.broker?.mode === 'mt5'
+                ? (broker.broker.connected ? 'MetaTrader 5 connected' : 'MetaTrader 5 configured — not connected')
+                : 'Paper broker (no venue orders)'}
+            </div>
+            <div className="eb-note">{broker?.broker?.message}</div>
+            {broker?.broker?.account && (
+              <div className="eb-keys">
+                <span className="keychip">
+                  {broker.broker.account.login} · {broker.broker.account.server} ·{' '}
+                  {broker.broker.account.currency} {broker.broker.account.balance}
+                  {broker.broker.account.demo ? ' · DEMO' : ' · LIVE'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="grid2">
+            <label>
+              <span>Broker</span>
+              <select value={brokerEdit.mode || 'paper'}
+                      onChange={(e) => setBrokerEdit({ ...brokerEdit, mode: e.target.value })}>
+                <option value="paper">paper — simulate fills</option>
+                <option value="mt5">mt5 — MetaTrader 5</option>
+              </select>
+            </label>
+            <label>
+              <span>Clip size (lots)</span>
+              <input type="number" step="0.01" min="0.01" value={brokerEdit.lots ?? 0.1}
+                     onChange={(e) => setBrokerEdit({ ...brokerEdit, lots: Number(e.target.value) })} />
+            </label>
+            <label>
+              <span>MT5 account (login)</span>
+              <input value={brokerEdit.login ?? ''} placeholder="112594843"
+                     onChange={(e) => setBrokerEdit({ ...brokerEdit, login: Number(e.target.value) || 0 })} />
+            </label>
+            <label>
+              <span>MT5 server</span>
+              <input value={brokerEdit.server ?? ''} placeholder="MetaQuotes-Demo"
+                     onChange={(e) => setBrokerEdit({ ...brokerEdit, server: e.target.value })} />
+            </label>
+            <label className="wide">
+              <span>MT5 password{' '}
+                <button className="eye" type="button" onClick={() => setShowPw(!showPw)}>
+                  {showPw ? 'HIDE' : 'SHOW'}
+                </button>
+                <CopyButton className="eye" label="COPY" value={brokerEdit.mt5_password || ''} />
+              </span>
+              <input type={showPw ? 'text' : 'password'} value={brokerEdit.mt5_password || ''}
+                     placeholder="stored locally in soul_exter_settings.json only"
+                     onChange={(e) => setBrokerEdit({ ...brokerEdit, mt5_password: e.target.value })} />
+            </label>
+            <label>
+              <span>Symbol suffix</span>
+              <input value={brokerEdit.suffix ?? ''} placeholder="e.g. .m for EURUSD.m"
+                     onChange={(e) => setBrokerEdit({ ...brokerEdit, suffix: e.target.value })} />
+            </label>
+            <label>
+              <span>terminal64.exe path (optional)</span>
+              <input value={brokerEdit.path ?? ''} placeholder="auto-detected"
+                     onChange={(e) => setBrokerEdit({ ...brokerEdit, path: e.target.value })} />
+            </label>
+            <label className="inline">
+              <span>Auto-place approved trades</span>
+              <input type="checkbox" checked={!!brokerEdit.auto_place}
+                     onChange={(e) => setBrokerEdit({ ...brokerEdit, auto_place: e.target.checked })} />
+            </label>
+          </div>
+          <div className="model-actions">
+            <button className="mini" onClick={async () => {
+              const r = await api.saveBroker({
+                broker_mode: brokerEdit.mode, mt5_login: Number(brokerEdit.login) || 0,
+                mt5_password: brokerEdit.mt5_password, mt5_server: brokerEdit.server,
+                mt5_path: brokerEdit.path, mt5_symbol_suffix: brokerEdit.suffix,
+                lots: Number(brokerEdit.lots) || 0.1, auto_place: !!brokerEdit.auto_place,
+              })
+              setBroker({ ...broker, ...r })
+            }}>SAVE & CONNECT</button>
+            <span className="muted small">
+              MT5 needs the terminal installed and running on the same machine
+              (Windows, or Linux via Wine). Credentials never leave this host.
+            </span>
+          </div>
         </div>
       )}
 
