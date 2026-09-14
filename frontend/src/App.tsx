@@ -12,10 +12,12 @@ import {
 } from "./components/Panels";
 import { CabinChat } from "./components/CabinChat";
 import { ChatDock } from "./components/ChatDock";
+import { ExecutionPanel } from "./components/ExecutionPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { DebateRoomPanel, type DeskRecord } from "./components/DebateRoom";
 import { TradeDrawer } from "./components/TradeDrawer";
-import { useSoul, type DebateTurn, type ScoutRead, type TradeRow } from "./state/useSoul";
+import { useSoul, type BrokerOrder, type DebateTurn, type ScoutRead,
+  type TradeRow } from "./state/useSoul";
 import type { Trader } from "./floor/types";
 import "./styles/app.css";
 
@@ -175,6 +177,60 @@ export default function App() {
     refresh();
   }, [paused, refresh, send]);
 
+  // ---------------------------------------------------------------
+  // execution: the scanned list, the placed book, one click each way
+  // ---------------------------------------------------------------
+  const [execWide, setExecWide] = useState(false);
+  const [orderEvents, setOrderEvents] = useState<Array<{ kind: "open" | "close"; order: BrokerOrder }>>([]);
+  useEffect(() => {
+    const fresh = events.orders.splice(0);
+    if (!fresh.length) return;
+    setOrderEvents((prev) => [...prev, ...fresh].slice(-80));
+  }, [seq, events.orders]);
+
+  // the wire pushes an order the moment it is taken or booked; the snapshot
+  // follows on the next poll, so merge them and let the live event win
+  const orders = useMemo(() => {
+    const open = new Map<string, BrokerOrder>();
+    for (const o of state.orders?.open ?? []) open.set(o.ticket, o);
+    const closed = [...(state.orders?.closed ?? [])];
+    for (const ev of orderEvents) {
+      if (ev.kind === "open") open.set(ev.order.ticket, ev.order);
+      else {
+        open.delete(ev.order.ticket);
+        if (!closed.some((c) => c.ticket === ev.order.ticket)) closed.unshift(ev.order);
+      }
+    }
+    return { open: [...open.values()], closed };
+  }, [state.orders, orderEvents]);
+
+  /** One click on a scanned trade: sized off its stop, sent, reported back. */
+  const placeSignal = useCallback(async (signalId: string, riskPct: number) => {
+    const res = await fetch("/api/broker/place", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ signal_id: signalId, risk_pct: riskPct, source: "manual" }),
+    });
+    if (!res.ok) throw await res.json().catch(() => ({ message: "the broker refused it" }));
+    refresh();
+  }, [refresh]);
+
+  /** One click on a placed trade: closed at market and booked immediately. */
+  const closeOrder = useCallback(async (ticket: string) => {
+    const res = await fetch("/api/broker/close", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ticket, reason: "MANUAL" }),
+    });
+    if (!res.ok) throw await res.json().catch(() => ({ message: "could not close it" }));
+    refresh();
+  }, [refresh]);
+
+  const closeEveryOrder = useCallback(async () => {
+    await fetch("/api/broker/close-all", { method: "POST" });
+    refresh();
+  }, [refresh]);
+
   const [traders, setTraders] = useState<Trader[]>([]);
 
   const tradeRowsRef = useRef<TradeRow[]>([]);
@@ -256,6 +312,18 @@ export default function App() {
         </div>
 
         <div className="right-rail">
+          {!execWide && (
+            <ExecutionPanel
+              signals={state.signals}
+              orders={orders}
+              broker={state.broker}
+              onPlace={placeSignal}
+              onClose={closeOrder}
+              onCloseAll={closeEveryOrder}
+              onRefresh={refresh}
+              onExpand={() => setExecWide(true)}
+            />
+          )}
           <ScoutPanel scout={state.scout} batch={scoutBatch} />
           <EquitySpark curve={state.equityCurve} starting={state.desk?.starting_cash ?? 15000} />
           <BookPanel positions={state.positions} closed={state.closed} />
@@ -287,6 +355,24 @@ export default function App() {
         heardCount={Object.values(heardTotals).reduce((a, b) => a + b, 0)}
         onOpen={() => setRoomOpen(true)}
       />
+
+      {execWide && (
+        <div className="room-overlay" onMouseDown={() => setExecWide(false)}>
+          <div className="room-shell wide" onMouseDown={(e) => e.stopPropagation()}>
+            <ExecutionPanel
+              wide
+              signals={state.signals}
+              orders={orders}
+              broker={state.broker}
+              onPlace={placeSignal}
+              onClose={closeOrder}
+              onCloseAll={closeEveryOrder}
+              onRefresh={refresh}
+              onExpand={() => setExecWide(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {roomOpen && (
         <div className="room-overlay" onMouseDown={closeRoom}>

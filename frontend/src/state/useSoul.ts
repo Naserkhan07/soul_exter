@@ -76,6 +76,100 @@ export interface ScoutRead {
   ts?: number;
 }
 
+/** One trade the six desks have scanned, ready to place or already refused. */
+export interface ScannedSignal {
+  id: string;
+  symbol: string;
+  name?: string;
+  class?: string;
+  side: "LONG" | "SHORT";
+  strategy?: string;
+  score?: number;
+  decision?: string;
+  route?: string;
+  approvals?: number;
+  rejections?: number;
+  confidence?: number;
+  entry?: number;
+  stop?: number;
+  target?: number;
+  rr?: number;
+  ts?: number;
+  /** MT5, or the paper venue — printed on the row so a fill is never a surprise */
+  venue?: "mt5" | "paper";
+  venue_detail?: string;
+  ticket?: string | null;
+  order_status?: string | null;
+  placeable?: boolean;
+  blocked?: string | null;
+  sizing?: {
+    ok: boolean; volume?: number; unit?: string; risk_dollars?: number; risk_pct?: number;
+    pips?: number; value_per_pip?: number; venue?: string; connected?: boolean;
+    spec_source?: string; description?: string; message?: string; reason?: string;
+  };
+  verdicts?: VerdictRow[];
+  ceo?: VerdictRow | null;
+}
+
+/** One order the broker is holding (or has booked). */
+export interface BrokerOrder {
+  ticket: string;
+  ref?: string;
+  symbol: string;
+  name?: string;
+  venue_symbol?: string;
+  class?: string;
+  side: "LONG" | "SHORT";
+  volume: number;
+  unit?: string;
+  entry: number;
+  stop: number;
+  target: number;
+  price?: number;
+  venue: "mt5" | "paper";
+  status: "OPEN" | "CLOSED";
+  opened_at?: number;
+  closed_at?: number;
+  pnl: number;
+  pnl_pct?: number;
+  exit_price?: number;
+  exit_reason?: string;
+  risk: number;
+  /** the reward left from the fill actually taken, not from the plan */
+  rr_at_fill?: number;
+  plan_entry?: number;
+  slippage_pips?: number;
+  confidence?: number;
+  strategy?: string;
+  source?: string;
+  currency?: string;
+  account?: string;
+  spec_source?: string;
+  to_stop_pct?: number;
+  to_target_pct?: number;
+}
+
+export interface BrokerStatus {
+  mode: string;
+  venue: "mt5" | "paper";
+  connected: boolean;
+  ready: boolean;
+  /** the masked login — a password never crosses the wire */
+  creds?: { login?: string; server?: string; has_password?: boolean; password?: string; mode?: string };
+  /** kept for older payloads */
+  credits?: { login?: string; server?: string; has_password?: boolean; password?: string; mode?: string };
+  account?: { login?: string; server?: string; currency?: string; balance?: number; equity?: number;
+              margin_free?: number; leverage?: number; demo?: boolean; company?: string };
+  routing?: Record<string, { label: string; venue: "mt5" | "paper"; detail: string }>;
+  autotrade?: { on: boolean; classes: string[]; risk_pct: number; max_open: number;
+                min_confidence: number; placed: number; skipped: number; last: string };
+  stats?: { orders_total: number; open: number; closed: number; wins: number; realised: number;
+            open_risk: number; live_venue_orders: number; paper_orders: number };
+  terminal?: { note?: string; error?: string; symbols_known?: number };
+  note?: string;
+  store?: string;
+}
+
 export interface ScoutStats {
   enabled: boolean;
   engine?: string;
@@ -186,6 +280,12 @@ export interface SoulState {
   registry: RegistryEntry[];
   debate: DebateSnapshot;
   instruments: InstrumentState;
+  /** everything the six desks have scanned, with the votes on each one */
+  signals: ScannedSignal[];
+  /** what the broker is holding, and what it has booked */
+  orders: { open: BrokerOrder[]; closed: BrokerOrder[] };
+  /** the execution venue: terminal connection, account, routing, auto-trade */
+  broker: BrokerStatus | null;
   /** the training book: curriculum rows, the room's rules, settled decisions */
   training?: {
     enabled?: boolean;
@@ -263,6 +363,9 @@ const EMPTY: SoulState = {
   equityCurve: [],
   ticks: [],
   registry: [],
+  signals: [],
+  orders: { open: [], closed: [] },
+  broker: null,
   debate: { transcript: [], lessons: [] },
   training: null,
   instruments: { selected: [] },
@@ -294,6 +397,10 @@ export interface SoulEvents {
                   to?: string; to_name?: string }>;
   /** a desk hearing another desk's rule: training by listening */
   heard: Array<{ listener: string; name: string; speaker_name: string; rule: string; round: number }>;
+  /** an order the broker took, and one it booked */
+  orders: Array<{ kind: "open" | "close"; order: BrokerOrder }>;
+  /** a refusal from the broker, or a change of venue */
+  brokerNotes: Array<{ tone: "good" | "bad" | "info"; text: string }>;
 }
 
 export function useSoul(pollMs = 4000): {
@@ -309,7 +416,7 @@ export function useSoul(pollMs = 4000): {
   const [state, setState] = useState<SoulState>(EMPTY);
   const eventsRef = useRef<SoulEvents>({
     spawns: [], moves: [], cabinThinking: [], cabinVerdicts: [], ends: [], floats: [], debate: [],
-    heard: [],
+    heard: [], orders: [], brokerNotes: [],
   });
   const [seq, setSeq] = useState(0);
   const [thinking, setThinking] = useState<{ key: string; name: string } | null>(null);
@@ -352,6 +459,9 @@ export function useSoul(pollMs = 4000): {
       scout: raw.scout,
       registry: raw.registry ? Object.values(raw.registry) as RegistryEntry[] : [],
       debate: (raw.debate ?? { transcript: [], lessons: [], speakers: [] }) as DebateSnapshot,
+      signals: (raw.signals ?? []) as ScannedSignal[],
+      orders: (raw.orders ?? { open: [], closed: [] }) as SoulState["orders"],
+      broker: (raw.broker ?? null) as BrokerStatus | null,
       training: raw.training ?? null,
       instruments: (raw.instruments ?? { selected: [] }) as SoulState["instruments"],
       traders: [],
@@ -463,6 +573,24 @@ export function useSoul(pollMs = 4000): {
         }
         break;
       }
+      case "broker_order":
+        if (p?.ticket) push("orders", { kind: "open", order: p as BrokerOrder });
+        break;
+      case "broker_closed":
+        if (p?.ticket) push("orders", { kind: "close", order: p as BrokerOrder });
+        break;
+      case "broker_status":
+        push("brokerNotes", {
+          tone: p?.connected ? "good" : "info",
+          text: p?.connected
+            ? `MetaTrader 5 connected${p?.server ? ` · ${p.server}` : ""}`
+            : "execution on the paper venue",
+        });
+        break;
+      case "broker_error":
+      case "broker_skipped":
+        push("brokerNotes", { tone: "bad", text: String(p?.message ?? p?.reason ?? "the broker refused") });
+        break;
       case "state":
         adopt(p, transportRef.current === "none" ? "ws" : transportRef.current);
         break;

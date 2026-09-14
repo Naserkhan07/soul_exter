@@ -169,6 +169,32 @@ class Config:
     max_open_positions: int = _env_int("SOUL_MAX_OPEN", 8)
     max_leverage: float = _env_float("SOUL_MAX_LEVERAGE", 1.0)   # 1.0 = spot, no leverage
 
+    # ---- broker / execution -------------------------------------------
+    #: where the terminal login is kept. Inside ``artifacts/`` on purpose: that
+    #: tree is gitignored, so a password never reaches the repository.
+    broker_store: str = _env("SOUL_BROKER_STORE", "artifacts/broker/mt5.json")
+    #: auto | mt5 | paper — "auto" uses the terminal when it answers, paper otherwise
+    broker_mode: str = _env("SOUL_BROKER_MODE", "auto")
+    broker_magic: int = _env_int("SOUL_BROKER_MAGIC", 770001)
+    broker_deviation: int = _env_int("SOUL_BROKER_DEVIATION", 20)     # slippage in points
+    #: risk per live order, as % of the broker account's equity
+    broker_risk_pct: float = _env_float("SOUL_BROKER_RISK_PCT", 0.5)
+    broker_max_open: int = _env_int("SOUL_BROKER_MAX_OPEN", 4)
+    #: auto-trade is OFF until the operator arms it, and then only on the
+    #: classes named here (forex by default) — the council proposes, the
+    #: operator decides whether the council is allowed to pull the trigger.
+    autotrade: bool = _env_bool("SOUL_AUTOTRADE", False)
+    autotrade_classes: List[str] = field(
+        default_factory=lambda: _env_list("SOUL_AUTOTRADE_CLASSES", ["forex"]))
+    autotrade_min_confidence: float = _env_float("SOUL_AUTOTRADE_MIN_CONFIDENCE", 60.0)
+    #: which venue takes which asset class: SOUL_BROKER_CRYPTO=paper, ...
+    broker_venues: Dict[str, str] = field(default_factory=lambda: {
+        k: v for k, v in (
+            (c, os.environ.get(f"SOUL_BROKER_{c.upper()}", ""))
+            for c in ("crypto", "forex", "indices", "stocks", "futures", "options", "metals")
+        ) if v
+    })
+
     # ---- misc ---------------------------------------------------------
     log_level: str = _env("SOUL_LOG_LEVEL", "info")
     demo_turbo: bool = _env_bool("SOUL_TURBO", False)

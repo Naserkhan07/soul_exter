@@ -67,3 +67,23 @@ switch to `SOUL_MODEL_PROFILE=low`.
 - **`SOUL_WAVE_MODE=0`** switches to strictly sequential cabins (QUANT → RISK → NEWS → MACRO →
   COMPLIANCE → CEO, each seeing all predecessors). It is 3–4× slower; use it when you would rather
   have the literal flow than the throughput.
+
+### Placing trades from the notebook
+
+Cell 5 prints the tunnel URL. The **Execution** panel on the floor lists every scanned trade with
+the six desks' votes; one click places it, one click closes it. There is **no MT5 terminal in a
+Kaggle container**, so the routing table shows `paper venue` for every class — the honest answer, not
+a silent substitution. To reach a real terminal, either run the floor on the machine with MT5
+installed, or point the notebook at one over the RPyC bridge:
+
+```python
+import os
+os.environ['SOUL_MT5_BRIDGE'] = '10.0.0.5:18812'   # mt5linux server on the Windows box
+os.environ['SOUL_MT5_LOGIN'] = '112594843'
+os.environ['SOUL_MT5_SERVER'] = 'MetaQuotes-Demo'
+os.environ['SOUL_AUTOTRADE'] = '1'                 # off unless you arm it
+os.environ['SOUL_AUTOTRADE_CLASSES'] = 'forex'
+```
+
+The login lives in the environment or in `artifacts/broker/mt5.json` (`0600`, gitignored). It is
+never committed, never echoed back by the API, and never written to a log.

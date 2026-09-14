@@ -19,7 +19,7 @@
  *    feed say so on the label rather than pretending, and are traded on the
  *    internal simulator when selected.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface RosterEntry {
   key: string;
@@ -63,7 +63,24 @@ interface ClassEntry {
   symbols: SymbolEntry[];
 }
 
-interface SettingsPayload {
+export interface BrokerView {
+  mode: string;
+  venue: "mt5" | "paper";
+  connected: boolean;
+  ready: boolean;
+  creds?: { login?: string; server?: string; path?: string; mode?: string; has_password?: boolean;
+            password?: string };
+  account?: { login?: string; server?: string; currency?: string; balance?: number; equity?: number;
+              margin_free?: number; leverage?: number; demo?: boolean; company?: string };
+  routing?: Record<string, { label: string; venue: string; detail: string }>;
+  autotrade?: { on: boolean; classes: string[]; risk_pct: number; max_open: number;
+                min_confidence: number; placed: number; skipped: number; last: string };
+  stats?: { orders_total: number; open: number; closed: number; realised: number };
+  terminal?: { note?: string; error?: string; symbols_known?: number };
+  note?: string;
+}
+
+export interface SettingsPayload {
   roster: RosterEntry[];
   instruments: { classes: ClassEntry[]; default: string[]; total: number };
   selected: string[];
@@ -92,7 +109,11 @@ export function SettingsPanel({
 }) {
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
-  const [tab, setTab] = useState<"roster" | "book">("roster");
+  const [tab, setTab] = useState<"roster" | "book" | "broker">("roster");
+  const [broker, setBroker] = useState<BrokerView | null>(null);
+  const [form, setForm] = useState({ login: "", password: "", server: "", mode: "auto", path: "" });
+  const [brokerMsg, setBrokerMsg] = useState<string | null>(null);
+  const [brokerBusy, setBrokerBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -158,6 +179,57 @@ export function SettingsPanel({
     }
   };
 
+  /** Read the venue back, and pre-fill what we already know (never the password). */
+  const loadBroker = useCallback(async () => {
+    try {
+      const j = (await (await fetch("/api/broker")).json()) as BrokerView;
+      setBroker(j);
+      setForm((f) => ({
+        ...f,
+        login: f.login || j.creds?.login || "",
+        server: f.server || j.creds?.server || "",
+        mode: j.creds?.mode || j.mode || "auto",
+      }));
+    } catch {
+      /* the panel still works offline: it just cannot report the venue */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open) void loadBroker();
+  }, [open, loadBroker]);
+
+  const connectBroker = async (forget = false) => {
+    setBrokerBusy(true);
+    setBrokerMsg(null);
+    try {
+      const res = await fetch(forget ? "/api/broker/disconnect" : "/api/broker/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(forget
+          ? { forget: true }
+          : { login: form.login.trim(), password: form.password, server: form.server.trim(), mode: form.mode }),
+      });
+      const j = (await res.json()) as BrokerView;
+      setBroker(j);
+      if (forget) {
+        setForm({ login: "", password: "", server: "", mode: "auto", path: "" });
+        setBrokerMsg("login forgotten — nothing is stored on this machine");
+      } else if (j.connected) {
+        setBrokerMsg(`connected to ${j.creds?.server ?? "the terminal"} as ${j.account?.login ?? form.login}`);
+        setForm((f) => ({ ...f, password: "" }));
+      } else {
+        setBrokerMsg(j.terminal?.error
+          ? `the terminal did not answer: ${j.terminal.error}`
+          : "login not accepted");
+      }
+    } catch (e) {
+      setBrokerMsg(`connect failed (${(e as Error).message})`);
+    } finally {
+      setBrokerBusy(false);
+    }
+  };
+
   const roster = data?.roster ?? [];
   const tr = data?.training;
   const cabins = useMemo(() => roster.filter((r) => !r.is_ceo), [roster]);
@@ -189,6 +261,12 @@ export function SettingsPanel({
         </button>
         <button className={tab === "book" ? "tab on" : "tab"} onClick={() => setTab("book")}>
           Markets <span className="pill">{ticked.size}</span>
+        </button>
+        <button className={tab === "broker" ? "tab on" : "tab"} onClick={() => setTab("broker")}>
+          Broker{" "}
+          <span className={`pill ${broker?.connected ? "ok" : ""}`}>
+            {broker?.connected ? "MT5" : "paper"}
+          </span>
         </button>
       </nav>
 
@@ -286,6 +364,116 @@ export function SettingsPanel({
             transcript. Swapping a model id here is a one-line change in
             <code> soul/brains/base.py</code>.
           </div>
+        </div>
+      )}
+
+      {tab === "broker" && (
+        <div className="scroll">
+          <div className="note">
+            <strong>Where a placed trade goes.</strong> Forex and metals are routed to
+            your MetaTrader 5 terminal; every other class waits for a broker to be
+            named and runs on the paper venue until then. The login below is stored in
+            <code> {broker ? "artifacts/broker/mt5.json" : "artifacts/broker/mt5.json"}</code>{" "}
+            on this machine only — never in the repository, never in a page, and the
+            password is never sent back to the browser or written to a log.
+          </div>
+
+          <div className={`broker-card ${broker?.connected ? "live" : "paper"}`}>
+            <div className="broker-top">
+              <span className="who">
+                <b>{broker?.connected ? "MetaTrader 5 connected" : "Paper venue"}</b>
+                <i>{broker?.connected
+                  ? `${broker?.account?.company || "terminal"} · ${broker?.account?.server ?? ""}`
+                  : "orders are filled off the floor's own feed"}</i>
+              </span>
+              <span className="slot">{broker?.connected ? "LIVE PATH" : "OFFLINE"}</span>
+            </div>
+            <div className="roster-meta">
+              <span className="badge">login {broker?.creds?.login || "—"}</span>
+              <span className="badge">server {broker?.creds?.server || "—"}</span>
+              <span className="badge">{broker?.account?.currency ?? "USD"}</span>
+              {broker?.account?.balance != null && (
+                <span className="badge">
+                  balance {broker.account.balance.toLocaleString()} · equity{" "}
+                  {broker.account.equity?.toLocaleString()}
+                </span>
+              )}
+              <span className="badge">{broker?.creds?.password || "no password stored"}</span>
+            </div>
+            {broker?.terminal?.note && <div className="roster-auth">{broker.terminal.note}</div>}
+            {broker?.terminal?.error && <div className="warn">{broker.terminal.error}</div>}
+          </div>
+
+          <div className="broker-form">
+            <label>
+              MT5 login
+              <input value={form.login} placeholder="112594843" inputMode="numeric"
+                     onChange={(e) => setForm({ ...form, login: e.target.value })} />
+            </label>
+            <label>
+              Password
+              <input type="password" value={form.password} placeholder="••••••••"
+                     autoComplete="new-password"
+                     onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            </label>
+            <label>
+              Server
+              <input value={form.server} placeholder="MetaQuotes-Demo"
+                     onChange={(e) => setForm({ ...form, server: e.target.value })} />
+            </label>
+            <label>
+              Venue mode
+              <select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
+                <option value="auto">auto — terminal when it answers, paper otherwise</option>
+                <option value="mt5">mt5 — pinned: refuse rather than fall back to paper</option>
+                <option value="paper">paper — never touch the terminal</option>
+              </select>
+            </label>
+            <div className="broker-actions">
+              <button className="primary" disabled={brokerBusy || (!form.login && !form.server)}
+                      onClick={() => connectBroker(false)}>
+                {brokerBusy ? "connecting…" : "Connect terminal"}
+              </button>
+              <button className="ghost" onClick={() => connectBroker(true)}>Forget login</button>
+            </div>
+            {brokerMsg && <div className="note small">{brokerMsg}</div>}
+            <div className="note small">
+              A password typed here is used for one connection attempt and stored only if
+              it works. Two-factor prompts, investor passwords and prop-firm servers are
+              yours to handle in the terminal; this panel only sends orders.
+            </div>
+          </div>
+
+          {broker?.routing && (
+            <>
+              <h4 className="broker-h">Routing by asset class</h4>
+              <table className="broker-table">
+                <thead>
+                  <tr><th>class</th><th>venue</th><th>detail</th></tr>
+                </thead>
+                <tbody>
+                  {Object.entries(broker.routing).map(([key, meta]) => (
+                    <tr key={key}>
+                      <td>{meta.label}</td>
+                      <td><span className={`venue-tiny ${meta.venue}`}>{meta.venue.toUpperCase()}</span></td>
+                      <td className="muted">{meta.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {broker && (
+            <div className="note small">
+              Auto-trade is {broker.autotrade?.on ? "ARMED" : "disarmed"} for{" "}
+              {(broker.autotrade?.classes ?? []).join(", ") || "nothing"} at{" "}
+              {broker.autotrade?.risk_pct}% risk per order. Places: {broker.autotrade?.placed ?? 0} ·
+              skipped: {broker.autotrade?.skipped ?? 0}
+              {broker.autotrade?.last ? ` · last: ${broker.autotrade.last}` : ""}. Arm it from the
+              Execution panel; disarmed, every order is your click.
+            </div>
+          )}
         </div>
       )}
 

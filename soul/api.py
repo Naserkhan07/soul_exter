@@ -12,6 +12,14 @@
     POST /api/demo/seed        push N candidates straight onto the floor
     POST /api/demo/shock       inject volatility
     POST /api/desk/close-all   flatten the paper book
+    GET  /api/broker           venue, account, routing, auto-trade, credentials mask
+    POST /api/broker           connect the MetaTrader 5 terminal (login/password/server)
+    POST /api/broker/disconnect forget the login, or just drop the connection
+    POST /api/broker/size      what one signal would cost if it were taken
+    POST /api/broker/place     place one scanned trade with a single click
+    POST /api/broker/close     close one live order immediately
+    POST /api/broker/close-all close every live order
+    POST /api/broker/autotrade arm/disarm automatic placement
     WS   /ws                   realtime event stream
     GET  /api/stream           same stream as SSE (proxy-friendly fallback)
 """
@@ -33,6 +41,7 @@ from pydantic import BaseModel
 from . import universe as book
 from .bus import EventBus
 from .config import Config, load_config
+from .broker import BrokerError
 from .engine import Engine
 
 log = logging.getLogger("soul.api")
@@ -63,6 +72,44 @@ class InstrumentsPayload(BaseModel):
 class DebatePayload(BaseModel):
     rounds: int = 1
     topic: Optional[str] = None
+
+
+class BrokerPayload(BaseModel):
+    """The operator's own terminal login.
+
+    Sent once from Settings, stored only in the gitignored broker store. The
+    password is never echoed back: every response carries a mask instead.
+    """
+
+    login: Optional[str] = None
+    password: Optional[str] = None
+    server: Optional[str] = None
+    path: Optional[str] = None
+    mode: Optional[str] = None          # auto | mt5 | paper
+    bridge: Optional[str] = None        # host:port of an mt5linux/RPyC bridge
+    forget: bool = False
+
+
+class PlacePayload(BaseModel):
+    """One scanned trade, placed. `signal_id` is the council record's trade id."""
+
+    signal_id: str
+    volume: Optional[float] = None      # lots; omitted = size it off the stop
+    risk_pct: Optional[float] = None    # % of account equity at risk
+    source: str = "manual"
+
+
+class OrderPayload(BaseModel):
+    ticket: str
+    reason: str = "MANUAL"
+
+
+class AutoTradePayload(BaseModel):
+    on: Optional[bool] = None
+    classes: Optional[list[str]] = None
+    risk_pct: Optional[float] = None
+    max_open: Optional[int] = None
+    min_confidence: Optional[float] = None
 
 
 class AskPayload(BaseModel):
@@ -274,6 +321,89 @@ def create_app(cfg: Optional[Config] = None) -> FastAPI:
     async def close_all() -> Dict[str, Any]:
         n = await engine.close_all()
         return {"ok": True, "closed": n}
+
+    # ------------------------------------------------------------------
+    # execution: the broker, the scanned list, one-click place, one-click close
+    # ------------------------------------------------------------------
+    @app.get("/api/broker")
+    async def broker_status() -> Dict[str, Any]:
+        return engine.broker.status()
+
+    @app.post("/api/broker/connect")
+    async def broker_connect(payload: BrokerPayload) -> Dict[str, Any]:
+        """Take the terminal login and try it. Never raises on a bad login."""
+        status = engine.broker.configure(payload.model_dump(exclude_none=True),
+                                         save=not payload.forget)
+        await bus.publish("broker_status", **{k: status[k] for k in
+                                             ("mode", "venue", "connected", "ready")})
+        return status
+
+    @app.post("/api/broker/disconnect")
+    async def broker_disconnect(payload: BrokerPayload) -> Dict[str, Any]:
+        status = engine.broker.disconnect(forget=payload.forget)
+        await bus.publish("broker_status", **{k: status[k] for k in
+                                             ("mode", "venue", "connected", "ready")})
+        return status
+
+    @app.get("/api/signals")
+    async def signals(limit: int = 30) -> Dict[str, Any]:
+        """Every trade the six desks have scanned, with their votes on it."""
+        rows = engine.signals_view(max(1, min(200, limit)))
+        return {"signals": rows, "count": len(rows),
+                "placeable": len([r for r in rows if r.get("placeable")])}
+
+    @app.post("/api/broker/size")
+    async def broker_size(payload: PlacePayload) -> Dict[str, Any]:
+        signal = next((s for s in engine.signals_view(limit=200)
+                       if str(s.get("id")) == str(payload.signal_id)), None)
+        if signal is None:
+            raise HTTPException(404, f"no scanned trade {payload.signal_id}")
+        return engine.broker.sizing(signal, payload.risk_pct)
+
+    @app.post("/api/broker/place")
+    async def broker_place(payload: PlacePayload) -> Dict[str, Any]:
+        """One click on a scanned trade: sized, sent, and reported back."""
+        try:
+            order = await engine.place_signal(payload.signal_id, volume=payload.volume,
+                                              risk_pct=payload.risk_pct, source=payload.source)
+        except BrokerError as exc:
+            await bus.publish("broker_error", reason=exc.reason, message=exc.message,
+                              signal_id=payload.signal_id)
+            raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+        return {"ok": True, "order": order}
+
+    @app.post("/api/broker/close")
+    async def broker_close(payload: OrderPayload) -> Dict[str, Any]:
+        """One click on a placed trade: closed, booked, reported back."""
+        try:
+            order = await engine.broker.close(payload.ticket, payload.reason)
+        except BrokerError as exc:
+            await bus.publish("broker_error", reason=exc.reason, message=exc.message,
+                              ticket=payload.ticket)
+            raise HTTPException(400, detail={"reason": exc.reason, "message": exc.message})
+        return {"ok": True, "order": order}
+
+    @app.post("/api/broker/close-all")
+    async def broker_close_all() -> Dict[str, Any]:
+        return {"ok": True, **(await engine.broker.close_all("MANUAL"))}
+
+    @app.post("/api/broker/autotrade")
+    async def broker_autotrade(payload: AutoTradePayload) -> Dict[str, Any]:
+        """Arm or disarm automatic placement for a set of asset classes."""
+        auto = engine.broker.autotrade
+        if payload.on is not None:
+            auto["on"] = bool(payload.on)
+        if payload.classes is not None:
+            known = set(book.CLASSES)
+            auto["classes"] = [c for c in payload.classes if c in known]
+        if payload.risk_pct is not None:
+            auto["risk_pct"] = max(0.01, min(5.0, float(payload.risk_pct)))
+        if payload.max_open is not None:
+            auto["max_open"] = max(1, min(50, int(payload.max_open)))
+        if payload.min_confidence is not None:
+            auto["min_confidence"] = max(0.0, min(100.0, float(payload.min_confidence)))
+        await bus.publish("autotrade", **auto)
+        return {"ok": True, "autotrade": dict(auto)}
 
     # ------------------------------------------------------------------
     # realtime

@@ -204,7 +204,9 @@ export function DebateRoomPanel({
             ? `${rec.right}/${rec.calls} right · ${rec.r_sum >= 0 ? "+" : ""}${rec.r_sum.toFixed(1)}R`
             : rec
               ? `${rec.calls} settled · not proven`
-              : "";
+              // a desk with no closed trade behind it says so: silence reads
+              // as a hidden record, and there is nothing to hide
+              : "no settled calls yet · not proven";
           const learned = heardTotals?.[s.key];
           return (
             <span className="speaker-chip" key={s.key} title={s.title}>

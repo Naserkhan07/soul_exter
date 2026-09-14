@@ -164,6 +164,76 @@ the rest of the pipeline stays testable.
 
 ---
 
+## Placing trades — the scanned list, one click, and MetaTrader 5
+
+Every trade the six desks rule on lands in an **execution panel**: the *scanned* list on the left,
+the *placed* book on the right. One click on **Place trade** sends it; one click on
+**Close trade** books it at market, immediately.
+
+A row carries everything you need to decide by hand: the pair and its full name (EUR/USD · *Euro /
+US Dollar*), the direction, the six desks' own votes (hover a chip for that desk's one-line reason),
+the confidence, entry / stop / target, R:R, and the size that the stop implies. The size is not a
+guess — it is `risk % of the account ÷ (stop in pips × value of a pip per lot)`, re-derived from the
+price the venue is quoting at the moment you click, so a signal that has aged does not quietly
+double the money it is risking.
+
+### Where an order goes
+
+| asset class | venue | why |
+|---|---|---|
+| **forex, metals** | **your MetaTrader 5 terminal** | the account you already trade |
+| crypto | paper venue | Binance public data is keyless, but there is no broker wired yet |
+| indices, stocks, futures, options | paper venue | no broker named yet — tell me which one |
+
+The routing is printed on every row, and it never lies: if a class is pinned to the terminal and the
+terminal is not connected, the order is **refused with the reason** rather than quietly filled on
+paper. `FOREX` and `MT5` badges are on the row, the panel header and the settings drawer.
+
+### Connecting the terminal
+
+MT5's Python API needs the terminal running on the same machine (Windows, or Linux via the
+`mt5linux` bridge). Put the login in **Settings → Broker**: login, password, server
+(`MetaQuotes-Demo`), and a venue mode — `auto` (terminal when it answers, paper otherwise), `mt5`
+(pinned: refuse rather than fall back), or `paper` (never touch the terminal).
+
+```bash
+pip install MetaTrader5            # Windows, with the terminal installed and logged in
+# ...or, from Linux/macOS against a terminal on another box (wine):
+SOUL_MT5_BRIDGE=192.168.1.20:18812 python -m soul
+```
+
+The login is stored in `artifacts/broker/mt5.json` — **inside the gitignored tree**, mode `0600`.
+The password is never returned by the API (the response carries `••••••••`), never logged, and never
+rendered into the page. *Forget login* deletes the file.
+
+### Automatic placement
+
+Arming **auto-place approved** sends every trade the council approves, in the classes you tick, at
+the risk you set — so forex approvals can go to the terminal without a click, with a confidence
+floor, a maximum number of live orders, and the same one-order-per-pair rule. It is **off** until
+you arm it: `SOUL_AUTOTRADE=1 SOUL_AUTOTRADE_CLASSES=forex` sets the default.
+
+```bash
+export SOUL_MT5_LOGIN=112594843
+export SOUL_MT5_PASSWORD=...       # never committed: read from the environment or the local store
+export SOUL_MT5_SERVER=MetaQuotes-Demo
+export SOUL_BROKER_RISK_PCT=0.5    # % of the broker account risked per order
+export SOUL_AUTOTRADE=1 SOUL_AUTOTRADE_CLASSES=forex
+python -m soul
+```
+
+What the terminal gets: a market order with the stop and target attached (`SL`/`TP` in the request),
+sized to the broker's own `volume_min`/`volume_step`, with the filling mode falling back
+IOC → FOK → RETURN (retcode `10030` is almost always this), the broker's symbol suffix resolved
+(`EURUSD` → `EURUSD.a` / `EURUSDm` / `EURUSD.raw`), and a close that is verified against
+`positions_get` instead of assumed. Every refusal is a sentence, not a stack trace.
+
+> **No terminal, no lies.** On this sandbox and on Kaggle there is no MetaTrader 5 terminal, so the
+> panel says `paper venue` and the routing line says why. The exchange tokens that *would* be needed
+> for real crypto are exactly the API keys this project refuses to hold.
+
+---
+
 ## Configuration
 
 Everything is an environment variable; nothing else needs editing.
@@ -229,6 +299,10 @@ Every pixel of the room comes from the engine's event stream; the UI holds no tr
 - **Panels** — the council rail (per-cabin state), the **fly scout** panel (neurons, synapses,
   judged / confirmed / waited / contradicted, admit rate, rewards, last batch), the equity spark,
   the book (open positions with live P&L and closes), the market tape and the trade record.
+- **Execution panel** — the scanned list (every trade the six desks ruled on, with *their six
+  votes*, the pair name, the stop and the size it implies) beside the **placed** book, where each
+  live order shows its live P&L, its ticket, and a **Close trade** button that books it immediately.
+  `MT5` / `PAPER` is printed on every row. `⤢` opens it over the floor.
 - **Trade drawer** — click any row or trader for the full audit: the scout's read, the market
   snapshot the trade came from, all five cabin verdicts (model, confidence, reason, flags,
   latency and sizing adjustment), the CEO's ruling when it was escalated, and the risk block.
@@ -267,6 +341,15 @@ mounts the real React bundle in a DOM (fixture **or** live server) and asserts t
 | `POST` | `/api/demo/seed` | `{count}` push candidates straight onto the floor |
 | `POST` | `/api/demo/shock` | inject volatility into the tape |
 | `POST` | `/api/desk/close-all` | flatten the paper book |
+| `GET` | `/api/signals` | every scanned trade with the six desks' votes, price, size and venue |
+| `GET` | `/api/broker` | venue, account, routing by asset class, auto-trade state (login masked) |
+| `POST` | `/api/broker/connect` | `{login, password, server, mode}` — connect the MT5 terminal |
+| `POST` | `/api/broker/disconnect` | `{forget}` — drop the connection, or delete the stored login |
+| `POST` | `/api/broker/size` | `{signal_id, risk_pct}` — what that trade would cost |
+| `POST` | `/api/broker/place` | `{signal_id, risk_pct, volume}` — **one click: place it** |
+| `POST` | `/api/broker/close` | `{ticket}` — **one click: book it, now** |
+| `POST` | `/api/broker/close-all` | flatten everything the broker is holding |
+| `POST` | `/api/broker/autotrade` | `{on, classes, risk_pct, max_open, min_confidence}` |
 | `WS` | `/ws` | realtime event stream (the UI falls back to SSE, then polling) |
 
 ---
@@ -364,5 +447,14 @@ better filter over a mediocre signal, not an edge — the scanner is still the t
 - The CEO is one model reading a transcript, not a committee of one — it can still be wrong.
 - Real exit liquidity, fees and slippage are only approximated (a spread proxy and an ATR-based
   stop); the paper fills are optimistic.
-- Not financial advice, and not connected to an exchange. Do not wire this to real money without
-  doing the work on the scanner, the sizing and the kill-switch yourself.
+- **The live path is written, not witnessed.** This sandbox has no MetaTrader 5 terminal and no
+  network route to a broker, so what is tested here is every part of the order flow except the last
+  hop: sizing, routing, refusal reasons, one-order-per-pair, the paper fills, the one-click place
+  and the one-click close. The MT5 adapter follows the documented API (`order_send`,
+  `positions_get`, `symbol_info`) and handles the usual failure modes, but the first live fill is
+  yours to watch. Start on a **demo** account — the login you enter is a demo server.
+- Auto-trade is off by default for a reason. Arming it means a language model can open positions in
+  your account without asking. Set the risk percentage and the class list first, and keep a
+  kill-switch (pause the floor, or `close-all`) within reach.
+- Not financial advice. Do not wire this to real money without doing the work on the scanner, the
+  sizing and the kill-switch yourself.

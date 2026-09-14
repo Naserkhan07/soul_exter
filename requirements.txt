@@ -18,3 +18,8 @@ ccxt>=4.2
 
 # ---- test / dev ------------------------------------------------------------
 pytest>=8.0
+# Execution is wired to a MetaTrader 5 terminal when one is reachable.
+# Windows only, imported lazily: the floor runs on the paper venue without it.
+# MetaTrader5>=5.0.45
+# From Linux/macOS against a terminal on another box: mt5linux (SOUL_MT5_BRIDGE=host:port)
+# mt5linux>=0.1.9

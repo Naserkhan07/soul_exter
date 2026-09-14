@@ -11,6 +11,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .brains import brain_registry, build_brains, vram_estimate
+from .broker import BrokerError, BrokerHub
 from .bus import EventBus
 from .council import Council
 from . import universe as book
@@ -42,7 +43,12 @@ class Engine:
             except Exception as exc:                       # pragma: no cover
                 log.warning("scout unavailable: %s", exc)
         self.desk = PaperDesk(cfg, self.bus)
+        # where a placed trade actually goes: the operator's MetaTrader 5
+        # terminal for forex, the paper venue everywhere else. Nothing connects
+        # until there are credentials, so a fresh checkout boots offline.
+        self.broker = BrokerHub(cfg, self.bus, self._price_of)
         self.council: Optional[Council] = None
+        self.training: Optional[TrainingBook] = None
         self.debate: Optional[DebateRoom] = None
         self.brains: Dict[str, Any] = {}
         self.registry: Dict[str, dict] = {}
@@ -62,6 +68,11 @@ class Engine:
     # ------------------------------------------------------------------
     # context handed to the cabins
     # ------------------------------------------------------------------
+    def _price_of(self, symbol: str) -> Optional[float]:
+        """The live price the broker layer sizes and books against."""
+        tick = self.market.tick(symbol)
+        return float(tick.price) if tick else None
+
     def _market_ctx(self, symbol: str, features: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
         tick = self.market.tick(symbol)
         board = {b["symbol"]: b for b in self.market.board()}
@@ -123,6 +134,10 @@ class Engine:
 
         log.info("engine: market=%s brains=%s vram~%.1fGB", self.market.mode, self.llm_mode,
                  vram_estimate(self.cfg.model_profile))
+
+        # saved terminal credentials (if any) are tried once, off the event
+        # loop: a broker that is not there must not hold up the floor
+        await asyncio.to_thread(self.broker.autoconnect)
 
         self._tasks = [
             asyncio.create_task(self.market.run(), name="market"),
@@ -224,6 +239,10 @@ class Engine:
                         entry["blocked"] = self.desk.blocked.get(trade.id, "not opened")
                 self.trade_log.append(entry)
                 self.trade_log = self.trade_log[-300:]
+                # ...and if the operator has armed auto-trade for this asset
+                # class, the approved trade goes to the broker as well as the
+                # paper book. The council proposes; the arming is theirs.
+                await self._maybe_autotrade(entry, trade)
                 # the decision is recorded with the packet it was made on; the
                 # outcome arrives when the position closes and only then does it
                 # become a training row
@@ -241,6 +260,109 @@ class Engine:
                 await self.bus.publish("error", trade_id=trade.id, message=str(exc))
             finally:
                 self.in_flight -= 1
+
+    # ------------------------------------------------------------------
+    # execution
+    # ------------------------------------------------------------------
+    async def _maybe_autotrade(self, entry: Dict[str, Any], trade: TradeCandidate) -> None:
+        auto = self.broker.autotrade
+        signal = self._signal_of(entry, trade)
+        entry["signal"] = {"class": signal["class"], "venue": signal["venue"]}
+        if not auto["on"] or entry.get("decision") != "ENTER" or entry.get("broker_ticket"):
+            return
+        if signal["class"] not in auto["classes"]:
+            auto["skipped"] += 1
+            auto["last"] = f"{trade.symbol}: {signal['class']} is not armed"
+            return
+        if signal["confidence"] < float(auto["min_confidence"]):
+            auto["skipped"] += 1
+            auto["last"] = f"{trade.symbol}: confidence {signal['confidence']:.0f} under the floor"
+            return
+        try:
+            order = await self.broker.place(signal, source="autotrade")
+            entry["broker_ticket"] = order["ticket"]
+        except BrokerError as exc:
+            auto["skipped"] += 1
+            auto["last"] = f"{trade.symbol}: {exc.message}"
+            await self.bus.publish("broker_skipped", trade_id=trade.id, symbol=trade.symbol,
+                                   reason=exc.reason, message=exc.message)
+
+    def _signal_of(self, entry: Dict[str, Any], trade: TradeCandidate) -> Dict[str, Any]:
+        """One scanned trade, in the shape the order panel and the broker read."""
+        inst = book.instrument(trade.symbol)
+        return {
+            "id": entry.get("trade_id") or trade.id, "symbol": trade.symbol,
+            "name": inst.name, "class": inst.klass, "side": entry.get("side") or trade.side,
+            "strategy": entry.get("strategy") or trade.strategy,
+            "score": entry.get("score"), "decision": entry.get("decision"),
+            "route": entry.get("route"), "approvals": entry.get("approvals"),
+            "rejections": entry.get("rejections"), "confidence": entry.get("confidence"),
+            "entry": entry.get("entry") or trade.entry, "stop": entry.get("stop") or trade.stop,
+            "target": entry.get("target") or trade.target, "rr": entry.get("rr"),
+            "desk": entry.get("desk"), "ts": entry.get("ts"),
+            "verdicts": entry.get("verdicts") or [], "ceo": entry.get("ceo"),
+            "venue": self.broker.venue_for(inst.klass),
+            "venue_detail": self.broker.route_detail(inst.klass),
+        }
+
+    def signals_view(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Everything the six desks have scanned, newest first.
+
+        Every council verdict the floor has taken, with the six opinions on it
+        and whether it can be placed — this is the list the operator works from.
+        """
+        placed = {o["ref"]: o for o in self.broker.orders.values() if o.get("ref")}
+        out: List[Dict[str, Any]] = []
+        for entry in list(reversed(self.trade_log))[:limit]:
+            trade = None
+            cand = None
+            for h in (self.council.history if self.council else []):
+                if getattr(h.trade, "id", "") == entry.get("trade_id"):
+                    cand = h.trade
+                    break
+            signal = self._signal_of(entry, cand) if cand is not None else {
+                "id": entry.get("trade_id"), "symbol": entry.get("symbol"),
+                "name": book.instrument(entry.get("symbol", "")).name,
+                "class": book.instrument(entry.get("symbol", "")).klass,
+                "side": entry.get("side"), "strategy": entry.get("strategy"), "score": entry.get("score"),
+                "decision": entry.get("decision"), "route": entry.get("route"),
+                "approvals": entry.get("approvals"), "rejections": entry.get("rejections"),
+                "confidence": entry.get("confidence"), "entry": entry.get("entry"),
+                "stop": entry.get("stop"), "target": entry.get("target"), "rr": entry.get("rr"),
+                "desk": entry.get("desk"), "ts": entry.get("ts"),
+                "verdicts": entry.get("verdicts") or [], "ceo": entry.get("ceo"),
+                "venue": self.broker.venue_for(book.instrument(entry.get("symbol", "")).klass),
+                "venue_detail": self.broker.route_detail(book.instrument(entry.get("symbol", "")).klass),
+            }
+            order = placed.get(signal["id"])
+            signal["ticket"] = order["ticket"] if order else None
+            signal["order_status"] = order["status"] if order else None
+            signal["placed_venue"] = order["venue"] if order else None
+            if signal["decision"] != "ENTER":
+                signal["placeable"] = False
+                signal["blocked"] = "the council said no"
+            elif order:
+                signal["placeable"] = False
+                signal["blocked"] = f"already placed ({order['ticket']})"
+            else:
+                signal["placeable"] = True
+                signal["blocked"] = None
+            if signal["placeable"] and len(out) < 8:
+                try:
+                    signal["sizing"] = self.broker.sizing(signal)
+                except Exception as exc:                    # pragma: no cover
+                    signal["sizing"] = {"ok": False, "message": str(exc)}
+            out.append(signal)
+        return out
+
+    async def place_signal(self, signal_id: str, volume: Optional[float] = None,
+                           risk_pct: Optional[float] = None, source: str = "manual") -> Dict[str, Any]:
+        signal = next((s for s in self.signals_view(limit=200) if str(s.get("id")) == str(signal_id)), None)
+        if signal is None:
+            raise BrokerError("unknown_signal", f"no scanned trade {signal_id}")
+        if signal.get("ticket"):
+            raise BrokerError("already_open", f"that trade is already placed ({signal['ticket']})")
+        return await self.broker.place(signal, volume=volume, risk_pct=risk_pct, source=source)
 
     def lessons(self) -> List[Dict[str, Any]]:
         """The rules in force: the session's debate lessons over the curriculum.
@@ -297,6 +419,9 @@ class Engine:
             try:
                 prices = {b["symbol"]: b["price"] for b in self.market.board()}
                 await self.desk.mark(prices)
+                # live orders are marked too: a paper order whose stop or target
+                # is touched books itself, exactly like the desk's own book
+                await self.broker.mark(prices)
             except Exception as exc:                       # pragma: no cover
                 log.warning("mark loop error: %s", exc)
             try:
@@ -446,6 +571,12 @@ class Engine:
             "trade_log": self.trade_log[-60:],
             "scan_index": self.scanner.scan_count,
             "scout": self.scout.stats() if self.scout else {"enabled": False},
+            # execution: the scanned trades the six desks have ruled on, the
+            # orders that resulted, and where each asset class is routed
+            "signals": self.signals_view(30),
+            "orders": {"open": self.broker.positions_view(prices),
+                       "closed": self.broker.history_view(40)},
+            "broker": self.broker.status(),
             "debate": self.debate.snapshot() if self.debate else {"enabled": False},
             "instruments": {
                 "selected": list(self.cfg.universe),

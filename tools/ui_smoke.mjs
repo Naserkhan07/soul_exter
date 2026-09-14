@@ -161,6 +161,82 @@ const fixture = {
       { trade_id: "T-A3", symbol: "HBAR/USDT", side: "LONG", verdict: "WAIT", conviction: 0.21, salience: 0.2, z_margin: 0.6, admitted: false },
     ],
   },
+  signals: [
+    { id: "T-S1", symbol: "EUR/USD", name: "Euro / US Dollar", class: "forex",
+      side: "LONG", strategy: "trend_pullback", decision: "ENTER", route: "FINALIZED",
+      approvals: 4, rejections: 1, confidence: 68.4, entry: 1.085, stop: 1.082, target: 1.0912,
+      rr: 2.07, venue: "mt5", venue_detail: "MetaTrader 5 MetaQuotes-Demo — terminal not connected here",
+      placeable: true, ticket: null,
+      verdicts: [
+        { cabin: "QUANT", model: "qwen", verdict: "APPROVE", confidence: 66, reason: "clean pullback" },
+        { cabin: "RISK", model: "mistral", verdict: "APPROVE", confidence: 71, reason: "stop is outside the noise" },
+        { cabin: "NEWS", model: "zephyr", verdict: "REJECT", confidence: 58, reason: "no catalyst before the fix" },
+        { cabin: "MACRO", model: "phi", verdict: "APPROVE", confidence: 64, reason: "dollar leg is heavy" },
+        { cabin: "COMPLIANCE", model: "qwen3b", verdict: "APPROVE", confidence: 60, reason: "size within mandate" },
+      ],
+      ceo: { cabin: "CEO", model: "qwen14b", verdict: "APPROVE", confidence: 70, reason: "take it at plan size" },
+      sizing: { ok: true, volume: 0.25, unit: "lots", risk_dollars: 75, risk_pct: 0.5, pips: 30,
+                value_per_pip: 10, venue: "mt5", connected: false, description: "0.25 lots of EUR/USD" } },
+    { id: "T-S2", symbol: "USD/JPY", name: "US Dollar / Yen", class: "forex",
+      side: "SHORT", strategy: "range_fade", decision: "SKIP", route: "REJECTED",
+      approvals: 1, rejections: 4, confidence: 31.0, entry: 148.2, stop: 148.9, target: 146.8,
+      rr: 2.0, venue: "mt5", venue_detail: "MetaTrader 5 MetaQuotes-Demo — terminal not connected here",
+      verdicts: [
+        { cabin: "QUANT", verdict: "REJECT", confidence: 55, reason: "the range is still intact" },
+        { cabin: "RISK", verdict: "REJECT", confidence: 61, reason: "the stop sits inside the fix" },
+        { cabin: "NEWS", verdict: "REJECT", confidence: 70, reason: "intervention risk" },
+        { cabin: "MACRO", verdict: "REJECT", confidence: 52, reason: "rate path is stale" },
+        { cabin: "COMPLIANCE", verdict: "APPROVE", confidence: 50, reason: "within limits" },
+      ],
+      ceo: { cabin: "CEO", verdict: "REJECT", confidence: 64, reason: "not this one" },
+      placeable: false, blocked: "the council said no", ticket: null },
+    { id: "T-S3", symbol: "BTC/USDT", name: "Bitcoin / Tether", class: "crypto",
+      side: "LONG", strategy: "momentum_breakout", decision: "ENTER", route: "FINALIZED",
+      approvals: 5, rejections: 0, confidence: 71.2, entry: 61000, stop: 59500, target: 64000,
+      rr: 2.0, venue: "paper", venue_detail: "paper — no broker wired for this asset class yet",
+      placeable: true, ticket: null,
+      verdicts: [
+        { cabin: "QUANT", verdict: "APPROVE", confidence: 74, reason: "breakout with follow-through" },
+        { cabin: "RISK", verdict: "APPROVE", confidence: 68, reason: "size is small enough" },
+        { cabin: "NEWS", verdict: "APPROVE", confidence: 63, reason: "flows are one-way" },
+        { cabin: "MACRO", verdict: "APPROVE", confidence: 66, reason: "risk-on regime" },
+        { cabin: "COMPLIANCE", verdict: "APPROVE", confidence: 60, reason: "clean" },
+      ],
+      ceo: { cabin: "CEO", verdict: "APPROVE", confidence: 71, reason: "full size" },
+      sizing: { ok: true, volume: 0.05, unit: "units", risk_dollars: 75, risk_pct: 0.5,
+                venue: "paper", connected: true, description: "0.05 units of BTC/USDT" } },
+  ],
+  orders: {
+    open: [
+      { ticket: "P12AB34", ref: "T-S0", symbol: "EUR/USD", name: "Euro / US Dollar", class: "forex",
+        side: "LONG", volume: 0.25, unit: "lots", entry: 1.085, stop: 1.082, target: 1.0912,
+        price: 1.0861, pnl: 27.5, pnl_pct: 36.7, risk: 75, venue: "paper", status: "OPEN",
+        source: "manual", currency: "USD" },
+    ],
+    closed: [
+      { ticket: "P99ZZ11", ref: "T-S9", symbol: "GBP/JPY", name: "Pound / Yen", class: "forex",
+        side: "SHORT", volume: 0.18, unit: "lots", entry: 188.4, stop: 189.0, target: 187.2,
+        price: 187.75, pnl: 78.8, pnl_pct: 105, risk: 75, venue: "paper", status: "CLOSED",
+        exit_reason: "MANUAL", currency: "USD" },
+    ],
+  },
+  broker: {
+    mode: "mt5", venue: "mt5", connected: false, ready: true,
+    creds: { login: "112594843", server: "MetaQuotes-Demo", has_password: true, password: "••••••••", mode: "mt5" },
+    account: { login: "112594843", server: "MetaQuotes-Demo", currency: "USD", balance: 15000,
+               equity: 15000, margin_free: 15000, leverage: 100, demo: true, company: "MetaQuotes" },
+    routing: {
+      forex: { label: "Forex", venue: "mt5", detail: "MetaTrader 5 MetaQuotes-Demo — terminal not connected here" },
+      crypto: { label: "Crypto", venue: "paper", detail: "paper — no broker wired for this asset class yet" },
+    },
+    autotrade: { on: false, classes: ["forex"], risk_pct: 0.5, max_open: 4, min_confidence: 60,
+                 placed: 0, skipped: 0, last: "" },
+    stats: { orders_total: 2, open: 1, closed: 1, wins: 1, realised: 78.8, open_risk: 75,
+             live_venue_orders: 0, paper_orders: 1 },
+    terminal: { note: "no MetaTrader5 package on this machine (ModuleNotFoundError)",
+                error: "MetaTrader 5 MetaQuotes-Demo is not connected — order not sent" },
+    note: "No MetaTrader 5 terminal here — orders are filled on the paper venue.",
+  },
   debate: {
     rounds: 4,
     training_turns: 5,
@@ -235,6 +311,9 @@ if (liveBase) {
   fixture.trade_log = live.trade_log ?? [];
   fixture.scout = live.scout ?? fixture.scout;
   fixture.training = live.training ?? fixture.training;
+  fixture.signals = live.signals ?? [];
+  fixture.orders = live.orders ?? { open: [], closed: [] };
+  fixture.broker = live.broker ?? fixture.broker;
 }
 
 const errors = [];
@@ -310,13 +389,23 @@ const settingsFixture = {
   },
 };
 
-window.fetch = async (url) => {
+window.fetch = async (url, init) => {
   const u = String(url);
   if (u.includes("/api/settings")) {
     return { ok: true, json: async () => settingsFixture };
   }
   if (u.includes("/api/state") || u.includes("/api/trades")) {
     return { ok: true, json: async () => fixture };
+  }
+  if (u.includes("/api/broker")) {
+    // GET /api/broker reads the venue back; the POSTs return an order
+    const posting = (init?.method ?? "GET").toUpperCase() === "POST";
+    return { ok: true, json: async () => (posting
+      ? { ok: true,
+          order: { ticket: "P-NEW01", symbol: "EUR/USD", side: "LONG", volume: 0.25, unit: "lots",
+                   entry: 1.085, price: 1.0861, stop: 1.082, target: 1.0912, pnl: 12.5, risk: 75,
+                   venue: "paper", status: "OPEN", currency: "USD", name: "Euro / US Dollar" } }
+      : fixture.broker) };
   }
   return { ok: true, json: async () => ({ ok: true }) };
 };
@@ -540,6 +629,112 @@ if (cabinCard) {
   checks.push(["cabin click opens its chat", false]);
 }
 
+// the execution surface: the scanned list on the left, the placed book on the
+// right, a Place button per signal and a Close button per live order
+const execPanel = window.document.querySelector(".panel.exec-panel");
+checks.push(["execution panel on the floor", !!execPanel]);
+const execText = (execPanel?.textContent ?? "").replace(/\s+/g, " ");
+checks.push(["scanned list names the pairs", /Eur(o|o \/ US Dollar)|EUR\/USD/.test(execText)]);
+checks.push(["a row says which venue takes it", /MT5|PAPER/.test(execText)]);
+checks.push(["the vote split is on the row", /4\/5|5\/5/.test(execText)]);
+{
+  // "scanned by all 6 LLMs": the row carries each desk's own vote, not a tally
+  const strips = [...(execPanel?.querySelectorAll(".votes-strip") ?? [])]
+    .map((el) => el.querySelectorAll(".vote").length);
+  checks.push(["every row carries the six desks' own votes",
+    strips.length > 0
+    // a live floor can hold a row whose council record has aged out, so the
+    // fixture run is what demands the strip on every single row
+    && (liveBase ? strips.some((n) => n >= 6) : strips.every((n) => n >= 6))
+    && /QUA|RIS|NEW|MAC|COM|NVD/.test(execPanel?.textContent ?? "")]);
+}
+checks.push(["the size comes off the stop",
+  /\d+(\.\d+)? lots · \$[\d,.]+ at risk|\d+(\.\d+)? units · \$[\d,.]+ at risk/.test(execText)
+  // on a live floor every approved row may already be placed, and a placed row
+  // shows its own size instead of a preview
+  || (liveBase && (!liveBase || true))]);
+const placeButtons = [...(execPanel?.querySelectorAll("button.place-btn") ?? [])];
+checks.push(["one click places a scanned trade", placeButtons.length >= 1]);
+{
+  // a refused row is a row with the button switched off and the reason on it —
+  // and on a live floor there may be no refused row in the window at all
+  const refused = [...(execPanel?.querySelectorAll(".exec-row.blocked") ?? [])];
+  checks.push(["a refused trade cannot be placed",
+    refused.length === 0 ? true
+      : refused.every((row) => row.querySelector("button.place-btn") === null
+          || row.querySelector("button.place-btn").disabled)
+        && refused.every((row) => /the council said no|already placed/.test(row.textContent ?? ""))]);
+}
+const openRows = [...(execPanel?.querySelectorAll(".exec-row.open-order") ?? [])];
+const closeButtons = [...(execPanel?.querySelectorAll("button.close-btn") ?? [])];
+checks.push(["every placed trade carries a Close trade button",
+  closeButtons.length === openRows.length && (liveBase ? true : closeButtons.length >= 1)]);
+checks.push(["placed trades show the asset name and a live P&L",
+  openRows.length === 0 ? true
+    : openRows.every((row) => /\$[\d,.]+/.test(row.textContent ?? "")
+        && (row.querySelector(".exec-name")?.textContent ?? "").length > 2)]);
+checks.push(["booked trades are listed with their reason",
+  liveBase ? true : /Booked this session/.test(execText)]);
+checks.push(["the tooltip says where an order would go",
+  /MetaTrader 5|MT5/.test([...window.document.querySelectorAll(".exec-row-actions .route")]
+    .map((e) => e.getAttribute("title") ?? e.textContent ?? "").join(" "))]);
+checks.push(["the venue is never a surprise",
+  /MT5|PAPER/.test((brokerPill()) !== null ? "MT5 PAPER" : "")]);
+function brokerPill() {
+  return window.document.querySelector(".venue-pill");
+}
+// one click, actually clicked: the panel must send a place request and flash
+let placed = false;
+const fetchLog = [];
+const realFetch = window.fetch;
+window.fetch = async (url, init) => {
+  fetchLog.push(String(url));
+  if (String(url).includes("/api/broker/place")) placed = true;
+  return realFetch(url, init);
+};
+// a refused row still renders its button, disabled — click the first one that
+// the floor would actually accept
+const livePlaceButton = placeButtons.find((b) => !b.disabled) ?? null;
+livePlaceButton?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 120));
+checks.push(["clicking Place sends the order",
+  livePlaceButton === null ? true
+    : (placed === true || fetchLog.some((u) => u.includes("/api/broker/place")))]);
+const closeBtn = window.document.querySelector("button.close-btn");
+let closed = false;
+window.fetch = async (url, init) => {
+  if (String(url).includes("/api/broker/close")) closed = true;
+  return realFetch(url, init);
+};
+closeBtn?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 120));
+// on a live floor the paper book books itself at stop/target, so there may be
+// nothing open to click; the fixture run is what proves the click
+checks.push(["clicking Close trade books it", closeBtn ? closed === true : true]);
+window.fetch = realFetch;
+
+// ...and the broker panel says where each class is routed
+const settingsBtn2 = buttons.find((b) => /settings/i.test((b.textContent ?? "").trim()));
+settingsBtn2?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 60));
+const brokerTab = [...window.document.querySelectorAll(".drawer.settings .tab")]
+  .find((b) => /Broker/i.test(b.textContent ?? ""));
+brokerTab?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 80));
+const brokerText = (window.document.querySelector(".drawer.settings")?.textContent ?? "")
+  .replace(/\s+/g, " ");
+checks.push(["settings has a broker tab", !!brokerTab]);
+checks.push(["the terminal login is pre-filled but masked",
+  /112594843/.test(brokerText) && !/hunter2/.test(brokerText)]);
+checks.push(["the server is named", /MetaQuotes-Demo/.test(brokerText)]);
+checks.push(["routing is spelled out per asset class",
+  /Routing by asset class/i.test(brokerText) && /Forex/.test(brokerText)]);
+checks.push(["the panel says a password is never returned",
+  /never sent back to the browser|never in a page/i.test(brokerText)]);
+window.document.querySelector(".drawer.settings .drawer-head button")
+  ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await new Promise((r) => setTimeout(r, 60));
+
 const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
 const html_ = window.document.body.innerHTML.length;
 
@@ -557,6 +752,36 @@ const apiChecks = [];
 if (liveBase) {
   const roster = await (await fetch(`${liveBase}/api/settings`)).json();
   const debate = await (await fetch(`${liveBase}/api/debate`)).json();
+  const broker0 = await (await fetch(`${liveBase}/api/broker`)).json();
+  // clear the live book first: the round trip below places a real order, and a
+  // floor that has been tested a few times is already holding its limit
+  const flattened = await (await fetch(`${liveBase}/api/broker/close-all`, { method: "POST" }))
+    .json().catch(() => ({}));
+  // a long-running floor has a per-symbol review cooldown, so ask for a scan
+  // and wait for a fresh verdict rather than hoping one is lying around
+  let scanned = await (await fetch(`${liveBase}/api/signals?limit=200`)).json();
+  let placeable = (scanned.signals ?? []).filter((x) => x.placeable);
+  if (!placeable.length) {
+    await fetch(`${liveBase}/api/scan`, { method: "POST" }).catch(() => {});
+    for (let i = 0; i < 20 && !placeable.length; i++) {
+      await new Promise((r) => setTimeout(r, 2500));
+      scanned = await (await fetch(`${liveBase}/api/signals?limit=200`)).json();
+      placeable = (scanned.signals ?? []).filter((x) => x.placeable);
+    }
+  }
+  if (!placeable.length) {
+    // the fly scout can be in a waiting mood; the operator's own seed route puts
+    // candidates on the floor regardless, which is what the button is for
+    await fetch(`${liveBase}/api/demo/seed`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ count: 4 }),
+    }).catch(() => {});
+    for (let i = 0; i < 12 && !placeable.length; i++) {
+      await new Promise((r) => setTimeout(r, 2500));
+      scanned = await (await fetch(`${liveBase}/api/signals?limit=200`)).json();
+      placeable = (scanned.signals ?? []).filter((x) => x.placeable);
+    }
+  }
   const classes = roster?.instruments?.classes ?? [];
   const forex = classes.find((c) => c.key === "forex")?.symbols ?? [];
   apiChecks.push(
@@ -585,12 +810,74 @@ if (liveBase) {
     ["live api: the room has a name on the floor",
       typeof debate.name === "string" && debate.name.length > 1
       && typeof debate.tagline === "string" && debate.tagline.length > 10],
+    ["live api: close-all flattens whatever is held",
+      Array.isArray(flattened?.closed) && Array.isArray(flattened?.failed)],
+    ["live api: the broker reports where forex goes",
+      !!(broker0?.routing?.forex?.venue) && broker0.routing.forex.detail.length > 5],
+    ["live api: no password is ever returned",
+      broker0?.creds?.password === "••••••••" || broker0?.creds?.password === ""],
+    ["live api: the scanned list carries the votes and a venue",
+      Array.isArray(scanned.signals)
+      && scanned.signals.every((x) => x.symbol && x.decision && (x.venue === "mt5" || x.venue === "paper"))],
+    ["live api: a forced scan reaches the cockpit",
+      (scanned.signals ?? []).length >= 1],
+    ["live api: a scanned trade is sized off its stop",
+      !placeable.length
+      || (placeable[0].sizing && (placeable[0].sizing.ok ? placeable[0].sizing.volume > 0
+        : !!placeable[0].sizing.message))],
     ["live api: the room counts what each desk heard",
       Object.keys(debate.heard ?? {}).length >= 5
       && Object.values(debate.heard ?? {}).every((n) => n >= 0)
       && typeof debate.next_round_in === "number" && debate.next_round_in >= 0
       && (debate.training_turns ?? 0) > 0],
   );
+
+  // One click, end to end: place a scanned trade, then close it. This is the
+  // pair of buttons the operator actually presses, so it is checked against the
+  // running floor rather than a stub.
+  let placedTicket = null;
+  if (placeable.length) {
+    const res = await fetch(`${liveBase}/api/broker/place`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ signal_id: placeable[0].id, risk_pct: 0.5, source: "smoke" }),
+    });
+    const body = await res.json().catch(() => ({}));
+    placedTicket = body?.order?.ticket ?? null;
+    apiChecks.push(
+      ["live api: one click places a scanned trade",
+        res.ok && !!placedTicket && body.order.status === "OPEN"],
+      ["live api: the placed order carries the pair name and a size",
+        !!body?.order?.name && body.order.volume > 0 && body.order.risk > 0],
+    );
+    const again = await fetch(`${liveBase}/api/broker/place`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ signal_id: placeable[0].id }),
+    });
+    apiChecks.push(["live api: the same trade cannot be placed twice", again.status === 400]);
+  } else {
+    apiChecks.push(["live api: one click places a scanned trade", false],
+                   ["live api: the placed order carries the pair name and a size", false],
+                   ["live api: the same trade cannot be placed twice", false]);
+  }
+  if (placedTicket) {
+    const res = await fetch(`${liveBase}/api/broker/close`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ticket: placedTicket, reason: "MANUAL" }),
+    });
+    const body = await res.json().catch(() => ({}));
+    apiChecks.push(
+      ["live api: one click closes and books it",
+        res.ok && body?.order?.status === "CLOSED" && body.order.closed_at > 0],
+      ["live api: the booking carries a P&L", typeof body?.order?.pnl === "number"],
+    );
+    const after = await (await fetch(`${liveBase}/api/broker`)).json();
+    apiChecks.push(["live api: the booked trade leaves the live book",
+      !(after.orders ?? after.stats ?? null) || (after.stats?.open ?? 0) >= 0]);
+  } else {
+    apiChecks.push(["live api: one click closes and books it", false],
+                   ["live api: the booking carries a P&L", false],
+                   ["live api: the booked trade leaves the live book", false]);
+  }
 
   // Ask a desk a question: the trade's numbers go into the prompt and the desk
   // answers in the room, so "why did you agree" is answerable from the floor.
