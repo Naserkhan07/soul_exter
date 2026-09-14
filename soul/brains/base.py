@@ -68,7 +68,8 @@ class CabinSpec:
 
     # ------------------------------------------------------------------
     def debate_prompt(self, topic: str, transcript: List[Dict[str, Any]], kind: str,
-                      to_name: str = "") -> str:
+                      to_name: str = "", rules: Optional[List[str]] = None,
+                      facts: Optional[Dict[str, Any]] = None) -> str:
         """Prompt for one turn in the debate room (the desks training each other)."""
         # `turn` is the field the transcript actually carries; reading `kind`
         # here raised a KeyError on the second turn of every round on a real
@@ -82,7 +83,31 @@ class CabinSpec:
             "answer": "Answer the question that is on the table, from your desk's experience.",
             "lesson": "Close the round: state the rule the desk should carry from this.",
             "ack": "Add one concrete nuance, then stop.",
+            "carry": ("The room has just written the rule above into house memory. Say, in one "
+                      "sentence, how *you* will trade differently tomorrow because of it — "
+                      "concretely, in your own words."),
+            "postmortem": ("The position above has just closed. Say what it taught you and what "
+                           "you will do differently on the next one. This is the record the desk "
+                           "is trained on, so no excuses and no self-pity: the lesson, plainly."),
         }
+        taught = "\n".join(f"  - {r}" for r in (rules or [])[-6:])
+        taught_block = (
+            "RULES THIS DESK HAS BEEN TAUGHT (quote the one that bears on this if one does):\n"
+            f"{taught}\n\n" if taught else ""
+        )
+        facts_block = ""
+        if facts and kind == "postmortem":
+            facts_block = (
+                f"THE CLOSE: {facts.get('symbol')} {facts.get('side')} closed "
+                f"{float(facts.get('pnl') or 0):+,.2f} ({float(facts.get('pnl_pct') or 0):+.2f}%) "
+                f"— a {facts.get('outcome')}. Exit: {facts.get('exit_reason') or 'stop or target'}. "
+                f"Was on the right side: {facts.get('right')}. "
+                f"Your flags at the vote: {facts.get('flags') or 'none'}.\n\n"
+            )
+        open_line = (
+            "Open by naming the rule on file that bears on this, then make your claim.\n"
+            if kind == "claim" and rules else ""
+        )
         who_line = (
             f"You are speaking directly to {to_name}: name them and answer *them*, "
             "not the room.\n" if to_name else ""
@@ -91,8 +116,9 @@ class CabinSpec:
             f"{self.system_prompt}\n\n"
             f"You are now in the DESK DEBATE ROOM with the other cabins. Topic: {topic}\n"
             f"Transcript so far:\n{said}\n\n"
+            f"{taught_block}{facts_block}"
             f"Your turn: {asks.get(kind, asks['ack'])}\n"
-            f"{who_line}"
+            f"{open_line}{who_line}"
             "Speak as this professional, in 1-3 sentences, concrete and specific "
             "(levels, conditions, numbers). No JSON, no bullet lists, no preamble: "
             "just what you would actually say across the table."

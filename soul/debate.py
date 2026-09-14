@@ -27,6 +27,7 @@ import asyncio
 import hashlib
 import logging
 import random
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
@@ -52,8 +53,14 @@ CURRICULUM: List[str] = [
     "What evidence would make us stop trading a strategy that has worked for a month?",
 ]
 
-#: Turn shapes per round: a lead claim, then the challenge/answer rhythm, then the close.
-ROUND_SHAPE = ["claim", "challenge", "question", "answer", "ack", "lesson"]
+#: Turn shapes per round: a lead claim, then the challenge/answer rhythm, the close
+#: where the rule is written, and the desks that carry it out of the room.
+ROUND_SHAPE = ["claim", "challenge", "question", "answer", "ack", "lesson", "carry"]
+
+#: The desks that say how they will trade the rule. Two a round, rotating, so
+#: every desk speaks on the record over a session without making each meeting
+#: twice as long.
+CARRIERS_PER_ROUND = 2
 
 
 @dataclass
@@ -73,6 +80,14 @@ class DebateMessage:
     #: question names the desk that has to answer it.
     to: str = ""
     to_name: str = ""
+    #: The rule this turn is about. A desk opening a round names the rule on
+    #: file that bears on the topic; the head of desk writes a new one; the desks
+    #: that follow say how they will carry it. This is what makes the training
+    #: channel *visible*: you can see what was learned and who learned it.
+    rule: str = ""
+    #: True when the turn is the training channel itself rather than an argument:
+    #: a rule being recalled, written, carried, or a closed trade reviewed.
+    training: bool = False
     ts: float = field(default_factory=time.time)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -146,7 +161,8 @@ class DebateRoom:
         return (spec.name or spec.label) if spec else key
 
     async def _say(self, key: str, kind: str, topic: str, inner: Dict[str, Any],
-                   to: str = "", to_name: str = "") -> Optional[Dict[str, Any]]:
+                   to: str = "", to_name: str = "", rule: str = "",
+                   training: bool = False) -> Optional[Dict[str, Any]]:
         brain = self.brains.get(key) or self.ceo
         if brain is None:
             return None
@@ -160,6 +176,11 @@ class DebateRoom:
         # lines (mock, and any model that latches onto the transcript length)
         # answers every round with the same sentence
         inner["round"] = self.rounds + 1
+        if rule:
+            inner["rule"] = rule
+        # every turn can see the rules this table has already agreed: that is how
+        # a desk argues from what it was taught instead of from scratch
+        inner.setdefault("rules", [str(l.get("text", "")) for l in self.lessons[-6:]])
         # note: `turn`, not `kind` — publish() already owns that keyword
         await self.bus.publish("debate_thinking", room="desk", speaker=key,
                                name=spec.name or spec.label, turn=kind, topic=topic,
@@ -176,12 +197,13 @@ class DebateRoom:
             label=spec.label, model=reg.get("model", getattr(brain, "model_name", "mock")),
             turn=kind, text=text[:600], round=self.rounds + 1,
             trade_id=inner.get("trade_id"), to=to, to_name=to_name,
+            rule=str(rule or "")[:200], training=bool(training),
         ).as_dict()
         self.transcript.append(msg)
         self.transcript = self.transcript[-160:]
         if kind == "lesson":
             entry = {
-                "topic": topic, "speaker": key,
+                "topic": topic, "speaker": key, "rule": str(inner.get("rule") or "")[:200],
                 "speaker_label": f"{spec.name or spec.label}, {spec.title or spec.role}",
                 "text": text[:400], "ts": msg["ts"], "round": msg["round"],
             }
@@ -210,6 +232,10 @@ class DebateRoom:
             # but the rule has to come out of *this* trade — a fixed sentence
             # repeated every round is not training, it is a slogan.
             inner.setdefault("rule", self._rule_for(text, inner))
+            # ...and the desk that opens names a rule it was already taught, so
+            # the previous rounds are visibly in force, not just stored
+            recall = self._recall_for(text)
+            inner["recall"] = recall
             self.current_topic = text
             await self.bus.publish("debate_round", room="desk", round=self.rounds,
                                    topic=text, trade_id=agenda.get("trade_id"))
@@ -248,15 +274,92 @@ class DebateRoom:
                     speaker = second
                 msg = await self._say(speaker, kind, text, inner,
                                       to=target if target else "",
-                                      to_name=self._name_of(target) if target else "")
+                                      to_name=self._name_of(target) if target else "",
+                                      rule=recall if kind == "claim" else "",
+                                      training=kind == "claim" and bool(recall))
                 if msg:
                     said.append(msg)
+            # carry: two desks say, in their own words, how they will trade the
+            # rule that was just written. A rule nobody has to act on is a
+            # slogan; this is the part where the desk shows it was taught.
+            rule = str(inner.get("rule") or "")
+            for key in self._carriers():
+                msg = await self._say(key, "carry", text, inner, rule=rule, training=True)
+                if msg:
+                    said.append(msg)
+                    await self.bus.publish("debate_carry", room="desk", speaker=key,
+                                           name=self._name_of(key), rule=rule[:200],
+                                           topic=text, round=self.rounds)
             log.info("debate round %d on %r: %d turns, %d lessons on file",
                      self.rounds, text[:48], len(said), len(self.lessons))
             return said
 
     def ceo_key(self) -> str:
         return "CEO"
+
+    # ------------------------------------------------------------------
+    def _recall_for(self, topic: str) -> str:
+        """A rule already on file that bears on this topic, if there is one."""
+        if not self.lessons:
+            return ""
+        seed = hashlib.sha256(f"{topic}|{self.rounds}".encode()).digest()[:4]
+        text = str(self.lessons[int.from_bytes(seed, "big") % len(self.lessons)].get("text", ""))
+        # the rule, not the sentence that introduced it
+        text = re.sub(r"^rule written[:—-]\s*", "", text.strip(), flags=re.I)
+        return text[:200]
+
+    def _carriers(self) -> List[str]:
+        """The desks that carry the new rule out of this round (rotating pair)."""
+        if not self.brains:
+            return []
+        keys = list(self.brains.keys())
+        start = self.rounds % len(keys)
+        n = min(CARRIERS_PER_ROUND, len(keys))
+        return [keys[(start + i) % len(keys)] for i in range(n)]
+
+    async def post_mortem(self, trade_id: str, record: Optional[Dict[str, Any]],
+                          pnl: float, pnl_pct: float,
+                          exit_reason: str = "") -> Optional[Dict[str, Any]]:
+        """A closed position is reviewed in the room, by a desk that was wrong.
+
+        The verdicts went into the training set the moment the position closed;
+        this is the same lesson *spoken*, so the room shows how the desks get
+        trained: a desk that was on the wrong side of a closed trade says what it
+        will do differently, on the record, in front of the others.
+        """
+        if self._lock.locked() or not self.brains:
+            # a round is mid-flight — the training row is already written, and
+            # interrupting the meeting to say it again helps nobody
+            return None
+        won = float(pnl or 0.0) > 0
+        verdicts = [v for v in ((record or {}).get("verdicts") or [])
+                    if str(v.get("verdict")) in ("APPROVE", "REJECT")]
+        wrong = [v for v in verdicts if (v.get("verdict") == "APPROVE") != won]
+        right = [str(v.get("cabin")) for v in verdicts
+                 if (v.get("verdict") == "APPROVE") == won]
+        was_wrong = bool(wrong)
+        if wrong:
+            pick = wrong[self._rng.randrange(len(wrong))]
+            speaker = str(pick.get("cabin"))
+            flags = ", ".join(pick.get("risk_flags") or [])
+        else:
+            # nobody was on the wrong side: the head of desk says so, and the
+            # sample is filed as a settled decision rather than a correction
+            speaker, flags = self.ceo_key(), ""
+        symbol = str((record or {}).get("symbol") or "the position")
+        side = str((record or {}).get("side") or "")
+        strategy = str((record or {}).get("strategy") or "setup")
+        topic = (f"post-mortem: {symbol} {side} closed {float(pnl or 0.0):+,.2f} "
+                 f"({float(pnl_pct or 0.0):+.2f}%)")
+        inner: Dict[str, Any] = {
+            "trade_id": trade_id, "symbol": symbol, "side": side, "strategy": strategy,
+            "pnl": round(float(pnl or 0.0), 2), "pnl_pct": round(float(pnl_pct or 0.0), 3),
+            "outcome": "win" if won else "loss", "exit_reason": exit_reason,
+            "flags": flags, "right": ", ".join(right) or "nobody",
+            "wrong": was_wrong,
+        }
+        async with self._lock:
+            return await self._say(speaker, "postmortem", topic, inner, training=True)
 
     # ------------------------------------------------------------------
     # The rules the room can write. Each one is a sentence a desk could act on
@@ -325,6 +428,8 @@ class DebateRoom:
             "topic": self.current_topic,
             "transcript": self.transcript[-40:],
             "lessons": self.lessons[-12:],
+            "training_turns": sum(1 for m in self.transcript[-160:]
+                                  if m.get("training") or m.get("turn") == "lesson"),
             "speakers": [
                 {"key": k, "name": (self.brains.get(k) or self.ceo).spec.name
                  if (self.brains.get(k) or self.ceo) else k,

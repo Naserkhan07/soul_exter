@@ -135,6 +135,21 @@ curl -s localhost:8000/api/training        # rows per desk, and whether an adapt
 curl -s localhost:8000/api/training/dataset > session-sft.jsonl   # the dataset itself
 ```
 
+You can *watch* all of this happen. The chat room (top bar → **Chat room**) is where the six
+desks talk, and its turns are labelled by what they are doing for the training:
+
+| turn | who | what it is |
+|---|---|---|
+| `claim` (↺ recalled) | the desk that opens the round | names the rule already on file that bears on the topic, then argues under it |
+| `challenge` / `question` / `answer` / `ack` | the desks | the argument itself, addressed to a named desk |
+| `lesson` (★) | the head of desk | writes this round's rule — the one that feeds every later prompt |
+| `carry` (↺ carried) | two desks, rotating | what *that desk* will do differently tomorrow because of the rule |
+| `postmortem` (▲ after the close) | a desk that was on the wrong side | reviews the closed position and says what it learned |
+
+Press **training turns** in the room to read only that channel — recalled, written, carried,
+reviewed — which is the honest answer to "are they learning, or just talking?". The same
+turns are what becomes the dataset below. `docs/training-sample.md` has real examples.
+
 The loop is symmetric on purpose: a desk that **approved a loser** is trained on *its own risk
 flags* as the reason to refuse, a desk that **refused a winner** is trained on the same objection
 at half size, and a desk that refused a loser is rewarded exactly like one that approved a winner.

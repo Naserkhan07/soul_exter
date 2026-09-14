@@ -450,6 +450,24 @@ button.ghost.tiny { padding: 3px 8px; font-size: 11px; }
   background: var(--accent); animation: think 1.1s ease-in-out infinite;
 }
 @keyframes think { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+.turn.carry { border-left-color: var(--good, #5fd6a4); }
+.turn.carry .turn-icon { color: var(--good, #5fd6a4); }
+.turn.postmortem { border-left-color: var(--bad, #ff7a7a); }
+.turn.postmortem .turn-icon { color: var(--bad, #ff7a7a); }
+.turn.training { background: rgba(126, 200, 255, 0.045); }
+.rule-chip {
+  margin: 3px 0 4px; padding: 3px 6px; border-radius: 6px;
+  background: rgba(126, 200, 255, 0.09);
+  border-left: 2px solid var(--accent);
+  font-size: 10.5px; line-height: 1.45; color: var(--text-dim);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.rule-chip span {
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: 8.5px;
+  color: var(--accent); margin-right: 4px;
+}
+.ghost.tiny.on { border-color: var(--accent); color: var(--text); }
+.ghost.tiny .pill { margin-left: 4px; }
 .training-line { margin: 4px 0 0; }
 .training-line b { color: var(--text); }
 .note.training { border-left-color: var(--accent); margin-bottom: 10px; }

@@ -179,6 +179,18 @@ const fixture = {
       { room: "desk", topic: "SOL/USDT LONG", speaker: "RISK", name: "Viktor Hale",
         label: "RISK", model: "Mistral-7B-Instruct-v0.3", turn: "challenge",
         text: "Where is the loss capped if the venue gaps through your stop?", round: 3, ts: now - 30 },
+      { room: "desk", topic: "SOL/USDT LONG", speaker: "RISK", name: "Viktor Hale",
+        label: "RISK DESK", model: "Mistral-7B-Instruct-v0.3", turn: "carry",
+        text: 'Carried — "when the council splits, the smaller size is the decision". '
+              + "You will hear it from me before the size goes on.",
+        rule: "when the council splits, the smaller size is the decision",
+        training: true, round: 4, ts: 1710000000 },
+      { room: "desk", topic: "post-mortem: ARB/USDT SHORT closed -45.36 (-0.88%)",
+        speaker: "QUANT", name: "Dr. Amara Osei", label: "QUANT DESK",
+        model: "Qwen2.5-7B-Instruct", turn: "postmortem",
+        text: "ARB/USDT closed -45.36 (-0.88%) and I was short it. My own flag was "
+              + '"stop inside the noise band" — that goes into my training set as a refusal.',
+        training: true, round: 4, ts: 1710000060 },
       { room: "desk", topic: "SOL/USDT LONG", speaker: "CEO", name: "Naveed",
         label: "CEO", model: "Qwen2.5-14B-Instruct", turn: "lesson",
         text: "Rule written: when a setup is extended, halve the size instead of skipping it.", round: 3, ts: now - 20 },
@@ -432,6 +444,22 @@ if (roomButton) {
     "room shows the training set",
     /trained on [\d,]+ rows/i.test(rtext.replace(/\s+/g, " ")),
   ]);
+  checks.push(["room shows a desk carrying the rule", /carries the rule/.test(rtext)]);
+  checks.push(["room reviews a closed trade", /after the close/.test(rtext)]);
+  checks.push(["room prints the rule a turn is about", /class="rule-chip"/.test(room?.innerHTML ?? "")]);
+  // the filter is the answer to "show me them getting trained"
+  const filter = [...(room?.querySelectorAll("button") ?? [])]
+    .find((b) => /training (only|turns)/i.test(b.textContent ?? ""));
+  checks.push(["room has a training-only filter", !!filter]);
+  if (filter) {
+    const before = room.querySelectorAll(".turn").length;
+    filter.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    const after = room.querySelectorAll(".turn").length;
+    checks.push(["training filter hides the chatter", after > 0 && after < before]);
+    filter.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+  }
   const close = [...(room?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "close");
   close?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 20));

@@ -118,10 +118,29 @@ class MockBrain:
         },
     }
 
+    #: what each desk does with a rule it has just been taught
+    CARRY: Dict[str, str] = {
+        "QUANT": "So the next ticket gets its size from the stop and its sample size on the table.",
+        "RISK": "You will hear it from me before the size goes on, not after the loss.",
+        "NEWS": "I will ask what is already priced before I argue the story.",
+        "MACRO": "The regime sets the size; my opinion only sets the direction.",
+        "COMPLIANCE": "It goes into the mandate check before the ticket, not after the fill.",
+        "CEO": "It is on the wall: the next desk that breaks it answers for the P&L.",
+    }
+
     async def debate(self, topic: str, transcript: List[Dict[str, Any]], kind: str,
                      inner: Dict[str, Any]) -> str:
         """One turn of the debate room, in this desk's voice."""
         await asyncio.sleep(self.base_latency * 0.35 * (0.7 + 0.6 * random.random()))
+        # The training channel, in the persona's own voice. Both of these are
+        # generated from the rule / the outcome rather than from a bank of lines,
+        # because they are about *this* session and *this* trade.
+        rule = str(inner.get("rule") or "").strip()
+        if kind == "carry":
+            tail = self.CARRY.get(self.spec.key, "it changes how I size the next one.")
+            return f'Carried — "{rule}". {tail}' if rule else f"Carried. {tail}"
+        if kind == "postmortem":
+            return self._postmortem(inner)
         bank = self.LINES.get(self.spec.key, {})
         pool = bank.get(kind) or bank.get("ack") or ["Agreed."]
         # No transcript length in the seed: it grows with every turn, which made
@@ -163,16 +182,60 @@ class MockBrain:
                 # strip an addressee prefix and any earlier quote, so quotes
                 # never nest into gibberish
                 prev = re.sub(r"^[A-Za-z][^—]{0,40}—\s*", "", prev)
+                # a turn that opens by quoting the rule on file should be quoted
+                # for its argument, not for the quote it is carrying
+                prev = re.sub(r'^Rule on file:\s*"[^"]*"\.?\s*', "", prev)
                 while prev.startswith('To "'):
                     end = prev.find('" — ')
                     prev = prev[end + 4:].lstrip() if end >= 0 else prev[4:]
                 words = prev.split()
                 snippet = " ".join(words[:9]) + ("…" if len(words) > 9 else "")
                 text = f'To "{snippet}" — {text}'
+        # a desk opening a round says which rule it is trading under before it
+        # argues: the previous round has to be visible in this one, or the room
+        # is six oracles taking turns
+        recall = str(inner.get("recall") or "").strip()
+        if recall and kind == "claim":
+            text = f'Rule on file: "{recall}". {text}'
         who = str(inner.get("to_name") or "").strip()
         if who and not text.lstrip().startswith(who):
             text = f"{who} — {text}"
         return text
+
+    def _postmortem(self, inner: Dict[str, Any]) -> str:
+        """The desk that was wrong, on the record, when the position closes."""
+        symbol = str(inner.get("symbol") or "the position")
+        pnl = float(inner.get("pnl") or 0.0)
+        pct = float(inner.get("pnl_pct") or 0.0)
+        flags = str(inner.get("flags") or "").strip()
+        right = str(inner.get("right") or "").strip()
+        outcome = str(inner.get("outcome") or "loss")
+        money = f"{pnl:+,.2f} ({pct:+.2f}%)"
+        # no verb agreement to get wrong: "on the right side: A, B"
+        who_right = f" On the right side of it: {right}." if right and right != "nobody" else ""
+        wrong = bool(inner.get("wrong", True))
+        if not wrong:
+            return (f"{symbol} closed {money} and everybody was on the right side of it. "
+                    f"Nothing to unlearn from this one — it goes into the training set as a "
+                    f"settled decision, which is how a desk earns its weighting.")
+        if outcome == "loss":
+            if flags:
+                side = str(inner.get("side") or "").lower()
+                was = f" and I was {side} it" if side else " and I was in it"
+                return (f"{symbol} closed {money}{was}.{who_right} My own flag was "
+                        f"\"{flags}\" — that goes into my training set as a refusal, and the "
+                        f"next {self.spec.label} ticket that carries that flag gets a quarter size "
+                        f"or nothing.")
+            return (f"{symbol} closed {money} and I approved it.{who_right} Nothing on my list "
+                    f"caught it, which is the finding: on the next one I name the level that "
+                    f"invalidates the trade before I size it, and that line goes in the plan.")
+        if flags:
+            return (f"{symbol} closed {money} without me.{who_right} My objection was \"{flags}\" "
+                    f"— right to flag it, wrong to make it a veto: I take the next version of this "
+                    f"at half size with the flag written into the plan.")
+        return (f"{symbol} closed {money} and I sat it out.{who_right} That is a missed winner, "
+                f"not a mistake — but I will re-run what I saw on it, and the sample goes into the "
+                f"training set so the next one is a decision instead of a mood.")
 
     def _seed(self, trade: TradeCandidate) -> random.Random:
         h = hashlib.sha256(f"{trade.id}|{self.spec.key}|{trade.symbol}|{trade.side}".encode()).digest()

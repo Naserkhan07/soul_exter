@@ -190,7 +190,9 @@ class LocalHFBrain:
         a rerun of the vote.
         """
         prompt = self.spec.debate_prompt(topic, transcript, kind,
-                                         str(inner.get("to_name", "")))
+                                         str(inner.get("to_name", "")),
+                                         rules=list(inner.get("rules") or []),
+                                         facts=inner)
         async with self.semaphore:
             try:
                 text = await asyncio.get_running_loop().run_in_executor(None, self._generate, prompt)

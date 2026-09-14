@@ -49,6 +49,28 @@ USER       A trader on the floor has proposed the trade below. QUANT DESK, this 
 ASSISTANT  {"verdict": "REJECT", "confidence": 74, "reason": "This one closed -10.06 (-0.88%) and nothing on my list caught it — that is the finding. On the next VOLATILITY_SQUEEZE setup I check what this one taught me: name the level that invalidates it before sizing it.", "risk_flags": ["no invalidation written before the entry"], "adjustment": {"size_multiplier": 0.25, "stop_pct": null}}
 ```
 
+## The same training, said out loud in the room
+
+The dataset is not the only record — the room *shows* the loop while it runs. These
+are real turns from the running floor (mock personas on CPU):
+
+**Dr. Amara Osei opens a round by naming a rule on file** — `turn=claim · training=true`
+
+> Rule on file: "when a setup is extended, halve the size instead of skipping it". The setup is trend with 1.00% ATR: at that volatility the realistic fill is 6-10 bps worse than the mid, which eats a third of the edge.
+
+**Naveed closes the round** — `turn=lesson`
+
+> Rule written: a trend entry that needs a catalyst waits for the level to be reclaimed
+
+**Lina Marchetti says how it will trade the rule** — `turn=carry · training=true`
+
+> Carried — "a trend entry that needs a catalyst waits for the level to be reclaimed". I will ask what is already priced before I argue the story.
+
+**Lina Marchetti reviews a closed position out loud** — `turn=postmortem · training=true`
+
+> the position closed +157.82 (+2.30%) without me. On the right side of it: QUANT, RISK, MACRO. My objection was "no narrative energy — range is compressed" — right to flag it, wrong to make it a veto: I take the next version of this at half size with the flag written into the plan.
+In the chat room these turns are the ones the **training turns** filter keeps.
+
 ## Where the rows come from
 
 | source | what it teaches | grows with |

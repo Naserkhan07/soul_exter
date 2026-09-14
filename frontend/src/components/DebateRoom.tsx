@@ -14,6 +14,13 @@
  *              that lets the user ask any desk a question and watch the answer
  *              land in the same transcript.
  *
+ * The training is visible in here, not just counted: a desk that opens a round
+ * names the rule it was taught (↺), the head of desk writes the new rule (★),
+ * two desks say how they will carry it (↺ carried), and a closed position is
+ * reviewed out loud by a desk that was on the wrong side of it (▲). The
+ * "training turns" filter shows only those, which is the answer to "are they
+ * actually learning, or just talking?"
+ *
  * Turns stream in over the bus as they are spoken (`debate_message`), so the
  * transcript is live; the REST endpoint fills the history on load.
  */
@@ -29,6 +36,8 @@ const TURN_STYLE: Record<string, { icon: string; label: string; cls: string }> =
   answer: { icon: "→", label: "answers", cls: "answer" },
   ack: { icon: "✓", label: "agrees", cls: "ack" },
   lesson: { icon: "★", label: "writes the rule", cls: "lesson" },
+  carry: { icon: "↺", label: "carries the rule", cls: "carry" },
+  postmortem: { icon: "▲", label: "after the close", cls: "postmortem" },
   you: { icon: "✎", label: "asks", cls: "you" },
 };
 
@@ -90,13 +99,25 @@ export function DebateRoomPanel({
   const [pinned, setPinned] = useState(true);
   const [draft, setDraft] = useState("");
   const [to, setTo] = useState("");
+  // the room can be read as an argument or as a training log; both are real,
+  // and which one is useful depends on why you opened it
+  const [onlyTraining, setOnlyTraining] = useState(false);
 
   const nameOf = useMemo(() => {
     const map = new Map(speakers.map((s) => [s.key, s.name]));
     return (key?: string | null) => (key ? map.get(key) ?? key : "");
   }, [speakers]);
 
-  const turns = useMemo(() => transcript.slice(-80), [transcript]);
+  const turns = useMemo(() => {
+    const window = transcript.slice(-80);
+    if (!onlyTraining) return window;
+    return window.filter((m) => m.training || m.turn === "round" || m.turn === "you");
+  }, [transcript, onlyTraining]);
+
+  const trainingCount = useMemo(
+    () => transcript.slice(-80).filter((m) => m.training).length,
+    [transcript],
+  );
 
   useEffect(() => {
     if (!to && speakers.length) setTo(speakers[0].key);
@@ -127,6 +148,14 @@ export function DebateRoomPanel({
           <button className="ghost tiny" onClick={() => setPinned((p) => !p)}>
             {pinned ? "following" : "paused"}
           </button>
+          <button
+            className={onlyTraining ? "ghost tiny on" : "ghost tiny"}
+            onClick={() => setOnlyTraining((v) => !v)}
+            title="show only the turns where the desks are being trained: rules recalled, written and carried, and closed trades reviewed"
+          >
+            {onlyTraining ? "training only" : "training turns"}
+            {trainingCount > 0 && <span className="pill">{trainingCount}</span>}
+          </button>
           <button className="ghost tiny" onClick={onConvene}>
             convene round
           </button>
@@ -145,11 +174,13 @@ export function DebateRoomPanel({
 
       {room && (
         <p className="room-intro">
-          Six desks in one room: they claim, challenge, ask, answer, agree — and the
-          head of desk writes down the rule they agreed. Every rule is fed back into
-          each desk&apos;s prompt before the next trade, and every settled trade is
-          written into that desk&apos;s training set — so tomorrow&apos;s meeting starts
-          from what this one learned.
+          Six desks in one room: they claim, challenge, ask, answer, agree — and then they
+          teach each other. A desk opens a round by naming the rule on file that bears on it
+          (<b>↺</b> recalled), the head of desk writes the round&apos;s rule (<b>★</b>),
+          two desks say how they will trade it (<b>↺</b> carried), and when a position closes
+          a desk that was on the wrong side of it says what it learned (<b>▲</b> after the
+          close). Every one of those turns goes into that desk&apos;s training set — press{" "}
+          <b>training turns</b> to read only that channel.
         </p>
       )}
 
@@ -203,7 +234,7 @@ export function DebateRoomPanel({
             );
           }
           return (
-            <article className={`turn ${st.cls}`} key={`${m.ts}-${i}`}>
+            <article className={`turn ${st.cls}${m.training ? " training" : ""}`} key={`${m.ts}-${i}`}>
               <div className="turn-head">
                 <span className="turn-icon">{st.icon}</span>
                 <b>{m.name}</b>
@@ -212,6 +243,11 @@ export function DebateRoomPanel({
                 <span className="turn-model mono">{m.model}</span>
                 {hours24 && <time>{fmtTime(m.ts)}</time>}
               </div>
+              {m.rule && (
+                <p className="rule-chip" title={m.rule}>
+                  <span>rule</span> {m.rule}
+                </p>
+              )}
               <p>{m.text}</p>
             </article>
           );

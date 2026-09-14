@@ -332,14 +332,28 @@ class Engine:
                     except Exception as exc:            # pragma: no cover
                         log.warning("scoreboard settle failed: %s", exc)
                 # ...and the desks' verdicts become supervised training rows
+                trade_id = str(payload.get("trade_id", ""))
                 if self.training is not None:
                     try:
-                        self.training.settle(str(payload.get("trade_id", "")),
+                        self.training.settle(trade_id,
                                              float(payload.get("pnl", 0.0) or 0.0),
                                              float(payload.get("risk", 0.0) or 0.0),
                                              float(payload.get("pnl_pct", 0.0) or 0.0))
                     except Exception as exc:            # pragma: no cover
                         log.warning("training settle failed: %s", exc)
+                # ...and the same lesson is said out loud by a desk that was on
+                # the wrong side of it, so the room shows how the desks get
+                # trained rather than only reporting a row count
+                if self.debate is not None:
+                    try:
+                        record = self.council.get(trade_id) if self.council else None
+                        await self.debate.post_mortem(
+                            trade_id, record,
+                            float(payload.get("pnl", 0.0) or 0.0),
+                            float(payload.get("pnl_pct", 0.0) or 0.0),
+                            exit_reason=str(payload.get("exit_reason", "") or ""))
+                    except Exception as exc:            # pragma: no cover
+                        log.warning("post-mortem failed: %s", exc)
         finally:
             self.bus.unsubscribe(queue)
 

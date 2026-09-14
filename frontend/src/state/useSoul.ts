@@ -212,6 +212,10 @@ export interface DebateTurn {
   /** who this turn was addressed to — the room is a conversation, not a log */
   to?: string;
   to_name?: string;
+  /** the rule this turn is about: recalled, written, or carried out of the room */
+  rule?: string;
+  /** true when the turn *is* the training channel rather than an argument */
+  training?: boolean;
   ts: number;
 }
 

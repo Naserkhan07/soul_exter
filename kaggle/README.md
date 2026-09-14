@@ -34,6 +34,13 @@ Cloudflare quick tunnel for viewing. No account, token or API key is needed anyw
 | `variety` | Qwen-3B, Mistral-7B, Zephyr-7B, Qwen-7B, Phi-3.5-mini, **CEO Qwen-14B** | 3–6 min | same |
 | `low` | 3B + Phi-mini throughout, CEO Qwen-7B | 1–2 min | ~3–6 trades/min |
 
+### Watching them train
+
+Open the URL and press **Chat room**: the desks claim, challenge, ask and answer, Naveed writes
+the round's rule, two desks say how they will trade it, and a desk that was on the wrong side of
+a closed position reviews it out loud. **training turns** filters the room down to exactly those
+turns.
+
 ### Training the desks (cell 5b)
 
 The floor trains itself while it trades. Every closed position labels the verdicts that
