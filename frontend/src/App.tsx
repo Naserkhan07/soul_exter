@@ -27,7 +27,23 @@ export default function App() {
   const [selected, setSelected] = useState<TradeRow | null>(null);
   const [scoutBatch, setScoutBatch] = useState<ScoutRead[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [roomOpen, setRoomOpen] = useState(false);
+  // The room is the point of the floor, so it opens itself the first time this
+  // browser sees it — after that, closing it means closed.
+  const [roomOpen, setRoomOpen] = useState<boolean>(() => {
+    try {
+      return !window.localStorage.getItem("soul.room.seen");
+    } catch {
+      return true;
+    }
+  });
+  const closeRoom = useCallback(() => {
+    setRoomOpen(false);
+    try {
+      window.localStorage.setItem("soul.room.seen", "1");
+    } catch {
+      /* a private-mode browser is not a reason to fail */
+    }
+  }, []);
   const [cabinChat, setCabinChat] = useState<string | null>(null);
   // what this desk's settled calls have been worth, straight from the council's
   // scoreboard: a desk with no record says so instead of implying one
@@ -190,6 +206,7 @@ export default function App() {
           onAuto={() => setAutoCamera((v) => !v)}
           onSettings={() => setSettingsOpen(true)}
           onDebate={() => setRoomOpen(true)}
+          trainingTurns={state.debate?.training_turns ?? 0}
           fps={fps}
         />
 
@@ -240,7 +257,7 @@ export default function App() {
       )}
 
       {roomOpen && (
-        <div className="room-overlay" onMouseDown={() => setRoomOpen(false)}>
+        <div className="room-overlay" onMouseDown={closeRoom}>
           <div className="room-shell" onMouseDown={(e) => e.stopPropagation()}>
             <DebateRoomPanel
               variant="room"
@@ -255,7 +272,7 @@ export default function App() {
               thinking={thinking}
               training={state.training ?? null}
               hours24
-              onClose={() => setRoomOpen(false)}
+              onClose={closeRoom}
             />
           </div>
         </div>

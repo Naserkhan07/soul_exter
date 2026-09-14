@@ -54,6 +54,9 @@ def test_a_round_recalls_writes_and_carries(room):
     for carry in said[6:]:
         assert carry["rule"] == TOPIC["inner"].get("rule") or carry["rule"]
         assert carry["training"] is True
+        # the room trains its members: a carried rule says who taught it
+        assert carry["rule_from"] == "Naveed"
+        assert carry["rule_round"] == room.rounds
 
 
 def test_the_second_round_opens_by_recalling_a_rule_on_file(room):
@@ -76,6 +79,9 @@ def test_the_second_round_opens_by_recalling_a_rule_on_file(room):
     assert claim["rule"] in on_file
     assert claim["rule"].lower().startswith("rule written") is False
     assert f'Rule on file: "{claim["rule"]}"' in claim["text"]
+    # ...and whose rule it is, so "trained by each other" is on the record
+    assert claim["rule_from"], "the recalled rule has no author"
+    assert claim["rule_round"] > 0
 
 
 def test_the_lessons_on_file_are_the_rules_that_were_written(room):

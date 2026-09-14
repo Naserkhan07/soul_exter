@@ -31,7 +31,7 @@ export function Chip({ text, tone }: { text: string; tone?: string }) {
 // ---------------------------------------------------------------------------
 export function TopBar({
   state, paused, onPause, onScan, onRefresh, zoom, onZoom, focusMode, onFocus, autoCamera, onAuto,
-  onSettings, onDebate, fps,
+  onSettings, onDebate, fps, trainingTurns,
 }: {
   state: ReturnType<typeof import("../state/useSoul").useSoul>["state"];
   paused: boolean;
@@ -46,6 +46,8 @@ export function TopBar({
   onAuto: () => void;
   onSettings: () => void;
   onDebate: () => void;
+  /** how many turns in the chat room were the desks being trained */
+  trainingTurns?: number;
   /** frames per second, as measured by the canvas host */
   fps?: number;
 }) {
@@ -101,9 +103,10 @@ export function TopBar({
           Scan now
         </button>
         <button className="ghost" onClick={onRefresh}>Sync</button>
-        <button className="ghost" onClick={onDebate}
-                title="Open the room the six desks argue in">
+        <button className="ghost chat-room" onClick={onDebate}
+                title="Open the room the six desks argue in, and watch them train each other">
           Chat room
+          {trainingTurns ? <span className="pill train">{trainingTurns}</span> : null}
         </button>
         {fps !== undefined && (
           <span className={`fps ${fps >= 45 ? "good" : fps >= 24 ? "mid" : "bad"}`} title="painted frames per second">

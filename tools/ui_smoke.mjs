@@ -163,6 +163,7 @@ const fixture = {
   },
   debate: {
     rounds: 4,
+    training_turns: 5,
     topic: "SOL/USDT LONG (MOMENTUM_BREAKOUT) — the council passed it 4-1. Is that the right call?",
     speakers: [
       { key: "QUANT", name: "Dr. Amara Osei", title: "Head of Quantitative Research" },
@@ -184,6 +185,7 @@ const fixture = {
         text: 'Carried — "when the council splits, the smaller size is the decision". '
               + "You will hear it from me before the size goes on.",
         rule: "when the council splits, the smaller size is the decision",
+        rule_from: "Naveed", rule_round: 4,
         training: true, round: 4, ts: 1710000000 },
       { room: "desk", topic: "post-mortem: ARB/USDT SHORT closed -45.36 (-0.88%)",
         speaker: "QUANT", name: "Dr. Amara Osei", label: "QUANT DESK",
@@ -423,7 +425,16 @@ window.document.querySelector(".drawer.settings .drawer-head button")
 await new Promise((r) => setTimeout(r, 120));
 
 // ---- the debate room: the top-bar button opens the full chat room --------
-const roomButton = buttons.find((b) => /^(chat|debate) room$/i.test((b.textContent ?? "").trim()));
+// the room opens itself the first time a browser sees the floor: that is the
+// whole answer to "I should be able to see them talking and getting trained"
+checks.push(["room opens itself on a first visit",
+  !!window.document.querySelector(".room-overlay .panel.debate.room")]);
+
+const roomButton = buttons.find((b) => /^(chat|debate) room/i.test((b.textContent ?? "").trim()));
+checks.push([
+  "the Chat room button carries the training count",
+  !!roomButton && /\d/.test((roomButton.textContent ?? "").replace("Chat room", "").trim()),
+]);
 if (roomButton) {
   roomButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise((r) => setTimeout(r, 30));
@@ -447,6 +458,8 @@ if (roomButton) {
   checks.push(["room shows a desk carrying the rule", /carries the rule/.test(rtext)]);
   checks.push(["room reviews a closed trade", /after the close/.test(rtext)]);
   checks.push(["room prints the rule a turn is about", /class="rule-chip"/.test(room?.innerHTML ?? "")]);
+  checks.push(["room says who taught the rule",
+    /taught by Naveed|on file from/.test(room?.textContent ?? "")]);
   // the filter is the answer to "show me them getting trained"
   const filter = [...(room?.querySelectorAll("button") ?? [])]
     .find((b) => /training (only|turns)/i.test(b.textContent ?? ""));

@@ -216,12 +216,17 @@ export interface DebateTurn {
   rule?: string;
   /** true when the turn *is* the training channel rather than an argument */
   training?: boolean;
+  /** who taught this desk the rule, and in which round */
+  rule_from?: string;
+  rule_round?: number;
   ts: number;
 }
 
 export interface DebateSnapshot {
   room?: string;
   rounds?: number;
+  /** how many turns in the room were the desks being trained */
+  training_turns?: number;
   topic?: string | null;
   transcript?: DebateTurn[];
   lessons?: Array<{ topic: string; speaker: string; speaker_label: string; text: string; ts: number; round: number }>;

@@ -65,6 +65,8 @@ are real turns from the running floor (mock personas on CPU):
 **Lina Marchetti says how it will trade the rule** — `turn=carry · training=true`
 
 > Carried — "a trend entry that needs a catalyst waits for the level to be reclaimed". I will ask what is already priced before I argue the story.
+>
+> *(the turn carries `rule_from: Naveed`, which the room prints as "taught by Naveed · round 4")*
 
 **Lina Marchetti reviews a closed position out loud** — `turn=postmortem · training=true`
 

@@ -246,6 +246,12 @@ export function DebateRoomPanel({
               {m.rule && (
                 <p className="rule-chip" title={m.rule}>
                   <span>rule</span> {m.rule}
+                  {m.rule_from && (
+                    <em className="rule-from">
+                      {m.turn === "carry" ? "taught by" : "on file from"} {m.rule_from}
+                      {m.rule_round ? ` · round ${m.rule_round}` : ""}
+                    </em>
+                  )}
                 </p>
               )}
               <p>{m.text}</p>

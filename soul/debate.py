@@ -88,6 +88,10 @@ class DebateMessage:
     #: True when the turn is the training channel itself rather than an argument:
     #: a rule being recalled, written, carried, or a closed trade reviewed.
     training: bool = False
+    #: who taught this desk the rule, and in which round — the room trains its
+    #: members, so a turn about a rule says whose rule it was
+    rule_from: str = ""
+    rule_round: int = 0
     ts: float = field(default_factory=time.time)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -162,7 +166,8 @@ class DebateRoom:
 
     async def _say(self, key: str, kind: str, topic: str, inner: Dict[str, Any],
                    to: str = "", to_name: str = "", rule: str = "",
-                   training: bool = False) -> Optional[Dict[str, Any]]:
+                   training: bool = False, rule_from: str = "",
+                   rule_round: int = 0) -> Optional[Dict[str, Any]]:
         brain = self.brains.get(key) or self.ceo
         if brain is None:
             return None
@@ -198,6 +203,7 @@ class DebateRoom:
             turn=kind, text=text[:600], round=self.rounds + 1,
             trade_id=inner.get("trade_id"), to=to, to_name=to_name,
             rule=str(rule or "")[:200], training=bool(training),
+            rule_from=str(rule_from or "")[:60], rule_round=int(rule_round or 0),
         ).as_dict()
         self.transcript.append(msg)
         self.transcript = self.transcript[-160:]
@@ -234,7 +240,7 @@ class DebateRoom:
             inner.setdefault("rule", self._rule_for(text, inner))
             # ...and the desk that opens names a rule it was already taught, so
             # the previous rounds are visibly in force, not just stored
-            recall = self._recall_for(text)
+            recall, recall_lesson = self._recall_for(text)
             inner["recall"] = recall
             self.current_topic = text
             await self.bus.publish("debate_round", room="desk", round=self.rounds,
@@ -276,15 +282,21 @@ class DebateRoom:
                                       to=target if target else "",
                                       to_name=self._name_of(target) if target else "",
                                       rule=recall if kind == "claim" else "",
-                                      training=kind == "claim" and bool(recall))
+                                      training=kind == "claim" and bool(recall),
+                                      rule_from=(recall_lesson.get("speaker_label", "").split(",")[0]
+                                                 if kind == "claim" and recall_lesson else ""),
+                                      rule_round=(int(recall_lesson.get("round") or 0)
+                                                  if kind == "claim" and recall_lesson else 0))
                 if msg:
                     said.append(msg)
             # carry: two desks say, in their own words, how they will trade the
             # rule that was just written. A rule nobody has to act on is a
             # slogan; this is the part where the desk shows it was taught.
             rule = str(inner.get("rule") or "")
+            author = self._name_of(self.ceo_key())
             for key in self._carriers():
-                msg = await self._say(key, "carry", text, inner, rule=rule, training=True)
+                msg = await self._say(key, "carry", text, inner, rule=rule, training=True,
+                                      rule_from=author, rule_round=self.rounds)
                 if msg:
                     said.append(msg)
                     await self.bus.publish("debate_carry", room="desk", speaker=key,
@@ -298,15 +310,16 @@ class DebateRoom:
         return "CEO"
 
     # ------------------------------------------------------------------
-    def _recall_for(self, topic: str) -> str:
-        """A rule already on file that bears on this topic, if there is one."""
+    def _recall_for(self, topic: str) -> tuple:
+        """A rule already on file that bears on this topic, and who wrote it."""
         if not self.lessons:
-            return ""
+            return "", {}
         seed = hashlib.sha256(f"{topic}|{self.rounds}".encode()).digest()[:4]
-        text = str(self.lessons[int.from_bytes(seed, "big") % len(self.lessons)].get("text", ""))
+        lesson = self.lessons[int.from_bytes(seed, "big") % len(self.lessons)]
+        text = str(lesson.get("text", ""))
         # the rule, not the sentence that introduced it
         text = re.sub(r"^rule written[:—-]\s*", "", text.strip(), flags=re.I)
-        return text[:200]
+        return text[:200], lesson
 
     def _carriers(self) -> List[str]:
         """The desks that carry the new rule out of this round (rotating pair)."""
