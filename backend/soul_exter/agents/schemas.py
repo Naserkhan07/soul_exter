@@ -163,6 +163,14 @@ class Trade:
     cf_r: float = 0.0
     broker_ticket: Optional[str] = None      # venue order id (MT5 ticket / paper id)
     broker_mode: str = ""                    # paper | mt5
+    broker_message: str = ""                 # venue confirmation / rejection text
+    broker_account: str = ""                 # MT5 login the order went to
+    lots: float = 0.0                        # size actually sent
+    place_price: Optional[float] = None      # fill price at placement
+    book_price: Optional[float] = None       # price the position was closed at
+    placed_at: Optional[float] = None
+    booked_at: Optional[float] = None
+    pnl_usd: float = 0.0                     # venue-level P&L of the closed position
     manual: bool = False                     # operator cleared it by hand
     closed_manual: bool = False              # operator booked it out by hand                  # counterfactual R for vetoed tickets
     trajectory: List[Dict[str, Any]] = field(default_factory=list)
@@ -182,6 +190,10 @@ class Trade:
             avg_confidence=round(self.avg_confidence, 3), thesis=self.thesis,
             exec_note=self.exec_note, pnl_r=round(self.pnl_r, 2), cf_r=round(self.cf_r, 2),
             broker_ticket=self.broker_ticket, broker_mode=self.broker_mode,
+            broker_message=self.broker_message, broker_account=self.broker_account,
+            lots=round(self.lots, 4), place_price=self.place_price,
+            book_price=self.book_price, placed_at=self.placed_at, booked_at=self.booked_at,
+            pnl_usd=round(self.pnl_usd, 2),
             manual=self.manual, closed_manual=self.closed_manual,
             position=self.position,
             label=self.label, rr=self.signal.get("rr", 0.0),

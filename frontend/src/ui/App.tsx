@@ -3,10 +3,11 @@ import { FloorScene } from '../three/scene'
 import { api, FloorSocket, type Snapshot } from '../net/api'
 import type { DebateMsg, FrameMsg, Layout, SeatFrame, TradeFrame } from '../three/types'
 import { AnalyticsPanel, CommsPanel, CouncilPanel, DebatePanel, EventTicker, FlyPanel, MarketsPanel,
+         OrdersPanel,
   SettingsPanel, TradeDetail, TradeDock } from './panels'
 import { CLASS_META, fmtPrice } from '../three/types'
 
-type Tab = 'comms' | 'council' | 'debate' | 'fly' | 'markets' | 'settings' | 'analytics'
+type Tab = 'orders' | 'comms' | 'council' | 'debate' | 'fly' | 'markets' | 'settings' | 'analytics'
 
 export function App() {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -46,6 +47,14 @@ export function App() {
   const [lights, setLights] = useState<'bright' | 'moody'>('bright')
   const [orderBusy, setOrderBusy] = useState<Record<string, string>>({})
   const [commsFocus, setCommsFocus] = useState<string | null>(null)
+  const [bookInfo, setBookInfo] = useState<any>(null)
+
+  /* how many cleared tickets are still waiting for a PLACE TRADE click */
+  const readyCount: number = useMemo(() => {
+    const seen = new Set((bookInfo?.open || []).map((t: any) => t.id))
+    return trades.filter((t) => t.outcome === 'accepted' && !t.broker_ticket && !seen.has(t.id)
+      && !t.closed_manual).length
+  }, [trades, bookInfo])
   const [toast, setToast] = useState<string | null>(null)
 
   /* ---------------------------------------------------------------- boot */
@@ -133,9 +142,10 @@ export function App() {
     }, 120)
     const slow = setInterval(async () => {
       try {
-        const [book, dbg, st, seatData, an] = await Promise.all([
-          api.playbook(), api.debate(), api.state(), api.seatsFull(), api.analytics()
+        const [book, dbg, st, seatData, an, ob] = await Promise.all([
+          api.playbook(), api.debate(), api.state(), api.seatsFull(), api.analytics(), api.orders()
         ])
+        setBookInfo(ob)
         setPlaybook(book)
         setDebate(dbg.messages)
         setOutcomes(st.outcomes)
@@ -192,31 +202,43 @@ export function App() {
     pnl: stats?.pnl_r ?? 0
   }), [trades, stats])
 
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 7000)
+  }, [])
+
   const placeTrade = useCallback(async (id: string) => {
     setOrderBusy((b) => ({ ...b, [id]: 'place' }))
+    let res: any = null
     try {
-      const res = await api.placeTrade(id)
-      setToast(res?.ok ? `${id} placed — ${res.order?.message}` : `${id}: ${res?.message}`)
+      res = await api.placeTrade(id)
+      showToast(res?.ok
+        ? `${res.order?.mode === 'mt5' ? 'MT5' : 'PAPER'} ${res.order?.ticket} · ${res.trade?.symbol} `
+          + `${res.order?.lots} lots @ ${res.order?.price} — placed`
+        : `NOT ROUTED — ${res?.message}`)
     } catch (e: any) {
-      setToast(`place failed: ${e.message}`)
+      showToast(`place failed: ${e.message}`)
     }
     setOrderBusy((b) => { const n = { ...b }; delete n[id]; return n })
-    setTimeout(() => setToast(null), 6000)
-  }, [])
+    return res
+  }, [showToast])
 
   const bookTrade = useCallback(async (id: string) => {
     setOrderBusy((b) => ({ ...b, [id]: 'book' }))
+    let res: any = null
     try {
-      const res = await api.bookTrade(id)
-      setToast(res?.ok
-        ? `${id} booked — ${res.order?.message} · ${res.order?.pnl_r >= 0 ? '+' : ''}${res.order?.pnl_r}R`
-        : `${id}: ${res?.message}`)
+      res = await api.bookTrade(id)
+      showToast(res?.ok
+        ? `BOOKED ${res.trade?.symbol} @ ${res.trade?.book_price} → `
+          + `${Number(res.trade?.pnl_r || 0).toFixed(2)}R`
+          + (res.trade?.pnl_usd ? ` (${res.trade.pnl_usd >= 0 ? '+' : ''}${res.trade.pnl_usd} USD)` : '')
+        : `BOOK FAILED — ${res?.message}`)
     } catch (e: any) {
-      setToast(`book failed: ${e.message}`)
+      showToast(`book failed: ${e.message}`)
     }
     setOrderBusy((b) => { const n = { ...b }; delete n[id]; return n })
-    setTimeout(() => setToast(null), 6000)
-  }, [])
+    return res
+  }, [showToast])
 
   const selectedTrade = trades.find((t) => t.id === selected) || null
 
@@ -305,14 +327,18 @@ export function App() {
 
           <aside className="right">
             <div className="right-tabs">
-              {([['comms', 'ASK ANY DESK'], ['council', 'COUNCIL'], ['debate', 'DEBATE'],
-                 ['fly', 'FLY BRAIN'], ['markets', 'MARKETS'], ['analytics', 'ANALYTICS'],
-                 ['settings', 'SETTINGS']] as [Tab, string][])
+              {([['orders', 'ORDERS'], ['comms', 'ASK ANY DESK'], ['council', 'COUNCIL'],
+                 ['debate', 'DEBATE'], ['fly', 'FLY BRAIN'], ['markets', 'MARKETS'],
+                 ['analytics', 'ANALYTICS'], ['settings', 'SETTINGS']] as [Tab, string][])
                 .map(([k, label]) => (
                   <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
                 ))}
             </div>
             <div className="right-body">
+              {tab === 'orders' && (
+                <OrdersPanel onPlace={placeTrade} onBook={bookTrade} onToast={showToast}
+                             focusTicket={selected} />
+              )}
               {tab === 'comms' && (
                 <CommsPanel seats={seats} focusSeat={commsFocus}
                             onConsumeFocus={() => setCommsFocus(null)}
@@ -361,6 +387,12 @@ export function App() {
           <span>{live?.enabled ? (live.ok ? `venue feed live · ${live.count || 0} symbols`
             : `synthetic tape (venue unreachable: ${(live.error || 'offline').slice(0, 42)})`) : 'synthetic tape'}</span>
           <span>{(settings?.enabled_symbols || snapshot?.enabled || []).length} markets enabled</span>
+          {readyCount > 0 && (
+            <span className="ready-pill" onClick={() => setTab('orders')} role="button"
+                  title="cleared tickets waiting to be routed — open the ORDERS desk">
+              {readyCount} ready to place
+            </span>
+          )}
           <span>floor clock {Math.round(frameRef.current?.clock || 0)}s</span>
         </div>
       </footer>

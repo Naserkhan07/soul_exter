@@ -158,64 +158,201 @@ class FloorEngine:
 
     def broker_status(self) -> dict:
         status = self.broker.status()
-        status["lots"] = self.settings.lots
-        status["auto_place"] = self.settings.auto_place
-        status["configured_login"] = self.settings.mt5_login or None
-        status["configured_server"] = self.settings.mt5_server or None
+        st = self.settings
+        status["lots"] = st.lots
+        status["auto_place"] = st.auto_place
+        status["configured_login"] = st.mt5_login or None
+        status["configured_server"] = st.mt5_server or None
+        status["want_mode"] = st.broker_mode
+        status["routing"] = status.get("mode", "paper")
+        # be blunt about the difference between "MT5 configured" and "MT5 working"
+        if (st.broker_mode or "").lower() == "mt5" and status.get("mode") != "mt5":
+            status["note"] = ("MT5 is configured but the terminal is not reachable — orders are "
+                              "being simulated. Fix the terminal/login, then press TEST / CONNECT.")
+        elif status.get("mode") == "mt5" and status.get("connected"):
+            status["note"] = "Every PLACE TRADE is routed to this MT5 account."
+        else:
+            status["note"] = "No venue is attached — fills are simulated in the paper book."
         return status
 
+    def broker_connect(self, force: bool = True) -> dict:
+        """Force a fresh adapter + login attempt (Broker tab CONNECT / reconnect)."""
+        if self.broker.mode == "mt5":
+            try:
+                self.broker.connect(force=force)       # type: ignore[call-arg]
+            except TypeError:
+                self.broker.connect()                  # type: ignore[call-arg]
+        if (self.settings.broker_mode or "paper").lower() != self.broker.mode:
+            self.broker = self._make_broker()          # settings changed since boot
+        status = self.broker_status()
+        self.emit("broker_connect", verdict=("connected" if status.get("connected") else "failed"),
+                  message=dict(text=f"Broker {status.get('mode')}: {status.get('message')}"))
+        return status
+
+    def _price(self, symbol: str) -> Optional[float]:
+        t = self.feed.tickers.get(symbol)
+        if t is None or not t.close:
+            return None
+        return float(t.close[-1])
+
     def _trade_brief(self, trade) -> dict:
+        """Broker view of a ticket.
+
+        ``entry`` is the *position* entry — the recorded fill once the order is
+        live, otherwise the current market price (what a market order would fill
+        at) — so a later close computes P&L against the real fill, not today's
+        price. ``exit_price`` is always the latest market price.
+        """
         sig = trade.signal or {}
+        price = self._price(trade.symbol)
+        planned = sig.get("entry")
+        entry = trade.place_price or price or planned
         return dict(id=trade.id, symbol=trade.symbol, asset_class=trade.asset_class,
-                    direction=trade.direction, entry=sig.get("entry"),
-                    exit_price=self.feed.tickers[trade.symbol].last_price
-                    if trade.symbol in self.feed.tickers else sig.get("entry"))
+                    direction=trade.direction, entry=entry,
+                    stop_loss=sig.get("stop_loss"), take_profit=sig.get("take_profit"),
+                    planned_entry=planned, rr=sig.get("rr"),
+                    exit_price=price or entry, confidence=trade.confidence)
+
+    def _unrealised_r(self, trade) -> float:
+        sig = trade.signal or {}
+        entry = float(trade.place_price or sig.get("entry") or 0.0)
+        stop = float(sig.get("stop_loss") or 0.0)
+        risk = max(abs(entry - stop), 1e-9)
+        price = self._price(trade.symbol)
+        if price is None or not entry:
+            return 0.0
+        sgn = 1.0 if trade.direction == "long" else -1.0
+        return round((price - entry) * sgn / risk, 2)
+
+    # ------------------------------------------------------------- order book
+    def order_book(self) -> dict:
+        """Everything the operator needs to route and manage orders.
+
+        * ``ready``   — accepted tickets with no venue order yet (PLACE TRADE)
+        * ``open``    — tickets with a live position (BOOK TRADE closes instantly)
+        * ``closed``  — booked/realised tickets with their P&L
+        * ``positions`` — the venue's own position list (MT5 terminal truth)
+        """
+        ready, open_, closed, vetoed = [], [], [], []
+        for t in sorted(self.trades.values(), key=lambda x: x.created_at, reverse=True):
+            row = dict(t.dict(), unrealised_r=self._unrealised_r(t), price=self._price(t.symbol),
+                       age=round(time.time() - t.created_at, 1))
+            if t.broker_ticket:
+                if t.booked_at or t.closed_manual:
+                    row["held_s"] = round((t.booked_at or time.time()) - (t.placed_at or t.created_at), 1)
+                    closed.append(row)
+                else:
+                    open_.append(row)
+            elif t.outcome == "accepted":
+                ready.append(row)
+            elif t.outcome == "rejected":
+                vetoed.append(t.dict())
+        status = self.broker_status()
+        prices = {s: self._price(s) for s in list(self.trades_by_symbol())}
+        try:
+            positions = self.broker.open_positions(prices)
+        except Exception as exc:
+            positions = []
+            status["positions_error"] = str(exc)
+        if isinstance(self.broker, object) and hasattr(self.broker, "deal_history"):
+            try:
+                status["deals"] = self.broker.deal_history(12)
+            except Exception:
+                status["deals"] = []
+        return dict(ready=ready[:48], open=open_[:48], closed=closed[:48], vetoed=vetoed[:24],
+                    positions=positions, broker=status,
+                    counts=dict(ready=len(ready), open=len(open_), closed=len(closed),
+                                vetoed=len(vetoed), live_positions=len(positions),
+                                realised_r=round(sum(t.pnl_r for t in self.trades.values()
+                                                     if t.broker_ticket and (t.booked_at or t.closed_manual)), 2),
+                                open_lots=round(sum(t.lots for t in self.trades.values()
+                                                    if t.broker_ticket and not (t.booked_at
+                                                                                or t.closed_manual)), 2)))
+
+    def trades_by_symbol(self) -> List[str]:
+        return sorted({t.symbol for t in self.trades.values()})
 
     def place_trade(self, trade_id: str, lots: Optional[float] = None) -> dict:
-        """Operator clicked PLACE — clear the ticket and route it to the market."""
+        """Operator clicked PLACE — route the ticket to the broker right now."""
         trade = self.trades.get(trade_id)
         if trade is None:
             return dict(ok=False, message="unknown ticket")
-        if trade.state == TradeState.EXITED.value:
-            return dict(ok=False, message="ticket already closed")
+        if trade.booked_at or trade.closed_manual:
+            return dict(ok=False, message="ticket is already closed")
+        if trade.broker_ticket:
+            return dict(ok=False, message=f"already placed ({trade.broker_ticket})", trade=trade.dict(),
+                        broker=self.broker_status())
         w = self.walkers.get(f"W-{trade.id}")
-        # a forced placement bypasses a pending hearing: the council is recorded as
-        # overruled by the operator, which is visible in the ticket history.
         if trade.outcome == "pending":
+            # a forced placement overrules a pending hearing; it is recorded on the ticket
             if w is not None:
                 w.pause_left = 0.0
             self._finalize(trade, accepted=True, manual=True)
         size = float(lots if lots is not None else self.settings.lots)
         res = self.broker.place(self._trade_brief(trade), size)
+        if not res.ok:
+            self.emit("order_rejected", trade=dict(id=trade.id, symbol=trade.symbol),
+                      verdict="rejected",
+                      message=dict(text=f"Order not routed: {res.message}"))
+            return dict(ok=False, message=res.message, order=res.dict(),
+                        broker=self.broker_status(), trade=trade.dict())
         trade.broker_ticket = res.ticket
         trade.broker_mode = res.mode
+        trade.broker_message = res.message
+        trade.lots = size
+        trade.place_price = res.price
+        trade.placed_at = time.time()
+        status = self.broker_status()
+        trade.broker_account = str((status.get("account") or {}).get("login") or "")
         if w is not None:
             self._walk_out(trade, "entry")
-        self.emit("trade_placed", trade=dict(id=trade.id, symbol=trade.symbol, lots=size),
-                  verdict="placed", message=dict(text=f"Operator placed {trade.symbol} "
-                                                 f"({res.mode}) — {res.message}"))
-        return dict(ok=True, order=res.dict(), trade=trade.dict())
+        self.emit("trade_placed",
+                  trade=dict(id=trade.id, symbol=trade.symbol, lots=size,
+                             ticket=res.ticket, mode=res.mode, price=res.price),
+                  verdict="placed",
+                  message=dict(text=(f"{'MT5' if res.mode == 'mt5' else 'Paper'} order "
+                                     f"{res.ticket} on {trade.symbol}: {res.message}")))
+        return dict(ok=True, message=res.message, order=res.dict(), trade=trade.dict(),
+                    broker=status)
+
+    def place_ready(self) -> dict:
+        """Place every accepted ticket that has no venue order yet."""
+        out = []
+        for t in sorted(self.trades.values(), key=lambda x: x.created_at):
+            if t.outcome == "accepted" and not t.broker_ticket and not t.booked_at:
+                out.append(self.place_trade(t.id))
+        return dict(ok=True, placed=len([r for r in out if r.get("ok")]), results=out)
 
     def book_trade(self, trade_id: str, lots: Optional[float] = None) -> dict:
         """Operator clicked BOOK — close the position now and realise the P&L."""
         trade = self.trades.get(trade_id)
         if trade is None:
             return dict(ok=False, message="unknown ticket")
+        if trade.booked_at or trade.closed_manual:
+            return dict(ok=False, message="ticket is already closed", trade=trade.dict())
+        pre = None
+        if not trade.broker_ticket:
+            # nothing was routed yet: place it first so the close is a real round trip
+            pre = self.place_trade(trade_id, lots)
+            if not pre.get("ok"):
+                return pre
         brief = self._trade_brief(trade)
-        res = self.broker.book(brief, float(lots if lots is not None else self.settings.lots))
+        res = self.broker.book(brief, float(trade.lots or lots or self.settings.lots))
         sig = trade.signal or {}
-        entry = float(sig.get("entry") or 0.0)
+        entry = float(trade.place_price or sig.get("entry") or 0.0)
         sl = float(sig.get("stop_loss") or 0.0)
         risk = max(abs(entry - sl), 1e-9)
-        price = float(brief.get("exit_price") or res.price or entry)
+        price = float(res.price or brief.get("exit_price") or entry)
         sgn = 1.0 if trade.direction == "long" else -1.0
-        pnl_r = (price - entry) * sgn / risk
+        pnl_r = (price - entry) * sgn / risk if entry else 0.0
         if trade.outcome == "pending":
             self._finalize(trade, accepted=True, manual=True)
-        if trade.pnl_r == 0.0:
-            self._record_outcome(trade, pnl_r, True)
-        else:
-            trade.pnl_r = round(pnl_r, 2)
+        trade.book_price = price
+        trade.booked_at = time.time()
+        trade.pnl_usd = float(res.pnl_usd or 0.0)
+        trade.broker_message = res.message
+        self.pending_outcomes.pop(trade.id, None)
+        self._record_outcome(trade, pnl_r, True)
         trade.state = TradeState.EXITED.value
         trade.closed_manual = True
         w = self.walkers.get(f"W-{trade.id}")
@@ -223,21 +360,28 @@ class FloorEngine:
             self._route(w, "exit_outside")
             w.carry = False
         self.emit("trade_booked",
-                  trade=dict(id=trade.id, symbol=trade.symbol, pnl_r=round(pnl_r, 2)),
+                  trade=dict(id=trade.id, symbol=trade.symbol, pnl_r=round(pnl_r, 2),
+                             price=price, ticket=trade.broker_ticket, mode=trade.broker_mode),
                   verdict="booked",
-                  message=dict(text=f"Operator booked {trade.symbol} at {price:.5g} "
-                                    f"for {pnl_r:+.2f}R ({res.mode})"))
-        return dict(ok=True, order=res.dict(), trade=trade.dict())
+                  message=dict(text=(f"Booked {trade.symbol} at {price:.5g} for {pnl_r:+.2f}R "
+                                     f"({res.mode} via {trade.broker_ticket})")))
+        return dict(ok=True, message=res.message, order=res.dict(), trade=trade.dict(),
+                    broker=self.broker_status())
 
     def _auto_place(self, trade) -> None:
-        if not self.settings.auto_place:
+        if not self.settings.auto_place or trade.broker_ticket:
             return
         res = self.broker.place(self._trade_brief(trade), float(self.settings.lots))
-        trade.broker_ticket = res.ticket
-        trade.broker_mode = res.mode
+        if res.ok:
+            trade.broker_ticket = res.ticket
+            trade.broker_mode = res.mode
+            trade.broker_message = res.message
+            trade.lots = float(self.settings.lots)
+            trade.place_price = res.price
+            trade.placed_at = time.time()
         self.emit("order_routed", trade=dict(id=trade.id, symbol=trade.symbol),
-                  message=dict(text=f"{'Filled' if res.ok else 'Not routed'} {trade.symbol}: "
-                                    f"{res.message}"))
+                  message=dict(text=(f"{'Filled' if res.ok else 'Not routed'} {trade.symbol}: "
+                                     f"{res.message}")))
 
     # ------------------------------------------------------------------ boot
     async def start(self) -> None:
@@ -769,6 +913,10 @@ class FloorEngine:
             if trade is None:
                 self.pending_outcomes.pop(t_id, None)
                 continue
+            if trade.closed_manual:
+                # the operator booked it out by hand: the venue round trip is the result
+                self.pending_outcomes.pop(t_id, None)
+                continue
             price = self.feed.tickers[p["symbol"]].last_price or p["entry"]
             risk = p["risk"]
             r = ((price - p["entry"]) if p["direction"] == "long" else (p["entry"] - price)) / risk
@@ -1003,6 +1151,9 @@ class FloorEngine:
 
     def apply_settings(self, patch: dict) -> Settings:
         old_syms = list(self.settings.enabled_symbols)
+        old_broker = (self.settings.broker_mode, self.settings.mt5_login,
+                      self.settings.mt5_password, self.settings.mt5_server,
+                      self.settings.mt5_path, self.settings.mt5_symbol_suffix)
         self.settings.apply_patch(patch)
         if list(self.settings.enabled_symbols) != old_syms:
             # add tickers for anything newly selected
@@ -1016,6 +1167,10 @@ class FloorEngine:
                     self.feed._seed_history(UNIVERSE[s], t, 300)
                     self.feed.tickers[s] = t
             self.feed.symbols = [s for s in self.settings.enabled_symbols if s in self.feed.tickers]
+        if old_broker != (self.settings.broker_mode, self.settings.mt5_login,
+                          self.settings.mt5_password, self.settings.mt5_server,
+                          self.settings.mt5_path, self.settings.mt5_symbol_suffix):
+            self.broker = self._make_broker()
         self.council.seats = self.settings.to_seats()
         self.council.by_id = {s.id: s for s in self.council.seats}
         self.settings.save()

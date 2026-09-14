@@ -79,6 +79,18 @@ export interface TradeFrame {
   position: { x: number; z: number; yaw: number }
   broker_ticket?: string | null
   broker_mode?: string
+  broker_message?: string
+  broker_account?: string
+  lots?: number
+  place_price?: number | null
+  book_price?: number | null
+  placed_at?: number | null
+  booked_at?: number | null
+  pnl_usd?: number
+  unrealised_r?: number
+  price?: number | null
+  age?: number
+  held_s?: number
   manual?: boolean
   closed_manual?: boolean
   stages: StageFrame[]

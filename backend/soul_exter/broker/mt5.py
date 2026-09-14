@@ -50,6 +50,10 @@ class Broker:
     def book(self, trade: dict, lots: float = 0.0) -> OrderResult:
         raise NotImplementedError
 
+    def open_positions(self, prices: Optional[Dict[str, float]] = None) -> List[dict]:
+        """Live positions at the venue, so the operator can *see* what is working."""
+        raise NotImplementedError
+
 
 class PaperBroker(Broker):
     mode = "paper"
@@ -57,7 +61,20 @@ class PaperBroker(Broker):
     def __init__(self) -> None:
         self.positions: Dict[str, dict] = {}
         self.history: List[dict] = []
-        self.reason = "paper mode — no venue orders are transmitted"
+        self.reason = "paper mode — no venue orders are transmitted (set Broker to MT5 to trade live)"
+
+    def open_positions(self, prices: Optional[Dict[str, float]] = None) -> List[dict]:
+        prices = prices or {}
+        out = []
+        for pid, pos in self.positions.items():
+            price = float(prices.get(pos["symbol"], pos["entry"]) or pos["entry"])
+            sgn = 1.0 if pos["direction"] == "long" else -1.0
+            out.append(dict(ticket=f"PAPER-{pid}", trade_id=pid, mode="paper",
+                            symbol=pos["symbol"], direction=pos["direction"],
+                            lots=pos["lots"], entry=pos["entry"], price=price,
+                            pnl_usd=(price - pos["entry"]) * sgn * pos["lots"] * pos["contract"],
+                            opened=pos["opened"]))
+        return out
 
     def status(self) -> dict:
         return dict(mode="paper", connected=False, message=self.reason,
@@ -105,9 +122,15 @@ class MT5Broker(Broker):
         self.reason = "not initialised"
         self._mt5 = None
         self.tickets: Dict[str, str] = {}
+        self._last_attempt = 0.0
+        self.retry_after = 20.0        # do not hammer a missing terminal
 
     # ---------------------------------------------------------------- connect
-    def connect(self) -> bool:
+    def connect(self, force: bool = False) -> bool:
+        now = time.time()
+        if not force and self._last_attempt and now - self._last_attempt < self.retry_after:
+            return False
+        self._last_attempt = now
         try:
             import MetaTrader5 as mt5            # type: ignore
         except Exception as exc:
@@ -161,9 +184,11 @@ class MT5Broker(Broker):
                                name=info.name)
             except Exception:
                 account = None
+        positions = self.open_positions() if self.connected else []
         return dict(mode="mt5", connected=self.connected, message=self.reason,
                     login=self.login or None, server=self.server or None,
-                    symbol_suffix=self.suffix, account=account)
+                    symbol_suffix=self.suffix, account=account,
+                    positions=len(positions), tickets=dict(self.tickets))
 
     # ------------------------------------------------------------------ order
     def _resolve(self, symbol: str) -> Optional[str]:
@@ -212,6 +237,55 @@ class MT5Broker(Broker):
                            ticket=str(res.order), price=float(res.price or price), lots=float(lots),
                            detail=dict(symbol=symbol, retcode=res.retcode,
                                        deal=str(getattr(res, "deal", ""))))
+
+    def open_positions(self, prices: Optional[Dict[str, float]] = None) -> List[dict]:
+        """Pull the terminal's own position list (magic 770001 / SOUL-EXTER comments)."""
+        if not self.connected and not self.connect():
+            return []
+        mt5 = self._mt5
+        try:
+            positions = mt5.positions_get() or []
+        except Exception:
+            return []
+        by_ticket = {str(v): k for k, v in self.tickets.items()}
+        out = []
+        for pos in positions:
+            tag = str(getattr(pos, "comment", "") or "")
+            trade_id = by_ticket.get(str(pos.ticket))
+            if trade_id is None and "SOUL-EXTER" in tag:
+                parts = tag.split()
+                trade_id = parts[1] if len(parts) > 1 else tag
+            if trade_id is None and int(getattr(pos, "magic", 0)) != 770001:
+                continue
+            direction = "long" if pos.type == mt5.POSITION_TYPE_BUY else "short"
+            out.append(dict(ticket=str(pos.ticket), trade_id=trade_id, mode="mt5",
+                            symbol=pos.symbol, direction=direction, lots=float(pos.volume),
+                            entry=float(pos.price_open), price=float(pos.price_current),
+                            sl=float(pos.sl), tp=float(pos.tp), pnl_usd=float(pos.profit),
+                            swap=float(getattr(pos, "swap", 0.0)),
+                            opened=float(getattr(pos, "time", 0.0))))
+        return out
+
+    def deal_history(self, limit: int = 25) -> List[dict]:
+        if not self.connected and not self.connect():
+            return []
+        mt5 = self._mt5
+        try:
+            import datetime as _dt
+            frm = _dt.datetime.now() - _dt.timedelta(days=3)
+            deals = mt5.history_deals_get(frm, _dt.datetime.now()) or []
+        except Exception:
+            return []
+        out = []
+        for d in list(deals)[-limit:]:
+            if int(getattr(d, "magic", 0)) != 770001:
+                continue
+            out.append(dict(ticket=str(d.ticket), order=str(getattr(d, "order", "")),
+                            symbol=d.symbol, volume=float(d.volume), price=float(d.price),
+                            profit=float(getattr(d, "profit", 0.0)),
+                            comment=str(getattr(d, "comment", "")),
+                            time=float(getattr(d, "time", 0.0))))
+        return out
 
     def book(self, trade: dict, lots: float = 0.0) -> OrderResult:
         if not self.connected and not self.connect():

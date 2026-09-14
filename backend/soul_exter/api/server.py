@@ -126,9 +126,29 @@ async def book_trade(trade_id: str, patch: dict | None = None) -> dict:
     return engine.book_trade(trade_id, float(lots) if lots else None)
 
 
+@app.get("/api/orders")
+async def orders() -> dict:
+    """Ready-to-place tickets, open positions, and the venue's own position list."""
+    return engine.order_book()
+
+
+@app.post("/api/orders/place-ready")
+async def place_ready() -> dict:
+    return engine.place_ready()
+
+
+@app.post("/api/broker/connect")
+async def broker_connect() -> dict:
+    return dict(broker=engine.broker_connect(), settings=dict(
+        mode=engine.settings.broker_mode, login=engine.settings.mt5_login,
+        server=engine.settings.mt5_server, lots=engine.settings.lots,
+        auto_place=engine.settings.auto_place))
+
+
 @app.get("/api/broker")
 async def broker() -> dict:
-    return dict(broker=engine.broker_status(),
+    return dict(broker=engine.broker_status(), positions=engine.broker.open_positions(
+        {s: engine._price(s) for s in engine.trades_by_symbol()}),
                 settings=dict(mode=engine.settings.broker_mode,
                               login=engine.settings.mt5_login,
                               password=engine.settings.mt5_password,
@@ -142,6 +162,7 @@ async def broker() -> dict:
 @app.post("/api/broker")
 async def broker_save(patch: dict) -> dict:
     engine.apply_settings(patch or {})
+    engine.broker_connect()
     return dict(ok=True, broker=engine.broker_status(),
                 settings=dict(mode=engine.settings.broker_mode,
                               login=engine.settings.mt5_login,

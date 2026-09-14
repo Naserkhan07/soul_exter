@@ -38,11 +38,51 @@ The whole product runs on a **free Kaggle GPU** — nothing heavy on your laptop
 | **Data vault** | Playbook buckets, realised track record, tail events |
 | **Debate chamber** | All six desks debate, challenge, concede and ratify training notes continuously |
 | **Corridor / concourse** | Clean pathways only — walkers are routed on a navmesh built from the same blueprint that renders the room |
-| **Execution (Broker tab)** | Paper by default; point it at MetaTrader 5 with your account, server and password to have cleared tickets routed as venue orders. PLACE / BOOK buttons on any ticket, plus optional auto-place on accept |
+| **Orders desk** | Three live sections: **READY TO PLACE** (every cleared ticket waiting to be routed, each with a PLACE TRADE button), **PLACED · OPEN** (venue ticket, fill, lots, unrealised R and a BOOK TRADE button that closes instantly) and **BOOKED · CLOSED** (realised R / USD). A venue-positions table shows what the broker holds right now |
+| **Execution (Broker tab)** | Paper by default; point it at MetaTrader 5 with your account, server and password and every PLACE TRADE goes out as a real venue order, forex pairs included. TEST / CONNECT verifies the terminal and shows the account it logged into |
 
 Floating labels ride above every head — seated, walking, inside a cabin — with the trade or
 agent it belongs to. Above each cabin: the judge's name, model and its verdict on the ticket
 currently in front of it, plus a chat box to interrogate that judge about that specific ticket.
+
+## Placing and booking trades
+
+Open **ORDERS** in the right rail. Everything on this desk is one click:
+
+1. **READY TO PLACE** — tickets the council has cleared that have no venue order yet. Each card
+   carries the instruments' numbers (entry / stop / target / fly conviction / votes) and a
+   **⇪ PLACE TRADE** button. Clicking it routes the order *immediately*: with Broker set to
+   MT5 the fill comes back from your terminal, otherwise it is a paper fill. **⇪ PLACE ALL**
+   routes every waiting ticket in one go.
+2. **PLACED · OPEN** — every working position with its venue ticket, mode (PAPER / MT5), lots,
+   fill price, live price, unrealised R and USD. **✕ BOOK TRADE** closes it instantly at the
+   current price and banks the realised R.
+3. **BOOKED · CLOSED** — the realised record, per ticket, with fill → book prices and P&L.
+4. **VENUE POSITIONS** — read straight from the broker (the MT5 terminal's own position list
+   when connected), so you can *see* that the order is live.
+5. **VETOED BY THE CABINS** — refused tickets with their counterfactual R, so the veto quality
+   stays visible.
+
+Every ticket card in the trade dock carries the same two buttons, plus the venue ticket once it
+is routed. A **"n ready to place"** chip in the status bar updates live.
+
+### Routing to MetaTrader 5 (why forex needs a local terminal)
+
+The MT5 python package only works where the **terminal runs** — Windows, or Linux under Wine.
+So there are two sensible setups:
+
+* **Execution on your own machine** — run the backend locally (`python3 -m uvicorn
+  soul_exter.api.server:app --host 0.0.0.0 --port 8000`), open *Settings → Broker*, choose
+  **mt5**, paste login / password / server, set the symbol suffix your broker uses (e.g. `.m`
+  for `EURUSD.m`), press **SAVE & CONNECT**. The Orders desk badge turns from PAPER to MT5 and
+  the account line shows the login, balance and DEMO/LIVE flag it authenticated against.
+* **Floor on Kaggle, execution at home** — run the whole floor on the Kaggle GPU session as
+  usual and keep the paper book there; MT5 placement needs the backend on the machine with the
+  terminal.
+
+If MT5 is configured but unreachable the Orders desk says so in amber, explains the reason
+(package missing / login refused / symbol not found) and keeps routing to the paper book —
+it never silently pretends an order went to a venue.
 
 ## Every desk answers everything
 

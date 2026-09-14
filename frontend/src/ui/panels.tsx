@@ -60,18 +60,24 @@ export function TradeDock({ trades, selected, onSelect, onPlace, onBook, busy }:
               {t.outcome !== 'pending' && <span className={`outcome ${t.outcome}`}>{t.outcome.toUpperCase()}</span>}
             </div>
             <div className="tcard-actions">
-              <button className="act place" disabled={t.state === 'exited' || !!busy?.[t.id]}
+              <button className="act place" disabled={!!busy?.[t.id] || !!t.broker_ticket}
                       onClick={(e) => { e.stopPropagation(); onPlace(t.id) }}
-                      title="Send this ticket to the broker now">
+                      title={t.broker_ticket ? `already placed (${t.broker_ticket})`
+                                             : 'Send this ticket to the broker now — instant'}>
                 {busy?.[t.id] === 'place' ? '…' : '⇪ PLACE TRADE'}
               </button>
-              <button className="act book" disabled={t.state === 'exited' || !!busy?.[t.id]}
+              <button className="act book" disabled={!!busy?.[t.id]}
                       onClick={(e) => { e.stopPropagation(); onBook(t.id) }}
-                      title="Close the position at the current price">
+                      title="Close the position at the current price — instant">
                 {busy?.[t.id] === 'book' ? '…' : '✕ BOOK TRADE'}
               </button>
-              {t.broker_ticket && <span className="tk" title={`${t.broker_mode} order`}>
-                {t.broker_ticket.slice(0, 14)}</span>}
+              {t.broker_ticket && (
+                <span className={`tk ${t.broker_mode === 'mt5' ? 'mt5' : ''}`}
+                      title={`${String(t.broker_mode || '').toUpperCase()} order ${t.broker_ticket}`
+                        + (t.place_price ? ` · fill ${fmtPrice(t.place_price)}` : '')}>
+                  {t.broker_mode === 'mt5' ? 'MT5 ' : ''}{t.broker_ticket.slice(0, 12)}
+                </span>
+              )}
             </div>
             <Bar value={t.state === 'in_cabin' ? 0.6 : t.state === 'exited' ? 1 : 0.25}
                  color={t.direction === 'long' ? 'var(--up)' : 'var(--down)'} height={3} />
@@ -375,6 +381,276 @@ function Step({ icon, title, body, tone, done, transcript }: any) {
   )
 }
 
+
+/* ---------------------------------------------------------------- orders */
+/**
+ * Execution desk: what is ready to be routed, what is working at the venue, and
+ * what has been booked. PLACE TRADE fires on click; BOOK TRADE closes instantly.
+ */
+export function OrdersPanel({ onPlace, onBook, onToast, focusTicket }: {
+  onPlace: (id: string) => Promise<any>
+  onBook: (id: string) => Promise<any>
+  onToast?: (msg: string) => void
+  focusTicket?: string | null
+}) {
+  const [book, setBook] = useState<any>(null)
+  const [busy, setBusy] = useState<Record<string, string>>({})
+  const [showVetoed, setShowVetoed] = useState(false)
+  const [flash, setFlash] = useState<string | null>(null)
+
+  async function refresh() {
+    try { setBook(await api.orders()) } catch { /* keep last */ }
+  }
+
+  useEffect(() => {
+    refresh()
+    const id = setInterval(refresh, 3500)
+    return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => { if (focusTicket) setFlash(focusTicket) }, [focusTicket])
+
+  const broker = book?.broker || {}
+  const ready: any[] = book?.ready || []
+  const open: any[] = book?.open || []
+  const closed: any[] = book?.closed || []
+  const vetoed: any[] = book?.vetoed || []
+  const positions: any[] = book?.positions || []
+  const counts = book?.counts || {}
+
+  async function place(id: string) {
+    setBusy((b) => ({ ...b, [id]: 'place' }))
+    try {
+      await onPlace(id)
+      setFlash(id)
+    } catch (e: any) {
+      onToast?.(`place failed: ${e.message}`)
+    }
+    setBusy((b) => { const n = { ...b }; delete n[id]; return n })
+    refresh()
+  }
+
+  async function bookIt(id: string) {
+    setBusy((b) => ({ ...b, [id]: 'book' }))
+    try {
+      await onBook(id)
+      setFlash(id)
+    } catch (e: any) {
+      onToast?.(`book failed: ${e.message}`)
+    }
+    setBusy((b) => { const n = { ...b }; delete n[id]; return n })
+    refresh()
+  }
+
+  async function placeAll() {
+    const res = await api.placeReady().catch(() => null)
+    if (res) onToast?.(`placed ${res.placed} of ${ready.length} ready tickets`)
+    refresh()
+  }
+
+  async function connect() {
+    const res = await api.brokerConnect().catch((e) => ({ broker: { message: e.message } }))
+    const b = res?.broker || {}
+    onToast?.(`broker ${b.mode}: ${b.message}`)
+    refresh()
+  }
+
+  const tCard = (t: any, mode: 'ready' | 'open' | 'closed') => {
+    const hot = flash === t.id
+    const isBusy = !!busy[t.id]
+    return (
+      <div key={`${mode}-${t.id}`} className={`ocard ${mode}${hot ? ' hot' : ''}`}>
+        <div className="ocard-top">
+          <span className={`dir ${t.direction}`}>{t.direction === 'long' ? '▲' : '▼'}</span>
+          <b>{t.symbol}</b>
+          <Tag dim>{t.asset_class}</Tag>
+          <span className="ocard-ticket mono">{t.id}</span>
+        </div>
+        <div className="ocard-grid">
+          <span><i>Entry</i>{fmtPrice(t.signal?.entry)}</span>
+          <span><i>Stop</i>{fmtPrice(t.signal?.stop_loss)}</span>
+          <span><i>Target</i>{fmtPrice(t.signal?.take_profit)}</span>
+          <span><i>Fly</i>{Math.round((t.confidence || 0) * 100)}%</span>
+          <span><i>Votes</i>{t.votes_for}/5</span>
+          <span><i>Lots</i>{t.lots || 0}</span>
+        </div>
+        {mode === 'ready' && (
+          <div className="ocard-foot">
+            <span className="muted small">{t.manual ? 'operator-cleared' : 'council-cleared'} ·{' '}
+              {t.state === 'exited' ? 'finished walking' : t.state.replace(/_/g, ' ')}</span>
+            <button className="act place big" disabled={isBusy} onClick={() => place(t.id)}>
+              {isBusy ? 'PLACING…' : '⇪ PLACE TRADE'}
+            </button>
+          </div>
+        )}
+        {mode === 'open' && (
+          <>
+            <div className="ocard-grid">
+              <span><i>Ticket</i><b className="mono">{t.broker_ticket}</b></span>
+              <span><i>Mode</i><b className={t.broker_mode === 'mt5' ? 'mt5' : ''}>
+                {String(t.broker_mode || '').toUpperCase()}</b></span>
+              <span><i>Fill</i>{fmtPrice(t.place_price)}</span>
+              <span><i>Now</i>{fmtPrice(t.price)}</span>
+              <span><i>Unrealised</i>
+                <b className={(t.unrealised_r || 0) >= 0 ? 'up' : 'down'}>
+                  {Number(t.unrealised_r || 0).toFixed(2)}R</b></span>
+              <span><i>USD</i>
+                <b className={(t.pnl_usd || 0) >= 0 ? 'up' : 'down'}>
+                  {Number(t.pnl_usd || 0).toFixed(2)}</b></span>
+            </div>
+            <div className="ocard-foot">
+              <span className="muted small">{t.broker_message}</span>
+              <button className="act book big" disabled={isBusy} onClick={() => bookIt(t.id)}>
+                {isBusy ? 'CLOSING…' : '✕ BOOK TRADE'}
+              </button>
+            </div>
+          </>
+        )}
+        {mode === 'closed' && (
+          <div className="ocard-grid">
+            <span><i>Ticket</i><b className="mono">{t.broker_ticket}</b></span>
+            <span><i>Mode</i>{String(t.broker_mode || '').toUpperCase()}</span>
+            <span><i>Fill</i>{fmtPrice(t.place_price)}</span>
+            <span><i>Booked</i>{fmtPrice(t.book_price)}</span>
+            <span><i>Result</i>
+              <b className={(t.pnl_r || 0) >= 0 ? 'up' : 'down'}>{Number(t.pnl_r || 0).toFixed(2)}R</b></span>
+            <span><i>USD</i>
+              <b className={(t.pnl_usd || 0) >= 0 ? 'up' : 'down'}>{Number(t.pnl_usd || 0).toFixed(2)}</b></span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="panel-body orders">
+      <div className={`broker-strip ${broker.mode === 'mt5' && broker.connected ? 'live' : 'paper'}`}>
+        <div className="bs-row">
+          <span className={`bs-badge ${broker.mode}`}>{String(broker.mode || 'paper').toUpperCase()}</span>
+          <b>{broker.mode === 'mt5' && broker.connected ? 'MT5 connected — orders go to the terminal'
+            : broker.want_mode === 'mt5' ? 'MT5 configured · falling back to paper fills'
+            : 'paper routing'}</b>
+          <button className="mini" onClick={connect}>TEST / CONNECT</button>
+        </div>
+        <div className="bs-msg">{broker.message}</div>
+        {broker.want_mode === 'mt5' && broker.mode !== 'mt5' && (
+          <div className="bs-warn">configured for MT5 — {broker.note}</div>
+        )}
+        {broker.account && (
+          <div className="bs-acct">
+            {broker.account.login} · {broker.account.server} · {broker.account.currency}{' '}
+            {broker.account.balance} · equity {broker.account.equity} ·{' '}
+            {broker.account.demo ? 'DEMO' : 'LIVE'} · leverage 1:{broker.account.leverage}
+          </div>
+        )}
+        <div className="bs-row small muted">
+          <span>clip {broker.lots} lots</span>
+          <span>auto-place {String(!!broker.auto_place)}</span>
+          <span>{counts.live_positions || 0} venue positions</span>
+          <span>{counts.open_lots || 0} lots working</span>
+          <span>realised {Number(counts.realised_r || 0).toFixed(2)}R</span>
+        </div>
+        {broker.want_mode !== 'mt5' && (
+          <div className="bs-note">
+            Orders are simulated. Switch <b>Broker → MT5</b> in Settings, paste your account /
+            server / password, press TEST / CONNECT, and every PLACE TRADE goes to your MetaTrader 5
+            terminal (forex pairs included, symbol suffix respected).
+          </div>
+        )}
+      </div>
+
+      <div className="sec-head">
+        <span className="sec-title">READY TO PLACE</span>
+        <span className="muted small">{ready.length} cleared, unfilled</span>
+        {ready.length > 1 && <button className="act place" onClick={placeAll}>⇪ PLACE ALL</button>}
+      </div>
+      {ready.length === 0 && (
+        <div className="muted small pad">
+          Nothing waiting. Tickets land here the moment the council clears them, before they are
+          routed to the venue.
+        </div>
+      )}
+      {ready.map((t) => tCard(t, 'ready'))}
+
+      <div className="sec-head">
+        <span className="sec-title">PLACED · OPEN</span>
+        <span className="muted small">{open.length} working at the venue</span>
+      </div>
+      {open.length === 0 && (
+        <div className="muted small pad">No open positions. Hit PLACE TRADE on a ready ticket.</div>
+      )}
+      {open.map((t) => tCard(t, 'open'))}
+
+      {(positions.length > 0) && (
+        <>
+          <div className="sec-head">
+            <span className="sec-title">VENUE POSITIONS</span>
+            <span className="muted small">
+              {broker.mode === 'mt5' ? 'read from the MT5 terminal' : 'paper book'}
+            </span>
+          </div>
+          <div className="vtable">
+            <div className="vrow head">
+              <span>Ticket</span><span>Symbol</span><span>Side</span><span>Lots</span>
+              <span>Entry</span><span>Now</span><span>P&L</span>
+            </div>
+            {positions.slice(0, 18).map((p: any) => (
+              <div className="vrow" key={p.ticket}>
+                <span className="mono">{p.ticket}</span>
+                <span>{p.symbol}</span>
+                <span className={p.direction === 'long' ? 'up' : 'down'}>
+                  {p.direction === 'long' ? '▲' : '▼'}</span>
+                <span>{p.lots}</span>
+                <span>{fmtPrice(p.entry)}</span>
+                <span>{fmtPrice(p.price)}</span>
+                <span className={(p.pnl_usd || 0) >= 0 ? 'up' : 'down'}>
+                  {Number(p.pnl_usd || 0).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="sec-head">
+        <span className="sec-title">BOOKED · CLOSED</span>
+        <span className="muted small">{closed.length} realised</span>
+        <span className={(counts.realised_r || 0) >= 0 ? 'up small' : 'down small'}>
+          {Number(counts.realised_r || 0).toFixed(2)}R banked
+        </span>
+      </div>
+      {closed.length === 0 && (
+        <div className="muted small pad">Nothing booked yet.</div>
+      )}
+      {closed.slice(0, 12).map((t) => tCard(t, 'closed'))}
+
+      {vetoed.length > 0 && (
+        <>
+          <div className="sec-head">
+            <span className="sec-title">VETOED BY THE CABINS</span>
+            <button className="mini" onClick={() => setShowVetoed(!showVetoed)}>
+              {showVetoed ? 'HIDE' : `SHOW ${vetoed.length}`}
+            </button>
+          </div>
+          {showVetoed && vetoed.slice(0, 12).map((t) => (
+            <div key={t.id} className="ocard vetoed">
+              <div className="ocard-top">
+                <span className={`dir ${t.direction}`}>{t.direction === 'long' ? '▲' : '▼'}</span>
+                <b>{t.symbol}</b>
+                <Tag dim>{t.id}</Tag>
+                <span className="muted small">{t.votes_for}/5 approved</span>
+              </div>
+              <div className="ocard-grid">
+                <span><i>Counterfactual</i>
+                  <b className={(t.cf_r || 0) >= 0 ? 'down' : 'up'}>{Number(t.cf_r || 0).toFixed(2)}R</b></span>
+                <span><i>Exec note</i>{t.exec_note}</span>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
 
 /* ------------------------------------------------- open desk channel (comms) */
 /**
