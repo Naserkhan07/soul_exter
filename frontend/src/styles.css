@@ -332,6 +332,7 @@ button:disabled { opacity: 0.5; cursor: default; }
   padding: 5px 7px; font-size: 11px; font-family: var(--mono);
 }
 .model-grid label.inline, .grid2 label.inline { flex-direction: row; align-items: center; gap: 7px; }
+.eye { font-size: 8.5px; padding: 1px 5px; margin-left: 4px; letter-spacing: 0.08em; }
 .model-test { margin-top: 6px; font-size: 10.5px; color: #7dd3fc; word-break: break-word; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 

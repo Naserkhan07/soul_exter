@@ -685,9 +685,11 @@ class FloorEngine:
         for i in range(self.settings.ambient_traders):
             home = homes[i % len(homes)]
             xz = self.nav.free_at(*self.plan.nodes.get(home, (0.0, 0.0)))
+            book = self.settings.enabled_symbols or ["EURUSD"]
+            symbol = book[(i * 7 + self.rng.randrange(len(book))) % len(book)]
             w = Walker(id=f"NPC-{i:02d}", kind="npc", x=xz[0], z=xz[1], speed=WALK_SPEED * 0.86,
-                       carry=self.rng.random() < 0.7, label=roles[i % len(roles)],
-                       sub=f"FLOOR STAFF · {self.rng.choice(['TIER 1','TIER 2','RISK','OPS'])}",
+                       carry=self.rng.random() < 0.7, label=symbol,
+                       sub=f"{roles[i % len(roles)]} · {self.rng.choice(['TIER 1','TIER 2','RISK','OPS'])}",
                        accent="#cbd5e1", home=home)
             w.set_path([xz])
             self.walkers[w.id] = w

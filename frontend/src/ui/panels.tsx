@@ -531,6 +531,7 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
   const [local, setLocal] = useState<any>(settings || {})
   const [testResult, setTestResult] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState(false)
+  const [reveal, setReveal] = useState<Record<string, boolean>>({})
   const enabled = useMemo(() => new Set(settings?.enabled_symbols || []), [settings?.enabled_symbols])
 
   useEffect(() => { setLocal(settings || {}) }, [settings])
@@ -624,8 +625,15 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
                   </select>
                 </label>
                 <label>
-                  <span>API key</span>
-                  <input type="password" placeholder={s.has_key ? '•••••••• saved' : 'paste key'}
+                  <span>
+                    API key{' '}
+                    <button className="eye" type="button"
+                            onClick={() => setReveal((r) => ({ ...r, [s.id]: !r[s.id] }))}>
+                      {reveal[s.id] ? 'HIDE' : 'SHOW'}
+                    </button>
+                  </span>
+                  <input type={reveal[s.id] ? 'text' : 'password'} value={s.api_key || ''}
+                         placeholder={s.has_key ? '•••••••• saved' : 'paste key'}
                          onChange={(e) => onSeat(s.id, { api_key: e.target.value })} />
                 </label>
                 <label>
