@@ -1,5 +1,5 @@
 /** REST + WebSocket client for the SOUL EXTER floor. */
-import type { DebateMsg, FlyFrame, FrameMsg, Layout, SeatFrame, TradeFrame } from '../three/types'
+import type { DebateMsg, FlyFrame, FrameMsg, Layout, SeatFrame, SeatsResponse, TradeFrame } from '../three/types'
 
 export interface Snapshot {
   clock: number
@@ -45,6 +45,7 @@ export const api = {
   updateSeat: (id: string, patch: Record<string, unknown>) =>
     jpost<SeatFrame>(`/api/seats/${id}`, patch),
   testSeat: (id: string) => jpost<any>(`/api/seats/${id}/test`, {}),
+  seatsFull: () => jget<SeatsResponse>('/api/seats'),
   universe: () => jget<{ groups: Record<string, any[]>; enabled: string[]; total: number }>('/api/universe'),
   markets: () => jget<any>('/api/markets'),
   fly: () => jget<any>('/api/fly'),

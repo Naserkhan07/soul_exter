@@ -16,3 +16,8 @@ frontend/dist/
 # os / editors
 .DS_Store
 *.swp
+
+# local provider keys (never committed)
+.env
+*.env
+backend/.env

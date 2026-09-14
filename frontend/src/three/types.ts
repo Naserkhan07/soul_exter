@@ -98,6 +98,21 @@ export interface SeatFrame {
   provider: string; cabin: number | null; accent: string; enabled: boolean; live: boolean
   has_key: boolean; open_source_family: string; api_key: string; base_url: string
   api_key_env: string; temperature: number
+  /** the key this desk is actually running with, resolved on the host */
+  active_key?: string
+  active_key_masked?: string
+  key_source?: string
+  engine?: string
+}
+
+export interface ProviderKey {
+  env: string; set: boolean; value: string; seats: string[]
+}
+
+export interface SeatsResponse {
+  seats: SeatFrame[]
+  providers: Record<string, ProviderKey>
+  engine: { mode: string; hosted: string[]; builtin: string[]; note: string }
 }
 
 export interface FlyFrame {

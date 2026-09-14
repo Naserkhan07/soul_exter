@@ -9,8 +9,9 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { FrameMsg, Layout, MarketRow, StageFrame, TradeFrame, WalkerFrame } from './types'
 import { Person, hexA, radialTexture } from './person'
-import { buildCity, buildDesks, buildDoors, buildFloor, buildProps, buildSigns, buildSky,
-  buildWalls, makeTextTexture } from './world'
+import { buildCity, buildDesks, buildDoors, buildFloor, buildLighting, buildProps,
+  buildSigns, buildSky, buildWalls, makeTextTexture } from './world'
+import type { LightingRig } from './world'
 
 interface LabelEl {
   el: HTMLDivElement
@@ -92,6 +93,12 @@ export class FloorScene {
   private panelEl: HTMLDivElement
   private verdictFlashes: { mesh: THREE.Mesh; life: number; color: THREE.Color }[] = []
   private hubLights: THREE.PointLight[] = []
+  private hemi: THREE.HemisphereLight | null = null
+  private keyLight: THREE.DirectionalLight | null = null
+  private fillLight: THREE.DirectionalLight | null = null
+  private rig: LightingRig | null = null
+  private lightLevel = 1.0
+  private lightingMode: 'bright' | 'moody' = 'bright'
   readonly ready: Promise<void>
 
   constructor(private container: HTMLElement, private layout: Layout, private opts: SceneOptions = {}) {
@@ -197,10 +204,14 @@ export class FloorScene {
   }
 
   // ------------------------------------------------------------------ lights
+  private roomLights: THREE.PointLight[] = []
+
   private setupLights() {
-    const hemi = new THREE.HemisphereLight(0xbcd7ff, 0x1b232e, 0.85)
+    const hemi = new THREE.HemisphereLight(0xbcd7ff, 0x243040, 1.15)
+    this.hemi = hemi
     this.scene.add(hemi)
     const key = new THREE.DirectionalLight(0xdfeaff, 1.35)
+    this.keyLight = key
     key.position.set(38, 46, 26)
     key.castShadow = true
     key.shadow.mapSize.set(2048, 2048)
@@ -212,9 +223,39 @@ export class FloorScene {
     key.shadow.camera.far = 160
     key.shadow.bias = -0.0006
     this.scene.add(key)
-    const fill = new THREE.DirectionalLight(0x7aa7ff, 0.35)
+    const fill = new THREE.DirectionalLight(0x7aa7ff, 0.4)
     fill.position.set(-30, 22, -20)
+    this.fillLight = fill
     this.scene.add(fill)
+    // ceiling rig (fixtures, pendants, LED strips, floor light pools)
+    this.rig = buildLighting(this.layout)
+    this.scene.add(this.rig.group)
+    // warm wash for the cabin corridor and each room interior
+    const corridor = new THREE.PointLight(0xdcecff, 30, 60, 2)
+    corridor.userData.base = 30
+    corridor.position.set(0, 7.4, -13.0)
+    this.scene.add(corridor)
+    this.roomLights.push(corridor)
+    for (const room of this.layout.rooms) {
+      if (room.kind === 'hall' || room.kind === 'cabin') continue
+      const [x0, z0, x1, z1] = room.rect
+      const light = new THREE.PointLight(room.kind === 'debate' ? 0xcfc6ff : 0xffe9c9,
+        18, 26, 2)
+      light.position.set((x0 + x1) / 2, 6.4, (z0 + z1) / 2)
+      light.userData.base = 18
+      this.scene.add(light)
+      this.roomLights.push(light)
+    }
+    // one lamp per cabin, right over the hearing table
+    for (const room of this.layout.rooms) {
+      if (room.kind !== 'cabin') continue
+      const [x0, z0, x1, z1] = room.rect
+      const light = new THREE.PointLight(0xfff0cf, 14, 18, 2)
+      light.position.set((x0 + x1) / 2, 5.6, (z0 + z1) / 2 + 1.2)
+      light.userData.base = 14
+      this.scene.add(light)
+      this.roomLights.push(light)
+    }
     // ceiling strip lights over the pit
     for (let i = 0; i < 7; i++) {
       const l = new THREE.PointLight(i % 2 ? 0xcfe4ff : 0xffe9c7, 22, 34, 2)
@@ -222,6 +263,41 @@ export class FloorScene {
       this.scene.add(l)
       this.hubLights.push(l)
     }
+  }
+
+  /** Bright (working floor) vs moody (cinematic) lighting. */
+  setLighting(mode: 'bright' | 'moody') {
+    this.lightingMode = mode
+    const bright = mode === 'bright'
+    this.lightLevel = bright ? 1.0 : 0.62
+    if (this.hemi) this.hemi.intensity = bright ? 1.15 : 0.62
+    if (this.keyLight) this.keyLight.intensity = bright ? 1.35 : 0.85
+    if (this.fillLight) this.fillLight.intensity = bright ? 0.4 : 0.22
+    this.renderer.toneMappingExposure = bright ? 1.16 : 1.0
+    for (const l of this.hubLights) l.intensity = (bright ? 26 : 17)
+    for (const l of this.roomLights) l.intensity = bright ? l.userData.base ?? l.intensity : 0.6 * (l.userData.base ?? l.intensity)
+    if (this.rig) {
+      const poolOpacity = bright ? 1.0 : 0.6
+      for (const m of this.rig.pools) {
+        const mat = m.material as THREE.MeshBasicMaterial
+        mat.opacity = (mat.map === null ? 0.16 : 0.2) * poolOpacity
+      }
+      for (const halo of this.rig.halos) {
+        (halo.material as THREE.SpriteMaterial).opacity = bright ? 0.5 : 0.34
+      }
+      for (const p of this.rig.panels) {
+        const mat = p.material as THREE.MeshBasicMaterial
+        mat.color.setStyle(bright ? '#fff6e2' : '#c9bda6')
+      }
+      for (const st of this.rig.strips) {
+        const mat = st.material as THREE.MeshBasicMaterial
+        mat.color.setStyle(bright ? '#8fd8ff' : '#4b8ab5')
+      }
+    }
+  }
+
+  get lighting(): 'bright' | 'moody' {
+    return this.lightingMode
   }
 
   private buildGateEffects(x: number, z: number, isExit = false) {
@@ -759,6 +835,14 @@ export class FloorScene {
       this.renderer.shadowMap.enabled = false
       this.scene.traverse((o) => { (o as any).castShadow = false })
       this.scene.fog = new THREE.Fog(0x0a0f18, 70, 220)
+      // trim the dynamic-light bill: emissive panels and floor pools still carry
+      // the look, so the hall stays lit without paying for 16 real lamps
+      this.hubLights.forEach((l, i) => { l.visible = i % 2 === 0 })
+      for (const l of this.roomLights) l.visible = false
+      for (const key of Object.keys(this.cabinSpots)) {
+        const spot = this.cabinSpots[Number(key)]
+        if (spot) spot.visible = false
+      }
       console.info('[soul-exter] quality auto-degraded for smoothness', this.fps.toFixed(1), 'fps')
     }
   }

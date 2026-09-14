@@ -86,10 +86,37 @@ async def trade_chat(trade_id: str, payload: dict) -> dict:
     return await engine.council.ask(seat_id, trade, question)
 
 
+from ..llm import keys as keyreg
+
+KEY_FILES, KEY_VALUES = keyreg.load_env_keys()
+
+
+def host_key_report() -> dict:
+    """Which provider keys this host can see (values included: this is the
+    operator's own machine, and the Settings panel must be able to show the key
+    the desks are running with rather than asking for one again)."""
+    out = keyreg.report()
+    for provider, info in out.items():
+        info["seats"] = [s.id for s in engine.council.seats if s.provider == provider]
+    return out
+
+
 @app.get("/api/seats")
 async def seats() -> dict:
-    return dict(seats=[s.dict() for s in engine.council.seats],
-                llm=CLIENT.stats, live_capable=True)
+    seats_ = [s.dict() for s in engine.council.seats]
+    live = [s for s in seats_ if s["live"]]
+    return dict(seats=seats_, llm=CLIENT.stats, live_capable=True,
+                providers=host_key_report(),
+                engine=dict(
+                    mode="hosted" if live else "builtin",
+                    env_files=KEY_FILES,
+                    hosted=[s["name"] for s in live],
+                    builtin=[s["name"] for s in seats_ if not s["live"]],
+                    note=("All six desks are running the built-in analyst engine — no key needed. "
+                          "Paste a key (or export one on the host) to promote a desk to a hosted model."
+                          if not live else
+                          "Hosted models are answering; the built-in engine remains the fallback."),
+                ))
 
 
 @app.post("/api/seats/{seat_id}")

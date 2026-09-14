@@ -39,12 +39,29 @@ class LLMSeat:
     def live(self) -> bool:
         return self.provider != "builtin" and bool(self.key() or self.provider == "ollama")
 
+    def key_source(self) -> str:
+        """Where the key this seat is running with comes from."""
+        if self.api_key:
+            return "seat"
+        if self.api_key_env and os.environ.get(self.api_key_env):
+            return f"env:{self.api_key_env}"
+        return "none"
+
     def dict(self, expose_key: bool = True) -> dict:
         d = asdict(self)
         if not expose_key:
             d["api_key"] = "***" if self.api_key else ""
-        d["has_key"] = bool(self.key())
+        active = self.key()
+        d["has_key"] = bool(active)
         d["live"] = self.live()
+        # what the desk is *actually* running with, so the operator never has to
+        # guess whether a key is in play
+        d["active_key"] = active
+        d["active_key_masked"] = (active[:7] + "…" + active[-4:]) if len(active) > 14 else (
+            "set" if active else "")
+        d["key_source"] = self.key_source()
+        d["engine"] = (f"{self.provider}:{self.model}" if self.live()
+                       else "soul-exter-analyst (built-in)")
         return d
 
 

@@ -253,6 +253,12 @@ export function TradeDetail({ trade, seats, onClose, onAsk, focusSeat }: {
   )
 }
 
+export function maskKey(key: string): string {
+  if (!key) return ''
+  if (key.length <= 10) return '•'.repeat(key.length)
+  return `${key.slice(0, 6)}${'•'.repeat(Math.min(14, key.length - 10))}${key.slice(-4)}`
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="stat">
@@ -519,19 +525,22 @@ export function MarketsPanel({ markets, enabled, counts }: {
 }
 
 /* ---------------------------------------------------------- settings panel */
-export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, onTest }: {
+export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, onTest, engine, providers }: {
   seats: SeatFrame[]
   settings: any
   universe: { groups: Record<string, any[]>; enabled: string[]; total: number } | null
   onSeat: (id: string, patch: Record<string, unknown>) => Promise<void>
   onSettings: (patch: Record<string, unknown>) => Promise<void>
   onTest: (id: string) => Promise<any>
+  engine?: { mode: string; hosted: string[]; builtin: string[]; note: string; env_files?: string[] } | null
+  providers?: Record<string, { env: string; set: boolean; value: string; seats: string[] }>
 }) {
   const [tab, setTab] = useState<'markets' | 'models' | 'engine'>('markets')
   const [local, setLocal] = useState<any>(settings || {})
   const [testResult, setTestResult] = useState<Record<string, string>>({})
   const [dirty, setDirty] = useState(false)
   const [reveal, setReveal] = useState<Record<string, boolean>>({})
+  const [showAllKeys, setShowAllKeys] = useState(true)
   const enabled = useMemo(() => new Set(settings?.enabled_symbols || []), [settings?.enabled_symbols])
 
   useEffect(() => { setLocal(settings || {}) }, [settings])
@@ -598,70 +607,121 @@ export function SettingsPanel({ seats, settings, universe, onSeat, onSettings, o
 
       {tab === 'models' && (
         <div className="settings-block">
-          <div className="muted small pad">
-            Six reasoning desks — five cabin judges plus the Head of Council. Each can run the
-            built-in analyst engine (key-free, always available) or a hosted open-source model
-            through any OpenAI-compatible provider.
-          </div>
-          {seats.map((s) => (
-            <div className={`model-card${s.cabin ? '' : ' head'}`} key={s.id}
-                 style={{ ['--chip' as any]: s.accent }}>
-              <div className="model-head">
-                <span className="model-name">{s.name}</span>
-                <span className="muted small">{s.cabin ? `CABIN ${String(s.cabin).padStart(2, '0')}` : s.role}</span>
-                <span className={`dot ${s.live ? 'live' : 'builtin'}`} />
-              </div>
-              <div className="model-grid">
-                <label>
-                  <span>Model</span>
-                  <input value={s.model} onChange={(e) => onSeat(s.id, { model: e.target.value })} />
-                </label>
-                <label>
-                  <span>Provider</span>
-                  <select value={s.provider}
-                          onChange={(e) => onSeat(s.id, { provider: e.target.value })}>
-                    {['builtin', 'openrouter', 'together', 'groq', 'deepseek', 'mistral', 'ollama', 'openai', 'custom']
-                      .map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </label>
-                <label>
-                  <span>
-                    API key{' '}
-                    <button className="eye" type="button"
-                            onClick={() => setReveal((r) => ({ ...r, [s.id]: !r[s.id] }))}>
-                      {reveal[s.id] ? 'HIDE' : 'SHOW'}
-                    </button>
-                  </span>
-                  <input type={reveal[s.id] ? 'text' : 'password'} value={s.api_key || ''}
-                         placeholder={s.has_key ? '•••••••• saved' : 'paste key'}
-                         onChange={(e) => onSeat(s.id, { api_key: e.target.value })} />
-                </label>
-                <label>
-                  <span>Base URL</span>
-                  <input value={s.base_url} placeholder="auto from provider"
-                         onChange={(e) => onSeat(s.id, { base_url: e.target.value })} />
-                </label>
-                <label>
-                  <span>Temperature</span>
-                  <input type="number" step="0.05" min="0" max="1" value={s.temperature}
-                         onChange={(e) => onSeat(s.id, { temperature: Number(e.target.value) })} />
-                </label>
-                <label className="inline">
-                  <span>Enabled</span>
-                  <input type="checkbox" checked={s.enabled}
-                         onChange={(e) => onSeat(s.id, { enabled: e.target.checked })} />
-                </label>
-              </div>
-              <div className="model-actions">
-                <button className="mini" onClick={async () => {
-                  const r = await onTest(s.id)
-                  setTestResult((t) => ({ ...t, [s.id]: `${r.ok ? '✅' : '⚠️'} ${r.message?.slice(0, 180)}` }))
-                }}>TEST SEAT</button>
-                <span className="muted small">{s.specialty}</span>
-              </div>
-              {testResult[s.id] && <div className="model-test">{testResult[s.id]}</div>}
+          <div className={`engine-banner ${engine?.mode === 'hosted' ? 'hosted' : 'builtin'}`}>
+            <div className="eb-head">
+              <span className="eb-dot" />
+              {engine?.mode === 'hosted'
+                ? `Hosted models answering: ${engine?.hosted?.join(', ')}`
+                : 'All desks running the built-in analyst engine'}
             </div>
-          ))}
+            <div className="eb-note">{engine?.note}</div>
+            <div className="eb-note">
+              Reading keys from: <code>{engine?.env_files?.length
+                ? engine.env_files.join(' · ')
+                : 'host environment only — add a .env with OPENROUTER_API_KEY to run hosted models'}</code>
+            </div>
+            <div className="eb-keys">
+              <b>Keys on this host:</b>{' '}
+              {providers && Object.values(providers).some((p) => p.set)
+                ? Object.entries(providers).filter(([, p]) => p.set).map(([name, p]) => (
+                    <span key={name} className="keychip">
+                      {p.env} = {showAllKeys ? p.value : maskKey(p.value)}
+                      <button className="eye" onClick={() => setShowAllKeys(!showAllKeys)}>
+                        {showAllKeys ? 'HIDE' : 'SHOW'}
+                      </button>
+                    </span>
+                  ))
+                : <span className="muted">none set — the built-in engine needs no key. Export e.g.
+                    OPENROUTER_API_KEY on the host (or paste below) to promote a desk.</span>}
+            </div>
+          </div>
+
+          {seats.map((s) => {
+            const active = s.active_key || ''
+            const shown = reveal[s.id] ?? true
+            return (
+              <div className={`model-card${s.cabin ? '' : ' head'}`} key={s.id}
+                   style={{ ['--chip' as any]: s.accent }}>
+                <div className="model-head">
+                  <span className="model-name">{s.name}</span>
+                  <span className="muted small">{s.cabin ? `CABIN ${String(s.cabin).padStart(2, '0')}` : s.role}</span>
+                  <span className={`dot ${s.live ? 'live' : 'builtin'}`} />
+                  <span className={`mode-tag ${s.live ? 'live' : 'builtin'}`}>
+                    {s.live ? 'HOSTED' : 'BUILT-IN'}
+                  </span>
+                </div>
+
+                <div className="running-key">
+                  <span className="rk-label">Running with</span>
+                  <span className="rk-engine">{s.engine}</span>
+                </div>
+                <div className="running-key">
+                  <span className="rk-label">API key</span>
+                  {active ? (
+                    <>
+                      <code className="rk-key">{shown ? active : maskKey(active)}</code>
+                      <span className="rk-src">
+                        {s.key_source === 'seat' ? 'set in this panel'
+                          : s.key_source?.startsWith('env:') ? `from host env ${s.key_source.slice(4)}`
+                          : ''}
+                      </span>
+                      <button className="eye" onClick={() => setReveal((r) => ({ ...r, [s.id]: !shown }))}>
+                        {shown ? 'HIDE' : 'SHOW'}
+                      </button>
+                    </>
+                  ) : (
+                    <span className="rk-none">
+                      none — the built-in analyst engine answers this desk (no key required)
+                    </span>
+                  )}
+                </div>
+
+                <div className="model-grid">
+                  <label>
+                    <span>Model</span>
+                    <input value={s.model} onChange={(e) => onSeat(s.id, { model: e.target.value })} />
+                  </label>
+                  <label>
+                    <span>Provider</span>
+                    <select value={s.provider}
+                            onChange={(e) => onSeat(s.id, { provider: e.target.value })}>
+                      {['builtin', 'openrouter', 'together', 'groq', 'deepseek', 'mistral', 'ollama', 'openai', 'custom']
+                        .map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Override key (optional)</span>
+                    <input type="password" value={s.api_key || ''}
+                           placeholder={s.has_key ? 'using the key shown above' : 'paste to promote this desk'}
+                           onChange={(e) => onSeat(s.id, { api_key: e.target.value })} />
+                  </label>
+                  <label>
+                    <span>Base URL</span>
+                    <input value={s.base_url} placeholder="auto from provider" 
+                           onChange={(e) => onSeat(s.id, { base_url: e.target.value })} />
+                  </label>
+                  <label>
+                    <span>Temperature</span>
+                    <input type="number" step="0.05" min="0" max="1" value={s.temperature}
+                           onChange={(e) => onSeat(s.id, { temperature: Number(e.target.value) })} />
+                  </label>
+                  <label className="inline">
+                    <span>Enabled</span>
+                    <input type="checkbox" checked={s.enabled}
+                           onChange={(e) => onSeat(s.id, { enabled: e.target.checked })} />
+                  </label>
+                </div>
+                <div className="model-actions">
+                  <button className="mini" onClick={async () => {
+                    const r = await onTest(s.id)
+                    setTestResult((t) => ({ ...t, [s.id]: `${r.ok ? '✅' : '⚠️'} ${r.message?.slice(0, 200)}` }))
+                  }}>TEST SEAT</button>
+                  <span className="muted small">{s.specialty}</span>
+                </div>
+                {testResult[s.id] && <div className="model-test">{testResult[s.id]}</div>}
+              </div>
+            )
+          })}
         </div>
       )}
 

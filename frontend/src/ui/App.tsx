@@ -26,6 +26,7 @@ export function App() {
   const [stats, setStats] = useState<any>({})
   const [events, setEvents] = useState<any[]>([])
   const [seats, setSeats] = useState<SeatFrame[]>([])
+  const [seatMeta, setSeatMeta] = useState<any>(null)
   const [settings, setSettings] = useState<any>(null)
   const [universe, setUniverse] = useState<any>(null)
   const [playbook, setPlaybook] = useState<any>(null)
@@ -42,6 +43,7 @@ export function App() {
   const [cinema, setCinema] = useState(false)
   const [fps, setFps] = useState(60)
   const [chatRequest, setChatRequest] = useState<{ seatId: string; tradeId: string } | null>(null)
+  const [lights, setLights] = useState<'bright' | 'moody'>('bright')
 
   /* ---------------------------------------------------------------- boot */
   useEffect(() => {
@@ -49,7 +51,7 @@ export function App() {
     ;(async () => {
       try {
         const [layout, snap, seatData, uni, book, debateData] = await Promise.all([
-          api.layout(), api.state(), api.seats(), api.universe(), api.playbook(), api.debate()
+          api.layout(), api.state(), api.seatsFull(), api.universe(), api.playbook(), api.debate()
         ])
         if (disposed || !hostRef.current) return
         const scene = new FloorScene(hostRef.current, layout as Layout, {
@@ -64,6 +66,7 @@ export function App() {
         scene.setSeats(seatData.seats)
         sceneRef.current = scene
         setSeats(seatData.seats)
+        setSeatMeta(seatData)
         setSnapshot(snap)
         setTrades(snap.trades)
         setWalkers(snap.walkers)
@@ -128,13 +131,14 @@ export function App() {
     const slow = setInterval(async () => {
       try {
         const [book, dbg, st, seatData, an] = await Promise.all([
-          api.playbook(), api.debate(), api.state(), api.seats(), api.analytics()
+          api.playbook(), api.debate(), api.state(), api.seatsFull(), api.analytics()
         ])
         setPlaybook(book)
         setDebate(dbg.messages)
         setOutcomes(st.outcomes)
         setLive(st.live)
-        setSeats(seatData.seats)
+        setSeats((seatData as any).seats || seatData)
+        setSeatMeta(seatData)
         setBook(an.book)
         setModel(an.model)
         try { setFlyExtra(await api.fly()) } catch { /* transient */ }
@@ -244,6 +248,14 @@ export function App() {
           {['overview', 'pit', 'corridor', 'cabins', 'executive', 'debate', 'gates', 'tape'].map((p) => (
             <button key={p} onClick={() => sceneRef.current?.setPreset(p)}>{p.toUpperCase()}</button>
           ))}
+          <button className={`light-toggle ${lights}`}
+                  onClick={() => {
+                    const next = lights === 'bright' ? 'moody' : 'bright'
+                    setLights(next)
+                    sceneRef.current?.setLighting(next)
+                  }}>
+            {lights === 'bright' ? '☀ LIGHTS ON' : '☾ MOODY'}
+          </button>
         </div>
         {!!markets.length && (
           <div className="mini-tape">
@@ -293,6 +305,8 @@ export function App() {
                                                       model={model} />}
               {tab === 'settings' && <SettingsPanel seats={seats} settings={settings} universe={universe}
                                                     onSeat={patchSeat} onSettings={patchSettings}
+                                                    engine={seatMeta?.engine}
+                                                    providers={seatMeta?.providers}
                                                     onTest={api.testSeat} />}
             </div>
           </aside>

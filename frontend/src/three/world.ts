@@ -598,3 +598,174 @@ export function buildSky(scene: THREE.Scene) {
   scene.add(sky)
   return sky
 }
+
+/* --------------------------------------------------------------- lighting -- */
+/**
+ * Ceiling rig for the hall: suspended linear fixtures, pendant spotlights over
+ * the pit, LED strips along the aisles and cabin interiors, plus additive
+ * "light pool" decals on the floor. The pools and emissive panels are free
+ * (no extra dynamic lights), so the hall reads as properly lit without paying
+ * the per-light shading cost of a dozen real lamps.
+ */
+let _glowTex: THREE.Texture | null = null
+/** Soft radial gradient used for light pools, halos and lamp glows. */
+function radialGlow(color = '#ffffff'): THREE.Texture {
+  if (_glowTex) return _glowTex
+  const size = 256
+  const c = document.createElement('canvas')
+  c.width = c.height = size
+  const ctx = c.getContext('2d')!
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  g.addColorStop(0, color)
+  g.addColorStop(0.35, color)
+  g.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  _glowTex = tex
+  return tex
+}
+
+export interface LightingRig {
+  group: THREE.Group
+  panels: THREE.Mesh[]
+  strips: THREE.Mesh[]
+  pools: THREE.Mesh[]
+  pendants: THREE.Mesh[]
+  halos: THREE.Sprite[]
+}
+
+export function buildLighting(layout: Layout): LightingRig {
+  const group = new THREE.Group()
+  group.name = 'lighting'
+  const hall = layout.hall
+  const panels: THREE.Mesh[] = []
+  const strips: THREE.Mesh[] = []
+  const pools: THREE.Mesh[] = []
+  const pendants: THREE.Mesh[] = []
+  const halos: THREE.Sprite[] = []
+
+  const panelMat = new THREE.MeshBasicMaterial({ color: 0xfff6e2 })
+  const housingMat = new THREE.MeshStandardMaterial({ color: 0x1a2230, roughness: 0.6,
+    metalness: 0.5 })
+  const stripMat = new THREE.MeshBasicMaterial({ color: 0x8fd8ff })
+  const poolTex = radialGlow('rgba(255,233,194,1)')
+  const poolMat = new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, opacity: 0.20,
+    blending: THREE.AdditiveBlending, depthWrite: false })
+  const coolPoolMat = new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, opacity: 0.16,
+    color: 0xbfe4ff, blending: THREE.AdditiveBlending, depthWrite: false })
+
+  // --- suspended linear fixtures over the pit and concourse -----------------
+  const rowsZ = [-16.5, -10.0, -3.5, 3.0, 9.5, 16.0, 22.5]
+  for (let r = 0; r < rowsZ.length; r++) {
+    const z = rowsZ[r]
+    const count = 6
+    for (let i = 0; i < count; i++) {
+      const x = hall.x0 + 6.5 + i * ((hall.x1 - hall.x0 - 13) / (count - 1))
+      const y = hall.h - 0.55
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.16, 0.9), panelMat)
+      panel.position.set(x, y, z)
+      group.add(panel)
+      panels.push(panel)
+      const housing = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.26, 1.1), housingMat)
+      housing.position.set(x, y + 0.2, z)
+      group.add(housing)
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.55, 6), housingMat)
+      rod.position.set(x, y + 0.5, z)
+      group.add(rod)
+      // light pool on the floor beneath the fixture
+      const pool = new THREE.Mesh(new THREE.PlaneGeometry(9.5, 5.2),
+        r % 2 ? poolMat : coolPoolMat)
+      pool.rotation.x = -Math.PI / 2
+      pool.position.set(x, 0.05, z)
+      group.add(pool)
+      pools.push(pool)
+    }
+  }
+
+  // --- LED strips marking every aisle so the pathways read clearly ----------
+  const aislesX = [-18.05, -5.35, 7.35]
+  for (const x of aislesX) {
+    for (const [z0, z1] of [[-8.6, 5.6], [-15.2, -8.9], [6.1, 9.4]]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, z1 - z0), stripMat)
+      strip.position.set(x, 0.035, (z0 + z1) / 2)
+      group.add(strip)
+      strips.push(strip)
+    }
+  }
+  // cross aisle lines
+  for (const z of [-8.75, 5.95]) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(46, 0.05, 0.14), stripMat)
+    strip.position.set(-11, 0.035, z)
+    group.add(strip)
+    strips.push(strip)
+  }
+
+  // --- pendant spotlights over the pit -------------------------------------
+  for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 2; j++) {
+      const x = -30 + i * 10.5
+      const z = j ? 2.6 : -5.4
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.5, 14, 1, true),
+        new THREE.MeshStandardMaterial({ color: 0x222c3a, metalness: 0.65, roughness: 0.35,
+          side: THREE.DoubleSide }))
+      cone.position.set(x, hall.h - 1.5, z)
+      cone.rotation.x = Math.PI
+      group.add(cone)
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10),
+        new THREE.MeshBasicMaterial({ color: 0xfff2d6 }))
+      bulb.position.set(x, hall.h - 1.72, z)
+      group.add(bulb)
+      pendants.push(bulb)
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: radialGlow('rgba(255,230,184,1)'), transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, depthWrite: false }))
+      halo.scale.set(2.6, 2.6, 1)
+      halo.position.set(x, hall.h - 1.8, z)
+      group.add(halo)
+      halos.push(halo)
+      const cone_glow = new THREE.Mesh(new THREE.ConeGeometry(2.5, 4.2, 18, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0xffe9c7, transparent: true, opacity: 0.05,
+          blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }))
+      cone_glow.position.set(x, hall.h - 3.7, z)
+      cone_glow.rotation.x = Math.PI
+      group.add(cone_glow)
+    }
+  }
+
+  // --- cabin, executive, vault and debate interiors -------------------------
+  for (const room of layout.rooms) {
+    if (room.kind === 'hall') continue
+    const [x0, z0, x1, z1] = room.rect
+    const cx = (x0 + x1) / 2
+    const cz = (z0 + z1) / 2
+    const warm = room.kind === 'cabin' ? 0xfff0d0 : room.kind === 'debate' ? 0xdcd7ff : 0xfff4e0
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(Math.min(6.4, x1 - x0 - 2.2), 0.14,
+      Math.min(3.4, z1 - z0 - 2.0)), new THREE.MeshBasicMaterial({ color: warm }))
+    panel.position.set(cx, hall.h - 0.8, cz)
+    group.add(panel)
+    panels.push(panel)
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(12, x1 - x0 + 3),
+      Math.min(10, z1 - z0 + 4)),
+      new THREE.MeshBasicMaterial({ map: radialGlow('rgba(255,233,194,1)'), transparent: true,
+        opacity: room.kind === 'cabin' ? 0.16 : 0.13, blending: THREE.AdditiveBlending,
+        depthWrite: false }))
+    pool.rotation.x = -Math.PI / 2
+    pool.position.set(cx, 0.05, cz)
+    group.add(pool)
+    pools.push(pool)
+  }
+
+  // --- corridor wash: even light down the cabin corridor --------------------
+  for (let i = 0; i < 7; i++) {
+    const x = hall.x0 + 5.5 + i * ((hall.x1 - hall.x0 - 11) / 6)
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(11, 6.4), coolPoolMat)
+    pool.rotation.x = -Math.PI / 2
+    pool.position.set(x, 0.045, -12.6)
+    group.add(pool)
+    pools.push(pool)
+  }
+
+  return { group, panels, strips, pools, pendants, halos }
+}
