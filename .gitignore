@@ -1,0 +1,18 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# runtime state
+soul_exter_settings.json
+soul_exter_scorecard_weights.json.bak
+
+# node / frontend build
+node_modules/
+frontend/dist/
+.vite/
+
+# os / editors
+.DS_Store
+*.swp
