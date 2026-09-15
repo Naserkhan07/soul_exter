@@ -116,9 +116,10 @@ DEFAULT_SEATS: List[LLMSeat] = [
     ),
     LLMSeat(
         id="ceo", name="NAVEED", role="Head of Council · CEO",
-        specialty="Capital allocation & final mandate", model="NousResearch/Hermes-3-Llama-3.1-405B",
+        specialty="Advanced trading doctrine · capital allocation & final mandate",
+        model="NousResearch/Hermes-3-Llama-3.1-405B",
         provider="builtin", api_key_env="OPENROUTER_API_KEY", cabin=None, accent="#c084fc",
-        temperature=0.2, open_source_family="Hermes 3 · 405B Llama 3.1",
+        temperature=0.2, open_source_family="Hermes 3 · 405B Llama 3.1 · advanced-trained",
         avatar=dict(style="black suit, gold tie pin", chair="leather high-back"),
     ),
     LLMSeat(

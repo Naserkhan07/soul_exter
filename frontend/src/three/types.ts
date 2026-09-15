@@ -234,6 +234,9 @@ export interface ChatTrainingRow {
   answered: number
   lessons: number
   live: boolean
+  /** walked in already trained on the advanced trading curriculum (NAVEED) */
+  pretrained?: boolean
+  trained_on?: string
 }
 
 export interface ChatRoomState {

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FloorScene } from '../three/scene'
 import { api, FloorSocket, type Snapshot } from '../net/api'
+import { emitThought } from '../state/brainBus'
 import type { ChatRoomState, DebateMsg, FrameMsg, Layout, SeatFrame, TradeFrame } from '../three/types'
 import { AnalyticsPanel, ChatRoomPanel, CommsPanel, CouncilPanel, DebatePanel, EventTicker, FlyPanel,
          MarketsPanel, OrdersPanel,
@@ -49,6 +50,38 @@ export function App() {
   const [orderBusy, setOrderBusy] = useState<Record<string, string>>({})
   const [commsFocus, setCommsFocus] = useState<string | null>(null)
   const [bookInfo, setBookInfo] = useState<any>(null)
+  const seatsRef = useRef<SeatFrame[]>([])
+  useEffect(() => { seatsRef.current = seats }, [seats])
+
+  /* -------------------------------------------------- thoughts → brain light
+   * Every thinking / questioning moment on the floor is published on the
+   * thought bus; the fly-brain connectome runs a ~3 cm light packet down the
+   * veins in the thinker's colour for each one. */
+  const CEO_ACCENT = '#c084fc'
+  const accentOf = useCallback((idOrName?: string | null): string | undefined => {
+    if (!idOrName) return undefined
+    const s = seatsRef.current
+    const hit = s.find((x) => x.id === idOrName) || s.find((x) => x.name === idOrName)
+    return hit?.accent
+  }, [])
+  const pulseFor = useCallback((ev: any) => {
+    const k = ev?.kind
+    if (k === 'trade_walking') emitThought({ color: accentOf(ev.judge), strength: 0.75, kind: k })
+    else if (k === 'trade_in_cabin') emitThought({
+      color: seatsRef.current.find((s) => s.cabin === ev.cabin)?.accent, strength: 0.7, kind: k })
+    else if (k === 'verdict') emitThought({ color: accentOf(ev.judge), strength: 1.2, kind: k })
+    else if (k === 'trade_in_exec') emitThought({ color: CEO_ACCENT, strength: 1.0, kind: k })
+    else if (k === 'exec_ruling') emitThought({ color: CEO_ACCENT, strength: 1.35, kind: k })
+    else if (k === 'desk_chat') emitThought({ color: accentOf(ev.trade?.seat), strength: 0.9, kind: k })
+    else if (k === 'chatroom' || k === 'debate') {
+      const m = ev.message || {}
+      emitThought({ color: m.accent || accentOf(m.seat_id),
+        strength: m.kind === 'question' || m.kind === 'answer' || m.kind === 'lesson' ? 1.1 : 0.7,
+        kind: k })
+    } else if (k === 'council_unanimous' || k === 'council_veto' || k === 'trade_escalated') {
+      emitThought({ color: CEO_ACCENT, strength: 0.9, kind: k })
+    }
+  }, [accentOf])
 
   /* how many cleared tickets are still waiting for a PLACE TRADE click */
   const readyCount: number = useMemo(() => {
@@ -120,7 +153,10 @@ export function App() {
       if (msg.type === 'frame') {
         frameRef.current = msg
         eventBuf.current.push(...(msg.events || []))
-        for (const ev of msg.events || []) sceneRef.current?.handleEvent(ev)
+        for (const ev of msg.events || []) {
+          sceneRef.current?.handleEvent(ev)
+          pulseFor(ev)
+        }
       }
       if (msg.type === 'chat_reply') {
         /* handled inside the detail panel */
@@ -191,8 +227,9 @@ export function App() {
       if (tradeId) setSelected(tradeId)
     }
     if (!tradeId) throw new Error('no ticket on the floor yet')
+    emitThought({ color: accentOf(seatId), strength: 0.95, kind: 'desk_ask' })
     return api.chat(tradeId, seatId, question)
-  }, [selected, trades])
+  }, [selected, trades, accentOf])
 
   const askSeatFromCouncil = useCallback((seatId: string) => {
     setChatRequest(null)
@@ -359,8 +396,10 @@ export function App() {
               {tab === 'comms' && (
                 <CommsPanel seats={seats} focusSeat={commsFocus}
                             onConsumeFocus={() => setCommsFocus(null)}
-                            onAsk={async (seatId, question, tradeId) =>
-                              api.askDesk(seatId, question, tradeId)} />
+                            onAsk={async (seatId, question, tradeId) => {
+                              emitThought({ color: accentOf(seatId), strength: 0.95, kind: 'desk_ask' })
+                              return api.askDesk(seatId, question, tradeId)
+                            }} />
               )}
               {tab === 'council' && <CouncilPanel seats={seats} trades={trades} selected={selected}
                                                   onSeatClick={askSeatFromCouncil} />}

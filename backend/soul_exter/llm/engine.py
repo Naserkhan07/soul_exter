@@ -8,6 +8,7 @@ import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..agents.schemas import Signal, Trade, Verdict_
+from . import ceo_brain
 from . import qa as desk_qa
 from .analyst import StageContext, evaluate as builtin_evaluate
 from .client import CLIENT
@@ -28,8 +29,12 @@ JUDGE_SYSTEM = (
 
 CEO_SYSTEM = (
     "You are {name}, Head of Council and CEO of the SOUL EXTER autonomous trading desk. "
-    "Your desk owns capital allocation: {specialty}. Five specialist judges have already "
-    "voted. You make the final, binding decision. Answer with STRICT JSON only:\n"
+    "Your desk owns capital allocation: {specialty}. You are the most trained seat on the "
+    "floor — you alone were trained on the advanced trading curriculum "
+    f"({ceo_brain.training_summary()}) — so you outrule the five specialist judges: you read "
+    "their votes weighted by how relevant each desk's specialty is to the ticket's actual "
+    "numbers, then apply your trained doctrines before moving capital. Five specialist judges "
+    "have already voted; you make the final, binding decision. Answer with STRICT JSON only:\n"
     '{{"verdict":"approve|reject","confidence":0.0-1.0,"key_points":["..."],"risks":["..."],'
     '"reasoning":"3-5 sentences referencing the votes, dissent and the playbook",'
     '"mandate":"one-line order for the execution desk",'
@@ -71,6 +76,109 @@ def _trade_brief(trade: Trade, prior: Sequence[Verdict_], playbook_info: dict,
                   reasoning=v.reasoning[:220]) for v in prior])[:1400])
     lines.append("playbook: " + json.dumps(playbook_info)[:600])
     return "\n".join(lines)
+
+
+def naveed_synthesis(seat_name: str, ctx: StageContext, symbol: str, direction: str,
+                     prior: Sequence[Verdict_], base_score: float = 0.0,
+                     scale: float = 2.0, bar: float = 0.10) -> dict:
+    """NAVEED's trained executive synthesis — the layer that outrules the cabins.
+
+    Two layers sit above the five judges' votes:
+
+    1. **Weighted consensus** — each vote counts by its confidence × how relevant
+       that desk's specialty is to *this* ticket's actual numbers (the vol desk's
+       opinion carries more weight on a top-decile-ATR tape, the trend desk's on
+       an efficient one, the execution desk's when the spread is taxing, …).
+    2. **The advanced training** — `ceo_brain.overlays()` applies the curriculum's
+       mechanical doctrine rules (vol targeting, regime filter, momentum
+       alignment, payoff discipline, playbook evidence, spread tax, time stops)
+       to both the score and the clip, citing each doctrine it invoked.
+
+    Calibrated against the tape: the weighted consensus plus the composite read
+    is what separates the profitable cohort from the rest (see council_study and
+    scripts/ceo_study.py, where this synthesis is scored against every
+    individual desk and the naive majority vote).
+    """
+    f = ctx.f
+    s = ctx.signal
+    votes_for = sum(1 for v in prior if v.verdict == "approve")
+    against = sum(1 for v in prior if v.verdict == "reject")
+    abstain = len(prior) - votes_for - against
+    confs = [v.confidence for v in prior if v.verdict == "approve"]
+
+    # ---- layer 1: specialty-relevance weighted consensus ------------------- #
+    tc = ceo_brain.trend_composite(f)
+    atr_rank = float(f.get("atr_rank", 0.5))
+    eff = float(f.get("efficiency", 0.5))
+    spread_ratio = float(f.get("spread_ratio", 0.0) or 0.0)
+    rr = float(ctx.rr or 0.0)
+    weights = {
+        "judge_trend": 1.0 + 0.8 * min(abs(tc), 1.0) * (1.0 if eff >= 0.32 else 0.5),
+        "judge_quant": 1.0 + 0.5 * min(max(rr, 0.0) / 2.2, 1.5),
+        "judge_macro": 1.0,
+        "judge_vol": 1.0 + 0.8 * atr_rank,
+        "judge_exec": 1.0 + 0.6 * min(spread_ratio * 1500.0, 1.0),
+    }
+    num = den = 0.0
+    for v in prior:
+        w = weights.get(v.judge_id, 1.0) * max(0.05, v.confidence)
+        if v.verdict == "approve":
+            num += w
+        elif v.verdict == "reject":
+            num -= w
+        else:
+            continue
+        den += w
+    consensus = num / den if den > 1e-6 else 0.0
+
+    # ---- layer 2: the advanced training ------------------------------------ #
+    ov = ceo_brain.overlays(f, ctx.playbook, direction, rr, float(s.score or 0.0),
+                            horizon=str(getattr(s, "horizon", "") or ""))
+    # trained bar: NAVEED approves only a positive expectancy case — the gate is
+    # already selective, so "not clearly bad" is not good enough for capital.
+    # `scale`/`bar` are calibrated on pooled settled tickets (ceo_study).
+    score = np_clip(base_score + 0.32 * consensus + scale * ov.delta)
+
+    verdict = "approve" if score >= bar else "reject"
+    size = round(max(0.2, min(1.5, (0.55 + score * 0.9 + (votes_for - 2) * 0.12)
+                                  * ov.size_mult)), 2)
+
+    pts = [f"Council read: {votes_for} approve · {against} reject · {abstain} abstain — "
+           f"weighted consensus {consensus:+.2f} (specialty-relevance weighted, mean "
+           f"confidence {sum(confs)/len(confs) if confs else 0:.2f})"]
+    book = ctx.playbook
+    if book.get("hit_rate") is not None:
+        pts.append(f"Playbook: {book['hit_rate']*100:.0f}% hit rate on {book.get('sample',0)} "
+                   f"comparable trades ({book.get('key','')})")
+    pts += [f"Training: {n}" for n in ov.notes[:4]]
+    pts += ceo_brain.citations_for(f, book, 1)
+
+    risks: List[str] = []
+    if against and max((v.confidence for v in prior if v.verdict == "reject"), default=0.0) > 0.7:
+        risks.append("A high-conviction dissent is on the record — clip already reduced")
+    if book.get("sample", 0) < 4:
+        risks.append("Playbook sample is thin — sizing stays conservative")
+    if ov.size_mult < 0.75:
+        risks.append("Doctrine overlay trimmed the clip (vol/structure discipline)")
+
+    lead = (f"{seat_name}: the ticket reaches me with {votes_for} of 5 cabins in favour "
+            f"(weighted consensus {consensus:+.2f}). ")
+    if verdict == "approve":
+        doctrine = ("My training clears it — " + "; ".join(ov.notes[:2]) + "."
+                    if ov.notes else "The weighted evidence holds under my training.")
+        reason = lead + doctrine + (f" Sizing at {size}x with the dissent on record."
+                                    if against else "")
+        mandate = (f"Deploy {size}x clip · stop 1.0×ATR · partial 1/3 at +1.2R · "
+                   f"trail 1.1×ATR · time-stop {s.horizon or 'intraday'}")
+    else:
+        doctrine = ("my training vetoes it — " + "; ".join(ov.notes[:2]) + "."
+                    if ov.notes else "the council has not earned a position.")
+        reason = lead + doctrine + " The ticket exits without a fill."
+        mandate = "Stand down — do not fill"
+
+    return dict(verdict=verdict, confidence=round(min(0.97, 0.45 + abs(score) + 0.03), 3),
+                score=score, key_points=pts, risks=risks, reasoning=reason.strip(),
+                mandate=mandate)
 
 
 class CouncilEngine:
@@ -153,9 +261,11 @@ class CouncilEngine:
         engine, model = "builtin", "soul-exter-analyst"
         if seat.live():
             sys = CEO_SYSTEM.format(name=seat.name, specialty=seat.specialty)
+            brief = ("Five cabin verdicts are in. Rule on the ticket.\n"
+                     + _trade_brief(trade, prior, book, market)
+                     + "\n\n" + ceo_brain.prompt_block(_trade_brief(trade, prior, book, market)))
             msgs = [dict(role="system", content=sys),
-                    dict(role="user", content="Five cabin verdicts are in. Rule on the ticket.\n"
-                             + _trade_brief(trade, prior, book, market))]
+                    dict(role="user", content=brief)]
             if pace_s > 0.4:
                 await asyncio.sleep(min(pace_s, 7.0))
             verdict = await CLIENT.chat_json(seat, msgs)
@@ -186,52 +296,11 @@ class CouncilEngine:
 
     def _builtin_exec(self, seat: LLMSeat, ctx: StageContext, trade: Trade,
                       prior: Sequence[Verdict_]) -> dict:
-        votes_for = sum(1 for v in prior if v.verdict == "approve")
-        against = sum(1 for v in prior if v.verdict == "reject")
-        abstain = len(prior) - votes_for - against
-        confs = [v.confidence for v in prior if v.verdict == "approve"]
+        """NAVEED's built-in executive ruling — the trained synthesis below."""
         base = builtin_evaluate(seat, ctx)
-        score = base["score"] if isinstance(base["score"], float) else 0.0
-        pts = [f"Cabin tally: {votes_for} approve · {against} reject · {abstain} abstain "
-               f"(mean confidence {sum(confs)/len(confs) if confs else 0:.2f})"]
-        risks: List[str] = []
-        # consensus maths: 5/0 or 4/1 approves need a strong prior, splits need the CEO's own read
-        if votes_for == 5:
-            score += 0.30
-        elif votes_for == 4:
-            score += 0.16
-        elif votes_for == 3:
-            score += 0.02
-            risks.append("Split council — the dissenting desk may be seeing a regime I am not")
-        elif votes_for == 2:
-            score -= 0.16
-            risks.append("Only two cabins supported the ticket")
-        else:
-            score -= 0.34
-            risks.append("The council has effectively vetoed this ticket")
-        if against and confs and max(v.confidence for v in prior if v.verdict == "reject") > 0.7:
-            score -= 0.14
-            risks.append("A high-conviction dissent is on the record")
-        book = ctx.playbook
-        if book.get("hit_rate") is not None:
-            pts.append(f"Playbook: {book['hit_rate']*100:.0f}% hit rate on {book.get('sample',0)} "
-                       f"comparable trades ({book.get('key','')})")
-            score += (book["hit_rate"] - 0.5) * 0.5
-        if book.get("sample", 0) < 4:
-            pts.append("Sample size is thin — sizing stays conservative")
-        score = np_clip(score)
-        # calibrated on the tape: the consensus tally plus the composite read is
-        # what separates the profitable cohort from the rest (see council_study).
-        verdict = "approve" if score >= -0.22 else "reject"
-        size = round(max(0.2, min(1.5, 0.55 + score * 0.9 + (votes_for - 2) * 0.12)), 2)
-        reason = (f"{seat.name}: the ticket reaches me with {votes_for} of 5 cabins in favour. "
-                  f"{'Consensus is strong enough to deploy capital' if verdict=='approve' else 'The council has not earned a position'}"
-                  f" — {'but I am sizing at ' + str(size) + 'x because the dissent is real' if verdict=='approve' and against else ''}"
-                  + ("." if verdict == "approve" else ", so the ticket exits without a fill."))
-        return dict(verdict=verdict, confidence=round(min(0.97, 0.45 + abs(score)), 3),
-                    score=score, key_points=pts, risks=risks, reasoning=reason.strip(),
-                    mandate=(f"Deploy {size}x clip, trail at 1.1×ATR" if verdict == "approve"
-                             else "Stand down — do not fill"))
+        base_score = base["score"] if isinstance(base["score"], float) else 0.0
+        return naveed_synthesis(seat.name, ctx, trade.symbol, trade.direction, prior,
+                                base_score=base_score)
 
     # ------------------------------------------------------------------ chat
     async def ask(self, seat_id: str, trade: Trade, question: str) -> dict:
@@ -339,6 +408,9 @@ class CouncilEngine:
             prior = [st.verdict.dict() for st in trade.stages if st.verdict] if trade else []
             sys = DESK_CHAT_SYSTEM.format(name=seat.name, role=seat.role,
                                           specialty=seat.specialty)
+            if seat.id == "ceo":
+                # the CEO's hosted voice answers from the advanced training too
+                sys += "\n\n" + ceo_brain.voice_note() + "\n" + ceo_brain.prompt_block(question, 2)
             payload = dict(question=question,
                            floor=dict(stats=ctx.get("stats"), roster=ctx.get("seats"),
                                       lessons=(ctx.get("lessons") or [])[-3:]),

@@ -175,6 +175,48 @@ per verdict). Paste an API key in *Settings → LLM Council* and that seat is pr
 hosted open-source model through any OpenAI-compatible endpoint (OpenRouter, Together, Groq,
 DeepSeek, Mistral, Ollama, custom). Keys are stored on the host machine only.
 
+## NAVEED's advanced training — the CEO outrules the five models
+
+NAVEED is not a sixth voter; he is the one seat **trained** on the advanced trading
+curriculum (`backend/soul_exter/llm/ceo_brain.py`) — 26 doctrines across 16 domains
+(regime analysis, expectancy, sizing, volatility & the vol surface, portfolio construction,
+execution, macro carry, backtest statistics, psychology…). The five cabins each see one
+specialty angle; NAVEED holds all of them plus the doctrine layer, and it shows everywhere
+he speaks:
+
+* **Rulings** — his executive review (`naveed_synthesis`) reads the five votes *weighted by
+  how relevant each desk's specialty is to the ticket's actual numbers* (the vol desk counts
+  for more on a top-decile-ATR tape, the trend desk on an efficient one, execution when the
+  spread is taxing), then applies the trained overlays: efficiency bands, price-relative ATR
+  ("distance is risk"), RSI pullback zones, payoff discipline, playbook evidence, spread tax,
+  time stops. Every doctrine he invoked is cited in the ruling, and the mandate carries the
+  full management plan (clip · 1×ATR stop · partial at +1.2R · 1.1×ATR trail · time-stop).
+* **Answers & chat** — keyless or hosted, his answers quote the doctrine behind the call
+  ("From my advanced training — Know the drawdown arithmetic: …"), and his hosted prompts are
+  injected with the relevant curriculum for the question at hand.
+* **The training record** — he walked into the chat room already at **Market Sage** with an
+  `ADV-TRAINED` badge; the five cabins start at Rookie and earn their XP the slow way.
+
+The training is measurable, not cosmetic. `python3 scripts/ceo_study.py` (in `backend/`)
+samples tickets off the same calibrated entry gate, walks them to first touch and scores
+every desk plus the naive majority on the identical sample. Averaged across seeds the trained
+synthesis harvests the most **total R of the whole council** while deploying more capital
+than any single cabin, keeps per-ticket expectancy in the top half, and its veto book is the
+cleanest on the floor (vetoes land on the losers). The rule bands (efficiency < 0.45 penalises,
+ATR > 1.2% of price cuts, RSI < 35 pullbacks press) were calibrated on pooled settled tickets
+the same way the floor's other thresholds were (`council_study`, `CALIBRATION.md`).
+
+## The fly-brain connectome — quiet veins, light on every thought
+
+The 3D brain in the **FLY BRAIN** tab is calm at rest: no glow, no running light — just the
+colourful axon veins drawn crisply (the render is scaled so the brain spans ≈9 cm across the
+optic lobes, i.e. 1 unit ≈ 1.8 cm). The moment anyone on the floor **thinks or questions** —
+a judge walks into a cabin, a verdict lands, the CEO rules, a chat question or answer is
+posted, the operator asks a desk anything — a light packet runs **exactly 3 cm down the
+veins** in that desk's colour, then fades. A unanimous-council moment, a veto, an escalation,
+each light their own. When the fly strikes, a racing burst of amber packets fires. No thought,
+no light.
+
 ## Settings panel
 
 - **Markets** — tick boxes for the whole universe: 27 FX pairs, 30 stocks, 12 indices,

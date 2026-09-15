@@ -28,6 +28,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from .client import CLIENT
+from . import ceo_brain
 from .playbook import Playbook
 from .registry import LLMSeat
 
@@ -39,6 +40,10 @@ LEVELS: List[Tuple[int, str]] = [
     (50, "Senior"), (90, "Mentor"), (150, "Market Sage"),
 ]
 XP = dict(question=2, answer=3, react=1, remark=1, agree=1, pushback=2, lesson=6)
+
+# NAVEED walked in already trained — he holds the advanced trading curriculum the
+# cabins do not, so his ladder starts where a career ends: Market Sage.
+PRETRAINED_XP: Dict[str, int] = {"ceo": 260}
 
 
 def level_for(xp: int) -> Tuple[str, int, float]:
@@ -94,7 +99,9 @@ class ChatRoom:
 
     def _stat(self, seat_id: str) -> dict:
         if seat_id not in self.stats:
-            self.stats[seat_id] = dict(asked=0, answered=0, remarks=0, lessons=0, xp=0)
+            self.stats[seat_id] = dict(asked=0, answered=0, remarks=0, lessons=0,
+                                       xp=PRETRAINED_XP.get(seat_id, 0),
+                                       pretrained=seat_id in PRETRAINED_XP)
         return self.stats[seat_id]
 
     def _credit(self, seat_id: str, kind: str) -> None:
@@ -265,8 +272,14 @@ class ChatRoom:
                       f"the bar by roughly one tick in this regime. {buc}. {les} Veto me if you "
                       f"must, but watch the counterfactual.",
         }
-        return self.rng.choice(openers.get(seat.id, openers["ceo"])) + " " + bodies.get(
+        body = self.rng.choice(openers.get(seat.id, openers["ceo"])) + " " + bodies.get(
             seat.id, bodies["ceo"])
+        if seat.id == "ceo":
+            # the trained desk quotes the doctrine behind the call
+            cite = ceo_brain.citation(question.get("text", ""), 1)
+            if cite:
+                body += f" {cite}"
+        return body
 
     def _builtin_remark(self, seat: LLMSeat, ctx: Dict[str, Any]) -> str:
         m = self._market_row(ctx, self.rng)
@@ -359,6 +372,9 @@ class ChatRoom:
         roster = ", ".join(f"@{s.name}" for s in self._seats() if s.id != seat.id)
         sys = CHAT_SYSTEM.format(name=seat.name, role=seat.role, specialty=seat.specialty,
                                  mode_note=MODE_NOTES.get(mode, MODE_NOTES["remark"]))
+        if seat.id == "ceo":
+            # the CEO chats from the advanced training the cabins do not hold
+            sys += "\n" + ceo_brain.voice_note()
         transcript = "\n".join(
             f"{x['name']}: {x['text']}" for x in self.messages[-8:]) or "(room just opened)"
         payload = dict(tape=[dict(symbol=x["symbol"], change_pct=round(x.get("change_pct", 0), 3),
@@ -517,7 +533,10 @@ class ChatRoom:
             rows.append(dict(seat_id=seat.id, name=seat.name, accent=seat.accent,
                              role=seat.role, level=name, level_i=lvl, progress=round(prog, 3),
                              xp=st["xp"], asked=st["asked"], answered=st["answered"],
-                             lessons=st["lessons"], live=seat.live()))
+                             lessons=st["lessons"], live=seat.live(),
+                             pretrained=bool(st.get("pretrained")),
+                             trained_on=(ceo_brain.training_summary()
+                                         if seat.id in PRETRAINED_XP else "")))
         rows.sort(key=lambda r: -r["xp"])
         return dict(messages=self.messages[-limit:], training=rows,
                     turn=self.turn_no, pending=bool(self.pending),

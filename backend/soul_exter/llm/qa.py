@@ -26,6 +26,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import ceo_brain
 from .registry import LLMSeat
 
 # --------------------------------------------------------------------------- #
@@ -37,7 +38,7 @@ LENS: Dict[str, str] = {
     "judge_macro": "macro liquidity, rates and cross-asset flow",
     "judge_vol": "volatility, the options surface and tail risk",
     "judge_exec": "execution, microstructure and slippage",
-    "ceo": "capital allocation and the desk mandate",
+    "ceo": "the advanced trading doctrine and capital allocation",
 }
 
 OPENERS: Dict[str, List[str]] = {
@@ -46,7 +47,7 @@ OPENERS: Dict[str, List[str]] = {
     "judge_macro": ["Top-down:", "Liquidity view:", "From the macro desk:"],
     "judge_vol": ["Volatility first:", "From the vol desk:", "Surface view:"],
     "judge_exec": ["Fill quality first:", "From the execution desk:", "Practical view:"],
-    "ceo": ["My ruling:", "From the head of council:", "Desk mandate:"],
+    "ceo": ["My ruling:", "From the head of council:", "My trained read:"],
 }
 
 ALIASES: Dict[str, str] = {
@@ -887,6 +888,15 @@ def reply(seat: LLMSeat, question: str, ctx: Optional[Dict[str, Any]] = None,
                 f"stands: I rule on {_lens(seat)}, every ticket carries a written reason, and I "
                 f"size off a hard stop. Ask me again and I will answer from the numbers I have.")
         evidence, topic = [], "recovered"
+    if seat.id == "ceo" and topic not in ("greeting", "smalltalk", "time", "recovered"):
+        # the CEO is the one seat trained on the advanced curriculum — his answers
+        # quote the doctrine his ruling or view actually rests on
+        try:
+            cite = ceo_brain.citation(q or question, 1)
+        except Exception:
+            cite = ""
+        if cite:
+            text = f"{text}\n\n{cite}"
     return dict(seat_id=seat.id, name=seat.name, role=seat.role, specialty=seat.specialty,
                 answer=text, evidence=evidence[:6], topic=topic, engine="soul-exter-analyst",
                 model=seat.model, live=seat.live(), ts=time.time())

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../net/api'
+import { onThought } from '../state/brainBus'
 import type { ChatMsg, ChatRoomState, DebateMsg, DeskReply, FrameMsg, SeatFrame, TradeFrame } from '../three/types'
 import { CLASS_META, STATE_LABEL, fmtPrice, pct } from '../three/types'
 
@@ -969,12 +970,16 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
   const vizRef = useRef<import('../three/flybrain3d').FlyBrainViz | null>(null)
   useEffect(() => {
     if (!hostRef.current) return
+    let off: (() => void) | null = null
     import('../three/flybrain3d').then(({ FlyBrainViz }) => {
       if (!hostRef.current) return
       vizRef.current = new FlyBrainViz(hostRef.current)
       vizRef.current.setActivity(fly)
+      /* every thinking / questioning event on the floor sends a ~3 cm light
+       * packet down the veins, in the thinker's colour */
+      off = onThought((t) => vizRef.current?.pulse(t.color, t.strength))
     })
-    return () => { vizRef.current?.dispose(); vizRef.current = null }
+    return () => { off?.(); vizRef.current?.dispose(); vizRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { vizRef.current?.setActivity(fly) }, [fly])
@@ -992,8 +997,9 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
       </div>
       <div className="brain3d-host" ref={hostRef} />
       <div className="brain3d-caption">
-        <span className="brain3d-pulse" /> the connectome, live — one light line keeps passing
-        through the wires: the brain thinking. It races and flares when the fly strikes.
+        <span className="brain3d-pulse" /> the connectome at rest — just the colourful veins.
+        Every time a desk thinks or asks a question, a light packet runs 3&nbsp;cm down the
+        veins in that desk's colour; the fly's strikes fire a racing burst.
       </div>
       <div className="ticket-grid">
         <Stat label="Brain state" value={st.state || '—'} />
@@ -1191,6 +1197,8 @@ export function ChatRoomPanel({ room, seats, onSay }: {
             <div className="train-row" key={r.seat_id}>
               <span className="train-name" style={{ color: r.accent }}>{r.name}</span>
               <span className="train-level">{r.level}</span>
+              {r.pretrained && <span className="cm-live"
+                                     title={r.trained_on || 'trained on the advanced trading curriculum'}>ADV-TRAINED</span>}
               <span className="train-bar"><span style={{ width: `${Math.round(r.progress * 100)}%`,
                                                           background: r.accent }} /></span>
               <span className="train-xp">{r.xp} xp</span>
