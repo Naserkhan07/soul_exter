@@ -315,6 +315,8 @@ product never stops. The footer of the UI always says which tape you are watchin
 
 ## View it in a browser tab (localhost)
 
+**Full laptop setup guide (prerequisites, venv, keys, MT5, troubleshooting): [SETUP.md](SETUP.md).**
+
 The interface needs the floor engine, which cannot run in a browser tab on its own — so the
 "another tab" path is your own machine, in one command:
 
