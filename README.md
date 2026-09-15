@@ -206,16 +206,18 @@ cleanest on the floor (vetoes land on the losers). The rule bands (efficiency < 
 ATR > 1.2% of price cuts, RSI < 35 pullbacks press) were calibrated on pooled settled tickets
 the same way the floor's other thresholds were (`council_study`, `CALIBRATION.md`).
 
-## The fly-brain connectome — quiet veins, light on every thought
+## The fly-brain connectome — hot fibre core, light races on every thought
 
-The 3D brain in the **FLY BRAIN** tab is calm at rest: no glow, no running light — just the
-colourful axon veins drawn crisply (the render is scaled so the brain spans ≈9 cm across the
-optic lobes, i.e. 1 unit ≈ 1.8 cm). The moment anyone on the floor **thinks or questions** —
-a judge walks into a cabin, a verdict lands, the CEO rules, a chat question or answer is
-posted, the operator asks a desk anything — a light packet runs **exactly 3 cm down the
-veins** in that desk's colour, then fades. A unanimous-council moment, a veto, an escalation,
-each light their own. When the fly strikes, a racing burst of amber packets fires. No thought,
-no light.
+The 3D brain in the **FLY BRAIN** tab looks like the long-exposure atlas renders: a
+blown-out **white-hot core** with ~2,600 thin coloured axon fibres and long streams
+radiating out of it (render scale: the brain spans ≈9 cm across the optic lobes, so
+1 unit ≈ 1.8 cm). At rest nothing moves — just the fibres and the core. The moment
+anyone on the floor **thinks or questions** — a judge walks into a cabin, a verdict
+lands, the CEO rules, a chat question or answer is posted, the operator asks a desk
+anything — a burst of light packets **races full-speed through the veins** (≈3 cm of
+wire crossed in a fraction of a second) in that desk's colour, white-hot at the head.
+A unanimous-council moment, a veto, an escalation — each light their own colour. When
+the fly strikes, a racing amber volley tears through the wiring. No thought, no light.
 
 ## Settings panel
 

@@ -975,9 +975,9 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
       if (!hostRef.current) return
       vizRef.current = new FlyBrainViz(hostRef.current)
       vizRef.current.setActivity(fly)
-      /* every thinking / questioning event on the floor sends a ~3 cm light
-       * packet down the veins, in the thinker's colour */
-      off = onThought((t) => vizRef.current?.pulse(t.color, t.strength))
+      /* every thinking / questioning event on the floor sends light racing
+       * ~3 cm down the veins, in the thinker's colour */
+      off = onThought((t) => vizRef.current?.think(t.color, t.strength))
     })
     return () => { off?.(); vizRef.current?.dispose(); vizRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -997,9 +997,9 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
       </div>
       <div className="brain3d-host" ref={hostRef} />
       <div className="brain3d-caption">
-        <span className="brain3d-pulse" /> the connectome at rest — just the colourful veins.
-        Every time a desk thinks or asks a question, a light packet runs 3&nbsp;cm down the
-        veins in that desk's colour; the fly's strikes fire a racing burst.
+        <span className="brain3d-pulse" /> the fibre-optic connectome — hot core, colourful
+        axon streams. Every time a desk thinks or asks a question, light races full-speed
+        down the veins in that desk's colour; the fly's strikes fire a racing volley.
       </div>
       <div className="ticket-grid">
         <Stat label="Brain state" value={st.state || '—'} />

@@ -1,38 +1,37 @@
-/** Drosophila connectome visual — the fly brain as it is drawn in the atlases.
+/** Drosophila connectome visual — a fibre-optic brain, like the long-exposure
+ * atlas renders: a blown-out white-hot core with thousands of thin coloured
+ * axon streams radiating and streaming out of it.
  *
- * At rest the brain is QUIET: no glow, no running light — you simply see the
- * colourful veins (axon fibres) drawn crisply against the dark, with faint
- * somata clusters and a whisper of membrane around them.
- *
- * Every time a desk on the floor THINKS or QUESTIONS — a judge walks into a
- * cabin, a verdict lands, the CEO rules, a chat question/answer is posted —
- * the floor publishes a "thought" and this brain answers it: a light packet
- * runs down the veins for exactly ~3 cm (the render is calibrated: the full
- * brain spans ≈9 cm across the optic lobes), taking the thinker's colour,
- * then fades. Strikes fire a racing burst. Nothing glows unless somebody
- * thought.
+ * At rest you see the veins and the hot core — nothing else moves. Every time
+ * a desk on the floor THINKS or QUESTIONS (cabin hearing, verdict, CEO ruling,
+ * chat question/answer, debate, operator ask) a light packet RACES through the
+ * wires at full speed — ~3 cm of vein crossed in a blink, in the thinker's
+ * colour, two or three packets a burst — then fades. Strikes fire a racing
+ * volley. No thought, no light.
  */
 import * as THREE from 'three'
 import { onThought, type Thought } from '../state/brainBus'
 
-/* vivid vein palette — saturated axon colours so the wires read as veins */
-const WIRE_PALETTE = ['#b09a5e', '#6fb3aa', '#9a7fc4', '#c47a8f', '#5fa3c4', '#c0ac6e',
-  '#6fc49a', '#c48a6a', '#7f93d6', '#9ac46f', '#45cdd6', '#e09ad2', '#d4bc50', '#94dd82',
-  '#dd86b4', '#86ddcd', '#c486dd', '#ddca86']
+/* vivid vein palette — saturated axon colours, washed to white near the core */
+const WIRE_PALETTE = ['#ff8a7a', '#7affc4', '#7aa8ff', '#ffd97a', '#c47aff', '#7affea',
+  '#ff7ad1', '#b4ff7a', '#7ae1ff', '#ffb47a', '#eaff7a', '#7a94ff', '#ff7a94', '#7affb4',
+  '#d17aff', '#7ad1ff']
 
 /* --------------------------------------------------------- physical scale
- * The rendered brain (optic-lobe tip to optic-lobe tip) spans ~4.96 world
- * units and is presented ≈9 cm wide, so 1 unit ≈ 1.815 cm. A thought is a
- * packet of light that runs 3 cm of vein before fading — that distance is
- * exact, not decorative.
+ * The rendered brain spans ≈4.96 world units optic-tip to optic-tip and is
+ * presented ≈9 cm wide, so 1 unit ≈ 1.815 cm. A thought is a packet of light
+ * that races 3 cm of vein before dying — that distance is exact.
  */
 const BRAIN_SPAN_UNITS = (1.86 + 0.62) * 2
 const BRAIN_SPAN_CM = 9.0
 const UNIT_CM = BRAIN_SPAN_CM / BRAIN_SPAN_UNITS
 export const THOUGHT_CM = 3.0
 const THOUGHT_UNITS = THOUGHT_CM / UNIT_CM
-const TRAIL_CM = 2.1
+const TRAIL_CM = 2.4
 const TRAIL_UNITS = TRAIL_CM / UNIT_CM
+
+/* the hot core sits at the brain's centroid */
+const CORE = new THREE.Vector3(0, 0.12, 0)
 
 function mulberry(seed: number) {
   let a = seed >>> 0
@@ -44,7 +43,7 @@ function mulberry(seed: number) {
   }
 }
 
-/* brain lobes, matching the reference silhouette (x right, y up, z viewer) */
+/* brain lobes (x right, y up, z viewer) */
 const HEMI_L = { c: new THREE.Vector3(-0.52, 0.28, 0), r: new THREE.Vector3(0.85, 0.72, 0.68) }
 const HEMI_R = { c: new THREE.Vector3(0.52, 0.28, 0), r: new THREE.Vector3(0.85, 0.72, 0.68) }
 const LOWER = { c: new THREE.Vector3(0, -0.42, 0), r: new THREE.Vector3(0.78, 0.52, 0.62) }
@@ -52,6 +51,7 @@ const OPTIC_L = { c: new THREE.Vector3(-1.86, 0.02, 0), r: new THREE.Vector3(0.6
 const OPTIC_R = { c: new THREE.Vector3(1.86, 0.02, 0), r: new THREE.Vector3(0.62, 0.78, 0.46) }
 
 type Lobe = typeof HEMI_L
+const LOBES = [HEMI_L, HEMI_R, LOWER, OPTIC_L, OPTIC_R]
 
 interface Pulse {
   line: THREE.Line
@@ -60,7 +60,7 @@ interface Pulse {
   col: Float32Array
   path: THREE.Vector3[] | null
   cum: number[]            /* cumulative arc length of the path */
-  dist: number             /* how far the packet runs (≈3 cm in units) */
+  dist: number             /* how far the packet races (≈3 cm in units) */
   travelled: number
   trailLen: number
   speed: number
@@ -71,8 +71,8 @@ interface Pulse {
   active: boolean
 }
 
-const TRAIL_PTS = 16
-const MAX_PULSES = 8
+const TRAIL_PTS = 18
+const MAX_PULSES = 12
 
 export class FlyBrainViz {
   private renderer: THREE.WebGLRenderer
@@ -85,10 +85,10 @@ export class FlyBrainViz {
   private disposed = false
   private offBus: () => void
 
-  /* the thought packets — one per thinking/questioning event */
   private paths: THREE.Vector3[][] = []
   private pathLens: number[][] = []
   private pulses: Pulse[] = []
+  private coreSprites: THREE.Sprite[] = []
   private headTex: THREE.Texture
 
   private energy = 0.4
@@ -106,16 +106,17 @@ export class FlyBrainViz {
     this.scene.add(this.group)
 
     const rng = mulberry(20250914)
-    this.buildMembrane()
+    this.buildBody()
     this.buildFibres(rng)
     this.buildSomata(rng)
+    this.buildCore()
 
     /* pooled thought packets — built once, reused per event */
     this.headTex = radialTexture('#ffffff')
     for (let i = 0; i < MAX_PULSES; i++) this.pulses.push(this.buildPulse())
 
-    /* every thought published on the floor lights a vein */
-    this.offBus = onThought((t) => this.pulse(t.color, t.strength))
+    /* every thought published on the floor sends light racing */
+    this.offBus = onThought((t) => this.think(t.color, t.strength))
 
     this.resize()
     this.ro = new ResizeObserver(() => this.resize())
@@ -138,13 +139,13 @@ export class FlyBrainViz {
     return m
   }
 
-  /* the membrane stays a whisper — the VEINS are the show, not a glowing blob */
-  private buildMembrane() {
-    for (const lobe of [HEMI_L, HEMI_R, LOWER, OPTIC_L, OPTIC_R]) {
-      this.group.add(this.ellipsoid(lobe, 0.022))
-      const rim = this.ellipsoid(lobe, 0.016, 0xcfe3ff)
-      rim.scale.multiplyScalar(1.02)
-      this.group.add(rim)
+  /* a near-invisible dark body per lobe — gives the fibre mass depth without
+   * reading as a cartoon surface */
+  private buildBody() {
+    for (const lobe of LOBES) {
+      const body = this.ellipsoid(lobe, 0.45, 0x04070d)
+      body.renderOrder = 0
+      this.group.add(body)
     }
   }
 
@@ -155,16 +156,17 @@ export class FlyBrainViz {
       lobe.c.y + v.y * lobe.r.y * squash, lobe.c.z + v.z * lobe.r.z * squash)
   }
 
+  /* normal intra-brain wiring: hemispheres, commissures, optic tracts, stalk */
   private fibreCurve(rng: () => number): THREE.CatmullRomCurve3 {
     const roll = rng()
     let anchors: THREE.Vector3[]
-    if (roll < 0.42) {
+    if (roll < 0.40) {
       const lobe = rng() < 0.5 ? HEMI_L : HEMI_R
       anchors = [0, 1, 2, 3].map(() => this.inLobe(rng, lobe))
-    } else if (roll < 0.66) {                                   /* commissure: cross the midline */
+    } else if (roll < 0.58) {                                   /* commissure: cross the midline */
       anchors = [this.inLobe(rng, HEMI_L), this.inLobe(rng, LOWER, 0.5),
         this.inLobe(rng, HEMI_R), this.inLobe(rng, rng() < 0.5 ? HEMI_R : LOWER)]
-    } else if (roll < 0.88) {                                  /* optic tracts */
+    } else if (roll < 0.70) {                                  /* optic tracts */
       const side = rng() < 0.5
       const optic = side ? OPTIC_L : OPTIC_R
       const hemi = side ? HEMI_L : HEMI_R
@@ -177,22 +179,57 @@ export class FlyBrainViz {
     return new THREE.CatmullRomCurve3(anchors, false, 'catmullrom', 0.6)
   }
 
+  /* long axon streams that dive out of the core and shoot far past the lobes —
+   * the radiating fibre wings of the reference render */
+  private streamerCurve(rng: () => number): THREE.CatmullRomCurve3 {
+    const side = rng() < 0.5 ? -1 : 1
+    const lobe = side < 0 ? HEMI_L : HEMI_R
+    const start = this.inLobe(rng, lobe, 0.45).multiplyScalar(0.55).add(
+      new THREE.Vector3(0, 0.1, 0))
+    const dir = new THREE.Vector3(
+      side * (0.75 + rng() * 0.55),
+      (rng() - 0.48) * 0.85,
+      (rng() - 0.5) * 0.6).normalize()
+    const len = 2.4 + rng() * 2.8
+    const anchors = [start]
+    const p = start.clone()
+    const segs = 3 + Math.floor(rng() * 2)
+    for (let i = 0; i < segs; i++) {
+      p.add(dir.clone().multiplyScalar(len / segs)
+        .add(new THREE.Vector3((rng() - 0.5) * 0.55, (rng() - 0.5) * 0.5, (rng() - 0.5) * 0.4)))
+      anchors.push(p.clone())
+    }
+    return new THREE.CatmullRomCurve3(anchors, false, 'catmullrom', 0.5)
+  }
+
   private buildFibres(rng: () => number) {
     const pos: number[] = []
     const col: number[] = []
     const c = new THREE.Color()
-    const FIBRES = 1500
+    const white = new THREE.Color('#ffffff')
+    const FIBRES = 2600
     for (let f = 0; f < FIBRES; f++) {
-      const curve = this.fibreCurve(rng)
-      const pts = curve.getPoints(12)
+      const streamer = rng() < 0.30
+      const curve = streamer ? this.streamerCurve(rng) : this.fibreCurve(rng)
+      const pts = curve.getPoints(streamer ? 16 : 12)
       c.set(WIRE_PALETTE[Math.floor(rng() * WIRE_PALETTE.length)])
-      const shade = 0.72 + rng() * 0.42
       for (let i = 0; i < pts.length - 1; i++) {
         pos.push(pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z)
-        col.push(c.r * shade, c.g * shade, c.b * shade,
-          c.r * shade, c.g * shade, c.b * shade)
+        /* brightness gradient: fibres wash to white-hot near the core and stay
+         * crisp coloured lines further out — exactly the reference exposure */
+        for (const p of [pts[i], pts[i + 1]]) {
+          const d = Math.sqrt((p.x - CORE.x) ** 2 + (p.y - CORE.y) ** 2 + (p.z - CORE.z) ** 2)
+          const w = Math.exp(-d / 1.35)
+          const bright = (0.34 + 0.9 * w) * (streamer ? 0.8 : 1.0)
+          const mix = Math.min(1, 0.8 * w)
+          const r = (c.r + (white.r - c.r) * mix) * bright
+          const g = (c.g + (white.g - c.g) * mix) * bright
+          const b = (c.b + (white.b - c.b) * mix) * bright
+          col.push(r, g, b)
+        }
       }
-      if (f % 14 === 0) {
+      /* candidate thought highways — internal wiring only, streamers fly out */
+      if (!streamer && f % 10 === 0) {
         this.paths.push(pts)
         this.pathLens.push(cumLengths(pts))
       }
@@ -200,10 +237,11 @@ export class FlyBrainViz {
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3))
-    /* plain colour blending — crisp veins, not an additive fog */
     const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({
-      vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false
+      vertexColors: true, transparent: true, opacity: 0.9,
+      blending: THREE.AdditiveBlending, depthWrite: false
     }))
+    lines.renderOrder = 1
     this.group.add(lines)
   }
 
@@ -211,17 +249,16 @@ export class FlyBrainViz {
     const pos: number[] = []
     const col: number[] = []
     const c = new THREE.Color()
-    const lobes = [HEMI_L, HEMI_R, LOWER, OPTIC_L, OPTIC_R]
-    for (let cluster = 0; cluster < 34; cluster++) {
-      const lobe = lobes[Math.floor(rng() * lobes.length)]
-      const centre = this.inLobe(rng, lobe, 0.8)
-      c.set(WIRE_PALETTE[8 + Math.floor(rng() * (WIRE_PALETTE.length - 8))])
+    for (let cluster = 0; cluster < 26; cluster++) {
+      const lobe = LOBES[Math.floor(rng() * LOBES.length)]
+      const centre = this.inLobe(rng, lobe, 0.78)
+      c.set(WIRE_PALETTE[Math.floor(rng() * WIRE_PALETTE.length)])
       const n = 4 + Math.floor(rng() * 7)
       for (let i = 0; i < n; i++) {
         const j = centre.clone().add(new THREE.Vector3(
-          (rng() - 0.5) * 0.16, (rng() - 0.5) * 0.16, (rng() - 0.5) * 0.16))
+          (rng() - 0.5) * 0.15, (rng() - 0.5) * 0.15, (rng() - 0.5) * 0.15))
         pos.push(j.x, j.y, j.z)
-        const b = 0.55 + rng() * 0.6
+        const b = 0.5 + rng() * 0.55
         col.push(Math.min(1, c.r * b), Math.min(1, c.g * b), Math.min(1, c.b * b))
       }
     }
@@ -229,10 +266,46 @@ export class FlyBrainViz {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3))
     const pts = new THREE.Points(g, new THREE.PointsMaterial({
-      size: 0.06, vertexColors: true, transparent: true, opacity: 0.8,
+      size: 0.05, vertexColors: true, transparent: true, opacity: 0.75,
       map: radialTexture('#ffffff'), blending: THREE.AdditiveBlending,
       depthWrite: false, sizeAttenuation: true
     }))
+    pts.renderOrder = 2
+    this.group.add(pts)
+  }
+
+  /* the blown-out white core of the reference render: layered additive sprites
+   * plus a dense granular cluster right at the centre */
+  private buildCore() {
+    const rng = mulberry(777)
+    const layers: Array<[number, number, string]> = [
+      [1.05, 0.95, '#ffffff'], [1.9, 0.5, '#eef4ff'], [3.1, 0.22, '#d8e6ff']]
+    for (const [scale, opacity, hex] of layers) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: radialTexture(hex), transparent: true, opacity,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      }))
+      s.position.copy(CORE)
+      s.scale.setScalar(scale)
+      s.renderOrder = 3
+      this.coreSprites.push(s)
+      this.group.add(s)
+    }
+    /* granular edge — tiny white cells packed around the core */
+    const pos: number[] = []
+    for (let i = 0; i < 340; i++) {
+      const v = new THREE.Vector3(rng() * 2 - 1, rng() * 2 - 1, rng() * 2 - 1)
+        .normalize().multiplyScalar(Math.pow(rng(), 0.6) * 0.95)
+      pos.push(CORE.x + v.x, CORE.y + v.y * 0.8, CORE.z + v.z)
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    const pts = new THREE.Points(g, new THREE.PointsMaterial({
+      size: 0.055, color: 0xffffff, transparent: true, opacity: 0.85,
+      map: radialTexture('#ffffff'), blending: THREE.AdditiveBlending,
+      depthWrite: false, sizeAttenuation: true
+    }))
+    pts.renderOrder = 3
     this.group.add(pts)
   }
 
@@ -249,24 +322,35 @@ export class FlyBrainViz {
     }))
     line.frustumCulled = false
     line.visible = false
+    line.renderOrder = 4
     this.group.add(line)
     const head = new THREE.Sprite(new THREE.SpriteMaterial({
       map: this.headTex, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false
     }))
-    head.scale.setScalar(0.4)
+    head.scale.setScalar(0.3)
     head.visible = false
+    head.renderOrder = 5
     this.group.add(head)
     return { line, head, pos, col, path: null, cum: [], dist: THOUGHT_UNITS,
-      travelled: 0, trailLen: TRAIL_UNITS, speed: 2.3, color: new THREE.Color('#9ff3ff'),
+      travelled: 0, trailLen: TRAIL_UNITS, speed: 9, color: new THREE.Color('#9ff3ff'),
       strength: 1, phase: 'run', fade: 0, active: false }
   }
 
-  /** one thinking / questioning event → one light packet runs ~3 cm of vein */
-  pulse(colorHex?: string, strength = 1) {
+  /** one thinking / questioning event → a burst of packets racing ~3 cm of vein */
+  think(colorHex?: string, strength = 1) {
+    if (this.disposed) return
+    const big = strength >= 1.15
+    const n = big ? 3 : 2
+    for (let i = 0; i < n; i++) setTimeout(() => {
+      if (!this.disposed) this.pulse(colorHex, strength)
+    }, i * 75)
+  }
+
+  private pulse(colorHex?: string, strength = 1) {
     if (this.disposed) return
     let p = this.pulses.find((x) => !x.active)
-    if (!p) {                                        /* recycle the oldest */
+    if (!p) {                                        /* recycle the most advanced */
       p = this.pulses.reduce((a, b) => (a.travelled > b.travelled ? a : b))
     }
     const idx = Math.floor(Math.random() * this.paths.length)
@@ -276,7 +360,8 @@ export class FlyBrainViz {
     p.dist = THOUGHT_UNITS * (0.85 + 0.3 * (p.strength - 1))
     p.travelled = 0
     p.trailLen = TRAIL_UNITS * Math.min(1, p.strength)
-    p.speed = (2.1 + this.energy * 1.1 + this.flash * 1.6) * (0.9 + 0.2 * p.strength)
+    /* FAST — the light races the wire, it does not glide */
+    p.speed = (8.0 + this.energy * 3.5 + this.flash * 5.0) * (0.9 + 0.25 * p.strength)
     p.color.set(colorHex || '#9ff3ff')
     p.phase = 'run'
     p.fade = 0
@@ -285,15 +370,18 @@ export class FlyBrainViz {
     ;(p.head.material as THREE.SpriteMaterial).opacity = 0
     p.line.visible = true
     p.head.visible = true
-    p.head.material.color.copy(p.color)
+    const hm = p.head.material as THREE.SpriteMaterial
+    hm.color.setRGB(Math.min(1, p.color.r * 0.45 + 0.55),
+                    Math.min(1, p.color.g * 0.45 + 0.55),
+                    Math.min(1, p.color.b * 0.45 + 0.55))
     this.thoughtCount++
   }
 
-  /* a strike is the loudest thought the fly has — the veins race */
-  private burst(n = 3) {
+  /* a strike is the loudest thought the fly has — a racing volley */
+  private volley(n = 6) {
     for (let i = 0; i < n; i++) setTimeout(() => {
-      if (!this.disposed) this.pulse('#ffd166', 1.15 + i * 0.1)
-    }, i * 90)
+      if (!this.disposed) this.pulse('#ffd166', 1.15 + (i % 3) * 0.12)
+    }, i * 60)
   }
 
   /* arc-length position lookup along the active path */
@@ -316,9 +404,16 @@ export class FlyBrainViz {
   private step() {
     const dt = Math.min(0.05, this.clock.getDelta())
     this.t += dt
-    this.group.rotation.y = Math.sin(this.t * 0.14) * 0.55
-    this.group.rotation.x = Math.sin(this.t * 0.09) * 0.08
+    this.group.rotation.y = Math.sin(this.t * 0.11) * 0.5
+    this.group.rotation.x = Math.sin(this.t * 0.07) * 0.07
     this.flash = Math.max(0, this.flash - dt * 1.1)
+
+    /* the hot core breathes; strikes make it flare */
+    const breathe = 1 + 0.045 * Math.sin(this.t * 2.2) + this.flash * 0.35
+    for (let i = 0; i < this.coreSprites.length; i++) {
+      const s = this.coreSprites[i]
+      s.scale.setScalar([1.05, 1.9, 3.1][i] * breathe)
+    }
 
     for (const p of this.pulses) {
       if (!p.active) continue
@@ -332,26 +427,27 @@ export class FlyBrainViz {
           const s = tailS + (headS - tailS) * (i / (TRAIL_PTS - 1))
           this.pointAt(p, s, this.tmpA)
           p.pos[i * 3] = this.tmpA.x; p.pos[i * 3 + 1] = this.tmpA.y; p.pos[i * 3 + 2] = this.tmpA.z
-          const k = Math.pow(i / (TRAIL_PTS - 1), 1.7)        /* dim toward the tail */
-          const boost = (0.9 + this.flash * 0.9) * p.strength
-          p.col[i * 3] = p.color.r * (0.25 + 0.75 * k) * boost + 0.25 * k * boost
-          p.col[i * 3 + 1] = p.color.g * (0.25 + 0.75 * k) * boost + 0.25 * k * boost
-          p.col[i * 3 + 2] = p.color.b * (0.25 + 0.75 * k) * boost + 0.45 * k * boost
+          const k = Math.pow(i / (TRAIL_PTS - 1), 1.6)        /* dim toward the tail */
+          const boost = (1.1 + this.flash * 0.9) * p.strength
+          /* white-hot leading edge, coloured tail */
+          const wm = k * k * 0.55
+          p.col[i * 3] = (p.color.r * (1 - wm) + wm) * (0.3 + 0.7 * k) * boost + 0.35 * k * boost
+          p.col[i * 3 + 1] = (p.color.g * (1 - wm) + wm) * (0.3 + 0.7 * k) * boost + 0.35 * k * boost
+          p.col[i * 3 + 2] = (p.color.b * (1 - wm) + wm) * (0.3 + 0.7 * k) * boost + 0.45 * k * boost
         }
         ;(p.line.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
         ;(p.line.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true
-        ;(p.line.material as THREE.LineBasicMaterial).opacity = 0.95
+        ;(p.line.material as THREE.LineBasicMaterial).opacity = 1
         this.pointAt(p, headS, this.tmpA)
         p.head.position.copy(this.tmpA)
         const hm = p.head.material as THREE.SpriteMaterial
-        hm.opacity = 0.95
-        p.head.scale.setScalar(0.34 + 0.2 * p.strength + this.flash * 0.3 +
-          Math.sin(this.t * 11) * 0.03)
+        hm.opacity = 1
+        p.head.scale.setScalar(0.3 + 0.16 * p.strength + this.flash * 0.25)
       } else {
         p.fade += dt
-        const k = Math.max(0, 1 - p.fade / 0.45)
-        ;(p.line.material as THREE.LineBasicMaterial).opacity = 0.95 * k
-        ;(p.head.material as THREE.SpriteMaterial).opacity = 0.95 * k
+        const k = Math.max(0, 1 - p.fade / 0.3)
+        ;(p.line.material as THREE.LineBasicMaterial).opacity = k
+        ;(p.head.material as THREE.SpriteMaterial).opacity = k
         if (k <= 0) {
           p.active = false
           p.line.visible = false
@@ -362,13 +458,13 @@ export class FlyBrainViz {
     this.renderer.render(this.scene, this.camera)
   }
 
-  /** live fly-brain activity — a strike fires a racing burst of thoughts */
+  /** live fly-brain activity — a strike fires a racing volley of thoughts */
   setActivity(fly: any) {
     const st = fly?.brain?.state || {}
     this.energy = Math.min(1, Math.max(0.12, Math.abs(Number(st.score ?? 0.4))))
     if ((fly?.strike_flash || 0) > 0.25 && this.flash < 0.1) {
       this.flash = Math.max(this.flash, fly.strike_flash)
-      this.burst(3)
+      this.volley(6)
     }
   }
 
