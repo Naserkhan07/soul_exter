@@ -206,18 +206,22 @@ cleanest on the floor (vetoes land on the losers). The rule bands (efficiency < 
 ATR > 1.2% of price cuts, RSI < 35 pullbacks press) were calibrated on pooled settled tickets
 the same way the floor's other thresholds were (`council_study`, `CALIBRATION.md`).
 
-## The fly-brain connectome — hot fibre core, light races on every thought
+## The fly-brain connectome — grown neuron by neuron, one racing light
 
-The 3D brain in the **FLY BRAIN** tab looks like the long-exposure atlas renders: a
-blown-out **white-hot core** with ~2,600 thin coloured axon fibres and long streams
-radiating out of it (render scale: the brain spans ≈9 cm across the optic lobes, so
-1 unit ≈ 1.8 cm). At rest nothing moves — just the fibres and the core. The moment
-anyone on the floor **thinks or questions** — a judge walks into a cabin, a verdict
-lands, the CEO rules, a chat question or answer is posted, the operator asks a desk
-anything — a burst of light packets **races full-speed through the veins** (≈3 cm of
-wire crossed in a fraction of a second) in that desk's colour, white-hot at the head.
-A unanimous-council moment, a veto, an escalation — each light their own colour. When
-the fly strikes, a racing amber volley tears through the wiring. No thought, no light.
+The 3D brain in the **FLY BRAIN** tab is built like the single-neuron confocal
+preparations: it is *grown*, not decorated. Each of the ~70 neurons is a branching
+arbour (soma → trunk → recursive dendrites) planted in one region — the **left optic
+lobe runs pink/red**, the **right optic lobe green**, the **midbrain a red/green/blue
+mix** — plus long tract axons bridging optic→central. The veins are thin, dim and
+wispy (normal blending — they never shine), soma and tip beads punctuate the arbours,
+beaded cortex rings wrap both optic lobes, and a barely-there dark membrane gives the
+ghost silhouette on black.
+
+Exactly **one line of light** runs through the veins — fast, continuously, hopping
+arbour to arbor. When a desk on the floor **thinks or questions** (cabin hearing,
+verdict, CEO ruling, chat Q&A, operator ask), that one line takes the thinker's colour
+and sprints harder, then settles back to its quiet run. A fly strike flashes it amber
+at triple speed. No thought, no change — the light just keeps racing.
 
 ## Settings panel
 

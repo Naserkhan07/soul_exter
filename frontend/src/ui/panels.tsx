@@ -997,9 +997,9 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
       </div>
       <div className="brain3d-host" ref={hostRef} />
       <div className="brain3d-caption">
-        <span className="brain3d-pulse" /> the fibre-optic connectome — hot core, colourful
-        axon streams. Every time a desk thinks or asks a question, light races full-speed
-        down the veins in that desk's colour; the fly's strikes fire a racing volley.
+        <span className="brain3d-pulse" /> single-neuron confocal connectome — dim wispy
+        arbours, pink optic lobe, green optic lobe, red/green/blue midbrain. One line of
+        light keeps racing through the veins; it takes a desk's colour when that desk thinks.
       </div>
       <div className="ticket-grid">
         <Stat label="Brain state" value={st.state || '—'} />
