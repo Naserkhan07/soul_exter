@@ -40,14 +40,14 @@ export interface SceneOptions {
 }
 
 const PRESETS: Record<string, { pos: THREE.Vector3; target: THREE.Vector3 }> = {
-  overview: { pos: new THREE.Vector3(6, 34, 62), target: new THREE.Vector3(0, 0, 0) },
-  pit: { pos: new THREE.Vector3(-12, 13, 20), target: new THREE.Vector3(-16, 0, -3) },
-  corridor: { pos: new THREE.Vector3(0, 6.5, -4.5), target: new THREE.Vector3(0, 1.4, -17) },
-  cabins: { pos: new THREE.Vector3(0, 10.5, -6.5), target: new THREE.Vector3(0, 0.6, -19) },
-  executive: { pos: new THREE.Vector3(24.5, 5.4, 5.5), target: new THREE.Vector3(27.5, 0.5, -6) },
-  debate: { pos: new THREE.Vector3(19.5, 6.4, 26.0), target: new THREE.Vector3(25.6, 0.4, 17.2) },
-  gates: { pos: new THREE.Vector3(-6, 8.5, 40), target: new THREE.Vector3(-6, 1.2, 24) },
-  tape: { pos: new THREE.Vector3(-40, 9, 6), target: new THREE.Vector3(-24, 2.4, -0.4) }
+  overview: { pos: new THREE.Vector3(8, 44, 82), target: new THREE.Vector3(0, 0, 0) },
+  pit: { pos: new THREE.Vector3(-14, 17, 24), target: new THREE.Vector3(-18, 0, -2) },
+  corridor: { pos: new THREE.Vector3(0, 7.5, -5.5), target: new THREE.Vector3(0, 1.4, -18) },
+  cabins: { pos: new THREE.Vector3(0, 12, -8), target: new THREE.Vector3(0, 0.6, -21) },
+  executive: { pos: new THREE.Vector3(30, 6.5, 3.5), target: new THREE.Vector3(30.6, 0.5, -5.8) },
+  debate: { pos: new THREE.Vector3(24, 7, 33), target: new THREE.Vector3(30, 0.4, 21.5) },
+  gates: { pos: new THREE.Vector3(-4, 10, 50), target: new THREE.Vector3(-4, 1.2, 28) },
+  tape: { pos: new THREE.Vector3(-34, 10, 4), target: new THREE.Vector3(-44.5, 2.6, -1.4) }
 }
 
 export class FloorScene {
@@ -151,12 +151,12 @@ export class FloorScene {
         new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.0,
           side: THREE.DoubleSide }))
       ring.rotation.x = -Math.PI / 2
-      ring.position.set(cx, 0.03, -18.2)
+      ring.position.set(cx, 0.03, -20.6)
       this.scene.add(ring)
       this.cabinRings[i] = ring
       const spot = new THREE.SpotLight(0x9fd8ff, 24, 16, Math.PI / 5, 0.5, 1.6)
-      spot.position.set(cx, 4.6, -21)
-      spot.target.position.set(cx, 0, -18.8)
+      spot.position.set(cx, 5.4, -23)
+      spot.target.position.set(cx, 0, -20.6)
       this.scene.add(spot)
       this.scene.add(spot.target)
       this.cabinSpots[i] = spot
@@ -216,12 +216,12 @@ export class FloorScene {
     key.position.set(38, 46, 26)
     key.castShadow = true
     key.shadow.mapSize.set(2048, 2048)
-    const d = 60
+    const d = 80
     key.shadow.camera.left = -d
     key.shadow.camera.right = d
     key.shadow.camera.top = d
     key.shadow.camera.bottom = -d
-    key.shadow.camera.far = 160
+    key.shadow.camera.far = 220
     key.shadow.bias = -0.0006
     this.scene.add(key)
     const fill = new THREE.DirectionalLight(0x9dc0ff, 0.6)
@@ -232,9 +232,9 @@ export class FloorScene {
     this.rig = buildLighting(this.layout)
     this.scene.add(this.rig.group)
     // warm wash for the cabin corridor and each room interior
-    const corridor = new THREE.PointLight(0xdcecff, 30, 60, 2)
+    const corridor = new THREE.PointLight(0xdcecff, 34, 76, 2)
     corridor.userData.base = 30
-    corridor.position.set(0, 7.4, -13.0)
+    corridor.position.set(0, 8.6, -15.7)
     this.scene.add(corridor)
     this.roomLights.push(corridor)
     for (const room of this.layout.rooms) {
@@ -242,7 +242,7 @@ export class FloorScene {
       const [x0, z0, x1, z1] = room.rect
       const light = new THREE.PointLight(room.kind === 'debate' ? 0xcfc6ff : 0xffe9c9,
         18, 26, 2)
-      light.position.set((x0 + x1) / 2, 6.4, (z0 + z1) / 2)
+      light.position.set((x0 + x1) / 2, 7.4, (z0 + z1) / 2)
       light.userData.base = 18
       this.scene.add(light)
       this.roomLights.push(light)
@@ -251,16 +251,16 @@ export class FloorScene {
     for (const room of this.layout.rooms) {
       if (room.kind !== 'cabin') continue
       const [x0, z0, x1, z1] = room.rect
-      const light = new THREE.PointLight(0xfff0cf, 14, 18, 2)
-      light.position.set((x0 + x1) / 2, 5.6, (z0 + z1) / 2 + 1.2)
+      const light = new THREE.PointLight(0xfff0cf, 14, 20, 2)
+      light.position.set((x0 + x1) / 2, 6.4, (z0 + z1) / 2 + 1.2)
       light.userData.base = 14
       this.scene.add(light)
       this.roomLights.push(light)
     }
     // ceiling strip lights over the pit
-    for (let i = 0; i < 7; i++) {
-      const l = new THREE.PointLight(i % 2 ? 0xcfe4ff : 0xffe9c7, 22, 34, 2)
-      l.position.set(-30 + i * 10, 8.2, i % 2 ? -1.5 : 5.5)
+    for (let i = 0; i < 8; i++) {
+      const l = new THREE.PointLight(i % 2 ? 0xcfe4ff : 0xffe9c7, 22, 40, 2)
+      l.position.set(-40 + i * 13, 9.4, i % 2 ? -2.5 : 5.0)
       this.scene.add(l)
       this.hubLights.push(l)
     }
@@ -619,7 +619,7 @@ export class FloorScene {
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.65,
         side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }))
     mesh.rotation.x = -Math.PI / 2
-    mesh.position.set(cx, 0.05, -18.2)
+    mesh.position.set(cx, 0.05, -20.6)
     this.scene.add(mesh)
     this.verdictFlashes.push({ mesh, life: 1.0, color: new THREE.Color(color) })
   }

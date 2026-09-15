@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 # ---------------------------------------------------------------- constants --
-HALL = dict(x0=-36.0, z0=-23.6, x1=36.0, z1=26.4, h=9.2)
+HALL = dict(x0=-46.0, z0=-28.6, x1=46.0, z1=32.6, h=11.5)
 
 WALL_T = 0.36          # wall thickness (m)
 CELL = 0.26            # nav-grid cell size (m)
@@ -43,22 +43,22 @@ WALK_SPEED = 1.55      # m/s — relaxed, human, unhurried floor walk
 AVATAR_R = 0.34        # avatar radius used to inflate blockers
 CLEARANCE = 0.18       # conservative half-cell slack when painting blockers
 
-CABIN_PITCH = 12.4
-CABIN_CENTERS = [-24.8, -12.4, 0.0, 12.4, 24.8]
-CABIN_W = 11.6          # interior width
-CABIN_Z0, CABIN_Z1 = -23.0, -15.7   # interior depth band
-CORRIDOR_Z0, CORRIDOR_Z1 = -15.7, -9.6
+CABIN_PITCH = 15.2
+CABIN_CENTERS = [-30.4, -15.2, 0.0, 15.2, 30.4]
+CABIN_W = 14.2          # interior width
+CABIN_Z0, CABIN_Z1 = -27.8, -19.4   # interior depth band
+CORRIDOR_Z0, CORRIDOR_Z1 = -19.4, -12.0
 
-DESK_ROWS_Z = [-6.2, -1.6, 3.0]
-DESK_W, DESK_D = 2.3, 1.5
-POD_GAP = 0.34           # desks inside a pod sit this close (staff squeeze through)
-AISLE = 2.45             # walking aisle between pods — wide enough for clean paths
+DESK_ROWS_Z = [-8.8, -3.0, 2.8, 8.6]
+DESK_W, DESK_D = 2.4, 1.6
+POD_GAP = 0.40           # desks inside a pod sit this close (staff squeeze through)
+AISLE = 3.30             # walking aisle between pods — wide boulevards, no congestion
 POD_PITCH = 2 * DESK_W + POD_GAP + AISLE
 
 
 def _desk_columns() -> list:
     cols = []
-    for block_start in (-31.4, -7.6):
+    for block_start in (-43.2, -13.8):
         for pod in range(3):
             base = block_start + pod * POD_PITCH
             cols.append(base + DESK_W / 2)
@@ -69,15 +69,15 @@ def _desk_columns() -> list:
 BLOCK_A_X = _desk_columns()[:6]
 BLOCK_B_X = _desk_columns()[6:]
 
-CONCOURSE_X = (12.6, 16.6)          # east spine: corridor -> exec -> lobby
-EXEC = dict(x0=17.2, z0=-9.6, x1=34.4, z1=0.9)     # CEO chamber interior
-VAULT = dict(x0=17.2, z0=2.1, x1=34.4, z1=8.8)     # data vault (glass, decorative)
-DEBATE = dict(x0=16.8, z0=10.6, x1=34.4, z1=24.6)  # debate chamber interior
+CONCOURSE_X = (13.6, 17.8)          # east spine: corridor -> exec -> lobby
+EXEC = dict(x0=19.0, z0=-12.0, x1=42.2, z1=0.4)     # CEO chamber interior
+VAULT = dict(x0=19.0, z0=2.6, x1=42.2, z1=10.6)     # data vault (glass, decorative)
+DEBATE = dict(x0=18.6, z0=12.8, x1=42.2, z1=30.4)  # debate chamber interior
 
-ENTRY_GATE_X = -14.0
-EXIT_GATE_X = 7.0
-GATE_W = 3.2
-SOUTH_WALL_Z = 26.0
+ENTRY_GATE_X = -17.5
+EXIT_GATE_X = 9.5
+GATE_W = 3.4
+SOUTH_WALL_Z = 31.6
 
 
 # ------------------------------------------------------------------- shapes --
@@ -350,11 +350,11 @@ def build_floor_plan() -> FloorPlan:
         return dict(kind=kind, rect=r.as_list())
 
     p.floor_zones = [
-        zone("floor_main", Rect(-34.6, -9.6, 13.4, 9.6)),          # trading pit
-        zone("corridor", Rect(-34.6, CORRIDOR_Z0, 34.6, CORRIDOR_Z1)),
-        zone("concourse", Rect(12.6, CORRIDOR_Z0, 16.6, 9.6)),
-        zone("lobby", Rect(-34.6, 9.6, 34.6, SOUTH_WALL_Z)),
-        zone("plaza", Rect(-34.6, SOUTH_WALL_Z, 34.6, 43.0)),
+        zone("floor_main", Rect(-44.6, -12.0, 12.6, 11.6)),        # trading pit
+        zone("corridor", Rect(HALL["x0"] + 1.4, CORRIDOR_Z0, HALL["x1"] - 1.4, CORRIDOR_Z1)),
+        zone("concourse", Rect(13.6, CORRIDOR_Z0, 17.8, 10.4)),
+        zone("lobby", Rect(HALL["x0"] + 1.4, 10.4, HALL["x1"] - 1.4, SOUTH_WALL_Z)),
+        zone("plaza", Rect(HALL["x0"] + 1.4, SOUTH_WALL_Z, HALL["x1"] - 1.4, 49.0)),
         # rooms: grown so the floor runs right up to (and through) their doorways
         zone("exec", Rect(EXEC["x0"], EXEC["z0"], EXEC["x1"], EXEC["z1"]), 1.4),
         zone("vault", Rect(VAULT["x0"], VAULT["z0"], VAULT["x1"], VAULT["z1"]), 1.4),
@@ -369,9 +369,10 @@ def build_floor_plan() -> FloorPlan:
     X0, X1 = HALL["x0"], HALL["x1"]
     Z0, Z1 = HALL["z0"], SOUTH_WALL_Z
     # north / west / east solid, south wall carries the two gates
-    p.walls.append(Wall(X0, Z0 - t, X1, Z0, h=9.2, kind="exterior"))
-    p.walls.append(Wall(X0 - t, Z0 - t, X0, Z1 + t, h=9.2, kind="exterior"))
-    p.walls.append(Wall(X1, Z0 - t, X1 + t, Z1 + t, h=9.2, kind="exterior"))
+    H = HALL["h"]
+    p.walls.append(Wall(X0, Z0 - t, X1, Z0, h=H, kind="exterior"))
+    p.walls.append(Wall(X0 - t, Z0 - t, X0, Z1 + t, h=H, kind="exterior"))
+    p.walls.append(Wall(X1, Z0 - t, X1 + t, Z1 + t, h=H, kind="exterior"))
     for gate_x, did, label, kind, accent in (
         (ENTRY_GATE_X, "gate_entry", "WELCOME · MARKET GATE", "entry", "#34d399"),
         (EXIT_GATE_X, "gate_exit", "EXIT · REJECTED TRADES", "exit", "#f87171"),
@@ -386,7 +387,7 @@ def build_floor_plan() -> FloorPlan:
     gate_c = EXIT_GATE_X - GATE_W / 2
     gate_d = EXIT_GATE_X + GATE_W / 2
     for xa, xb in ((X0, gate_a), (gate_b, gate_c), (gate_d, X1)):
-        p.walls.append(Wall(xa, Z1 - t / 2, xb, Z1 + t / 2, h=9.2, kind="exterior"))
+        p.walls.append(Wall(xa, Z1 - t / 2, xb, Z1 + t / 2, h=H, kind="exterior"))
 
     # ================================================== north wing: cabins ===
     for i, cx in enumerate(CABIN_CENTERS, start=1):
@@ -398,40 +399,43 @@ def build_floor_plan() -> FloorPlan:
             wall_kind="glass",
         )
         # judge station at the far (north) end, facing south toward the door
-        p.prop("judge_desk", cx, -21.6, w=4.4, d=1.2, h=0.78)
-        p.prop("chair", cx, -22.55, rot=math.pi, w=0.62, d=0.62, h=1.0, blocks=False)
-        p.prop("witness_stand", cx, -19.9, w=2.2, d=0.55, h=0.95, blocks=True)
-        p.prop("side_table", cx + 3.7, -18.4, w=1.0, d=3.0, h=0.78)
-        p.prop("side_table", cx - 3.7, -18.4, w=1.0, d=3.0, h=0.78)
-        p.prop("chair", cx + 3.0, -18.4, rot=-math.pi / 2, w=0.6, d=0.6, h=1.0, blocks=False)
-        p.prop("chair", cx - 3.0, -18.4, rot=math.pi / 2, w=0.6, d=0.6, h=1.0, blocks=False)
-        p.prop("cabinet", cx - 5.35, -20.4, w=0.5, d=3.4, h=2.1)
-        p.prop("cabinet", cx + 5.35, -20.4, w=0.5, d=3.4, h=2.1)
-        p.prop("plant", cx - 4.9, -16.6, w=0.8, d=0.8, h=1.5)
-        p.prop("plant", cx + 4.9, -16.6, w=0.8, d=0.8, h=1.5)
-        p.prop("screen", cx, CABIN_Z0 + 0.42, w=4.2, d=0.2, h=2.4, y=1.0, rot=0, blocks=False,
+        p.prop("judge_desk", cx, -24.8, w=4.8, d=1.3, h=0.78)
+        p.prop("chair", cx, -26.5, rot=math.pi, w=0.62, d=0.62, h=1.0, blocks=False)
+        p.prop("witness_stand", cx, -22.2, w=2.2, d=0.55, h=0.95, blocks=True)
+        p.prop("side_table", cx + 4.6, -20.6, w=1.0, d=3.4, h=0.78)
+        p.prop("side_table", cx - 4.6, -20.6, w=1.0, d=3.4, h=0.78)
+        p.prop("chair", cx + 3.8, -20.6, rot=-math.pi / 2, w=0.6, d=0.6, h=1.0, blocks=False)
+        p.prop("chair", cx - 3.8, -20.6, rot=math.pi / 2, w=0.6, d=0.6, h=1.0, blocks=False)
+        p.prop("cabinet", cx - 6.55, -23.4, w=0.5, d=3.4, h=2.1)
+        p.prop("cabinet", cx + 6.55, -23.4, w=0.5, d=3.4, h=2.1)
+        p.prop("plant", cx - 5.9, -20.3, w=0.8, d=0.8, h=1.5)
+        p.prop("plant", cx + 5.9, -20.3, w=0.8, d=0.8, h=1.5)
+        p.prop("screen", cx, CABIN_Z0 + 0.42, w=5.0, d=0.2, h=2.6, y=1.1, rot=0, blocks=False,
                wall="n")
         for side in (-1, 1):
-            p.prop("screen", cx + side * (CABIN_W / 2 - 0.4), -19.4, w=0.2, d=3.0, h=1.7, y=1.3,
-                   blocks=False, wall="side")
+            p.prop("screen", cx + side * (CABIN_W / 2 - 0.4), -23.6, w=0.2, d=3.2, h=1.8,
+                   y=1.4, blocks=False, wall="side")
         # lamps
-        for dx in (-3.4, 0.0, 3.4):
-            p.prop("light_panel", cx + dx, -19.0, w=2.4, d=1.2, h=0.08, y=3.6, blocks=False)
+        for dx in (-4.2, 0.0, 4.2):
+            p.prop("light_panel", cx + dx, -22.6, w=2.6, d=1.3, h=0.08, y=4.2, blocks=False)
 
         p.sign(f"CABIN {i:02d}", cx, CABIN_Z1 - 0.30, 3.35, "cabin",
                sub="COUNCIL REVIEW", accent="#38bdf8", width=3.6)
 
     # corridor dressing
-    for x in (-30.5, -6.2, 6.2, 30.5):
-        p.prop("pillar", x, CORRIDOR_Z1 - 1.4, w=1.1, d=1.1, h=9.2)
-    p.sign("COUNCIL WING", -31.4, CORRIDOR_Z0 + 0.2, 3.6, "wall", sub="5 REVIEW CHAMBERS",
+    for x in (-38.0, -12.0, 12.0, 38.0):
+        p.prop("pillar", x, CORRIDOR_Z1 - 1.6, w=1.1, d=1.1, h=HALL["h"])
+    p.sign("COUNCIL WING", -38.4, CORRIDOR_Z0 + 0.2, 3.6, "wall", sub="5 REVIEW CHAMBERS",
            accent="#38bdf8", width=7.0, rot=0.0)
     p.sign("THE CORRIDOR", 0.0, CORRIDOR_Z1 - 0.25, 3.5, "wall", sub="ARBITRATION PATHWAY",
            accent="#a78bfa", width=6.0)
-    p.prop("water_cooler", -33.6, -13.2, w=0.6, d=0.6, h=1.3)
-    p.prop("water_cooler", 33.6, -13.2, w=0.6, d=0.6, h=1.3)
-    for x in (-18.0, 18.0):
-        p.prop("planter", x, CORRIDOR_Z1 - 1.2, w=1.5, d=1.5, h=0.9)
+    p.prop("water_cooler", -43.0, -15.7, w=0.6, d=0.6, h=1.3)
+    p.prop("water_cooler", 43.0, -15.7, w=0.6, d=0.6, h=1.3)
+    for x in (-21.0, 21.0):
+        p.prop("planter", x, CORRIDOR_Z1 - 1.4, w=1.5, d=1.5, h=0.9)
+    # corridor ticker band — quotes running the whole wing
+    p.prop("ticker_band", 0.0, CORRIDOR_Z1 - 0.25, w=52.0, d=0.3, h=0.8, y=5.6,
+           blocks=False, band=True)
 
     # ==================================================== trading floor =====
     idx = 0
@@ -456,46 +460,47 @@ def build_floor_plan() -> FloorPlan:
                 p.prop("desk_lamp", x - 0.95, z - 0.35, w=0.3, d=0.3, h=0.5, y=1.36, blocks=False)
 
     # pillars through the pit
-    for x in (-33.4, -22.0, -9.85, 2.0):
-        for z in (-9.5, 9.05):
-            p.prop("pillar", x, z, w=0.9, d=0.9, h=9.2)
+    for z in (-10.6, -1.0, 8.6):
+        p.prop("pillar", -17.3, z, w=0.9, d=0.9, h=HALL["h"])
 
-    p.sign("TRADING PIT", -21.4, -8.9, 4.2, "wall", sub="DISCOVERED CANDIDATES", accent="#fbbf24",
+    p.sign("TRADING PIT", -27.0, -10.6, 4.2, "wall", sub="DISCOVERED CANDIDATES", accent="#fbbf24",
            width=9.0)
-    p.sign("MOMENTUM · PRICE ACTION", 0.3, 7.0, 3.6, "wall", sub="DESK TIER", accent="#f472b6",
+    p.sign("MOMENTUM · PRICE ACTION", 0.3, 9.2, 3.6, "wall", sub="DESK TIER", accent="#f472b6",
            width=8.0)
+    # hanging ticker over the heart of the pit
+    p.prop("ticker_band", -6.0, -1.0, w=40.0, d=0.3, h=0.9, y=6.6, blocks=False, band=True)
 
     # ========================================================= east side ====
     # -- east concourse (spine) --
-    p.sign("EXECUTIVE ACCESS", 14.6, -9.2, 3.9, "wall", sub="AUTHORISED ONLY", accent="#a78bfa",
+    p.sign("EXECUTIVE ACCESS", 15.7, -10.6, 3.9, "wall", sub="AUTHORISED ONLY", accent="#a78bfa",
            width=5.0)
-    p.prop("rope_post", 13.1, -9.0, w=0.3, d=0.3, h=1.0, blocks=False)
-    p.prop("rope_post", 16.1, -9.0, w=0.3, d=0.3, h=1.0, blocks=False)
+    p.prop("rope_post", 14.2, -10.4, w=0.3, d=0.3, h=1.0, blocks=False)
+    p.prop("rope_post", 17.2, -10.4, w=0.3, d=0.3, h=1.0, blocks=False)
 
     exec_rect = Rect(EXEC["x0"], EXEC["z0"], EXEC["x1"], EXEC["z1"])
     p.add_room_with_walls("exec", "EXECUTIVE CHAMBER", "Chief Investment Office", "exec",
                           exec_rect,
-                          [dict(id="exec_door", label="Executive door", x=EXEC["x0"], z=-4.2,
-                                width=2.8, side="w", kind="exec")],
+                          [dict(id="exec_door", label="Executive door", x=EXEC["x0"], z=-5.8,
+                                width=3.0, side="w", kind="exec")],
                           accent="#c084fc", wall_kind="glass")
     ceo_x = exec_rect.cx
-    p.prop("exec_table", ceo_x, -4.6, w=7.4, d=2.0, h=0.78)
-    p.prop("chair", ceo_x, -6.5, w=0.68, d=0.68, h=1.05, blocks=False)
-    p.prop("chair", ceo_x, -2.9, rot=math.pi, w=0.68, d=0.68, h=1.05, blocks=False)
-    p.prop("screen", ceo_x, EXEC["z0"] + 0.5, w=6.4, d=0.2, h=2.6, y=1.1, blocks=False, wall="n")
-    p.prop("screen", EXEC["x1"] - 0.5, -4.6, w=0.2, d=5.0, h=2.2, y=1.1, blocks=False, wall="e")
-    p.prop("plant", EXEC["x1"] - 1.2, -1.4, w=0.9, d=0.9, h=1.6)
-    for dx in (-3.0, 0.0, 3.0):
-        p.prop("light_panel", ceo_x + dx, -4.4, w=2.6, d=1.4, h=0.08, y=4.0, blocks=False)
-    p.sign("EXECUTIVE CHAMBER", EXEC["x0"] - 0.3, -2.2, 3.5, "cabin",
+    p.prop("exec_table", ceo_x, -6.0, w=8.2, d=2.2, h=0.78)
+    p.prop("chair", ceo_x, -8.0, w=0.68, d=0.68, h=1.05, blocks=False)
+    p.prop("chair", ceo_x, -4.0, rot=math.pi, w=0.68, d=0.68, h=1.05, blocks=False)
+    p.prop("screen", ceo_x, EXEC["z0"] + 0.5, w=7.2, d=0.2, h=2.8, y=1.2, blocks=False, wall="n")
+    p.prop("screen", EXEC["x1"] - 0.5, -5.8, w=0.2, d=5.6, h=2.4, y=1.2, blocks=False, wall="e")
+    p.prop("plant", EXEC["x1"] - 1.2, -0.8, w=0.9, d=0.9, h=1.6)
+    for dx in (-3.4, 0.0, 3.4):
+        p.prop("light_panel", ceo_x + dx, -5.8, w=2.6, d=1.4, h=0.08, y=4.4, blocks=False)
+    p.sign("EXECUTIVE CHAMBER", EXEC["x0"] - 0.3, -3.6, 3.5, "cabin",
            sub="HEAD OF COUNCIL", accent="#c084fc", width=4.6)
     p.sign("HEAD OF COUNCIL · NAVEED", ceo_x, EXEC["z0"] + 0.28, 4.6, "cabin",
            sub="CHIEF INVESTMENT OFFICE", accent="#c084fc", width=7.6)
 
     vault_rect = Rect(VAULT["x0"], VAULT["z0"], VAULT["x1"], VAULT["z1"])
     p.add_room_with_walls("vault", "MARKET DATA VAULT", "Feed + tick archive", "vault", vault_rect,
-                          [dict(id="vault_door", label="Vault door", x=VAULT["x0"], z=5.0,
-                                width=2.4, side="w", kind="vault")],
+                          [dict(id="vault_door", label="Vault door", x=VAULT["x0"], z=6.6,
+                                width=2.6, side="w", kind="vault")],
                           accent="#22d3ee", wall_kind="glass")
     for i in range(9):
         p.prop("rack", VAULT["x0"] + 3.6 + (i % 3) * 1.5, VAULT["z0"] + 1.4 + (i // 3) * 1.9,
@@ -506,8 +511,8 @@ def build_floor_plan() -> FloorPlan:
     debate_rect = Rect(DEBATE["x0"], DEBATE["z0"], DEBATE["x1"], DEBATE["z1"])
     p.add_room_with_walls("debate", "DEBATE CHAMBER", "Council floor · self-training", "debate",
                           debate_rect,
-                          [dict(id="debate_door", label="Debate door", x=DEBATE["x0"], z=17.6,
-                                width=3.2, side="w", kind="debate")],
+                          [dict(id="debate_door", label="Debate door", x=DEBATE["x0"], z=21.5,
+                                width=3.4, side="w", kind="debate")],
                           accent="#34d399", wall_kind="glass")
     round_cx, round_cz = debate_rect.cx, debate_rect.cz - 0.4
     p.prop("round_table", round_cx, round_cz, w=3.9, d=3.9, h=0.76)
@@ -525,50 +530,50 @@ def build_floor_plan() -> FloorPlan:
         ang = a * math.pi / 2
         p.prop("light_panel", round_cx + math.cos(ang) * 4.0, round_cz + math.sin(ang) * 4.0,
                w=2.2, d=2.2, h=0.08, y=4.2, blocks=False)
-    p.sign("DEBATE CHAMBER", DEBATE["x0"] - 0.3, 14.4, 3.5, "cabin", sub="6 LLM COUNCIL",
+    p.sign("DEBATE CHAMBER", DEBATE["x0"] - 0.3, 21.5, 3.5, "cabin", sub="6 LLM COUNCIL",
            accent="#34d399", width=5.0)
     p.sign("DEBATE CHAMBER", round_cx, DEBATE["z0"] + 0.28, 4.6, "cabin",
            sub="PEER REVIEW · CONTINUOUS TRAINING", accent="#34d399", width=9.0)
 
     # ============================================== arrival hall / gates ====
-    p.prop("security_desk", -14.0, 20.2, w=5.0, d=1.5, h=1.05)
-    p.prop("turnstile", -15.35, 22.6, w=0.5, d=0.5, h=1.05)
-    p.prop("turnstile", -12.65, 22.6, w=0.5, d=0.5, h=1.05)
-    p.prop("turnstile", 5.65, 22.6, w=0.5, d=0.5, h=1.05)
-    p.prop("turnstile", 8.35, 22.6, w=0.5, d=0.5, h=1.05)
-    p.prop("sofa", -28.0, 16.2, w=2.6, d=1.0, h=0.8)
-    p.prop("sofa", -28.0, 13.2, rot=math.pi, w=2.6, d=1.0, h=0.8)
-    p.prop("coffee_table", -28.0, 14.7, w=1.4, d=1.0, h=0.42)
-    p.prop("planter", -22.0, 24.4, w=1.6, d=1.6, h=1.0)
-    p.prop("planter", 0.0, 24.4, w=1.6, d=1.6, h=1.0)
-    p.prop("planter", 16.0, 24.4, w=1.6, d=1.6, h=1.0)
-    p.prop("ticker_band", 0.0, 12.6, w=17.0, d=0.3, h=0.7, y=3.4, blocks=False, band=True)
-    p.sign("ARRIVAL HALL", -24.0, 12.4, 4.2, "wall", sub="TRADE INTAKE", accent="#34d399",
+    p.prop("security_desk", -17.5, 24.8, w=5.6, d=1.5, h=1.05)
+    p.prop("turnstile", -19.2, 27.2, w=0.5, d=0.5, h=1.05)
+    p.prop("turnstile", -15.8, 27.2, w=0.5, d=0.5, h=1.05)
+    p.prop("turnstile", 7.8, 27.2, w=0.5, d=0.5, h=1.05)
+    p.prop("turnstile", 11.2, 27.2, w=0.5, d=0.5, h=1.05)
+    p.prop("sofa", -38.0, 19.6, w=2.6, d=1.0, h=0.8)
+    p.prop("sofa", -38.0, 16.4, rot=math.pi, w=2.6, d=1.0, h=0.8)
+    p.prop("coffee_table", -38.0, 18.0, w=1.4, d=1.0, h=0.42)
+    p.prop("planter", -27.0, 29.2, w=1.6, d=1.6, h=1.0)
+    p.prop("planter", 0.0, 29.2, w=1.6, d=1.6, h=1.0)
+    p.prop("planter", 19.0, 29.2, w=1.6, d=1.6, h=1.0)
+    p.prop("ticker_band", 0.0, 14.2, w=26.0, d=0.3, h=0.8, y=3.8, blocks=False, band=True)
+    p.sign("ARRIVAL HALL", -30.0, 13.8, 4.2, "wall", sub="TRADE INTAKE", accent="#34d399",
            width=8.0)
-    p.sign("SECURITY", -14.0, 20.95, 2.9, "wall", sub="CLEARANCE DESK", accent="#38bdf8",
+    p.sign("SECURITY", -17.5, 25.6, 2.9, "wall", sub="CLEARANCE DESK", accent="#38bdf8",
            width=3.4)
 
     # west market wall of the pit + lobby video wall on the south wall
-    p.prop("video_wall", X0 + 0.55, -0.4, w=0.24, d=15.4, h=5.4, y=2.4, blocks=False,
+    p.prop("video_wall", X0 + 0.55, -1.4, w=0.24, d=19.0, h=6.0, y=2.8, blocks=False,
            wall="w", content="markets")
-    p.sign("GLOBAL MARKETS", X0 + 0.9, -0.4, 6.0, "screen", sub="LIVE TAPE", accent="#38bdf8",
+    p.sign("GLOBAL MARKETS", X0 + 0.9, -1.4, 6.0, "screen", sub="LIVE TAPE", accent="#38bdf8",
            width=7.0)
-    p.prop("video_wall", -27.0, SOUTH_WALL_Z - 0.55, w=11.0, d=0.24, h=3.4, y=2.6, blocks=False,
+    p.prop("video_wall", -30.0, SOUTH_WALL_Z - 0.55, w=13.0, d=0.24, h=3.8, y=3.0, blocks=False,
            wall="s", content="tape")
-    p.prop("video_wall", 22.0, SOUTH_WALL_Z - 0.55, w=9.0, d=0.24, h=2.6, y=3.0, blocks=False,
+    p.prop("video_wall", 28.0, SOUTH_WALL_Z - 0.55, w=11.0, d=0.24, h=2.8, y=3.4, blocks=False,
            wall="s", content="brand")
-    p.sign("SOUL EXTER", 22.0, SOUTH_WALL_Z - 0.9, 6.4, "wall",
+    p.sign("SOUL EXTER", 28.0, SOUTH_WALL_Z - 0.95, 6.4, "wall",
            sub="AUTONOMOUS TRADING COUNCIL", accent="#7dd3fc", width=12.0, rot=math.pi)
 
     # ---- outside plaza ---------------------------------------------------
-    p.prop("curb", 0.0, 27.2, w=69.0, d=1.6, h=0.16, y=0.0, blocks=False)
-    for x in (-30.0, -22.0, -6.0, 2.0, 14.0, 22.0, 30.0):
-        p.prop("street_lamp", x, 31.0, w=0.4, d=0.4, h=7.0, blocks=False)
-    p.prop("fountain", 22.0, 36.0, w=6.0, d=6.0, h=0.6)
-    p.prop("taxi", -30.0, 34.5, w=4.6, d=1.9, h=1.5, rot=0.1)
-    p.prop("taxi", 30.0, 39.5, w=4.6, d=1.9, h=1.5, rot=math.pi - 0.15)
-    p.prop("plaza_tree", -20.0, 34.0, w=2.2, d=2.2, h=5.0, blocks=False)
-    p.prop("plaza_tree", 6.0, 37.0, w=2.2, d=2.2, h=5.0, blocks=False)
+    p.prop("curb", 0.0, 33.6, w=88.0, d=1.6, h=0.16, y=0.0, blocks=False)
+    for x in (-38.0, -27.0, -11.0, 0.0, 13.0, 27.0, 38.0):
+        p.prop("street_lamp", x, 37.2, w=0.4, d=0.4, h=7.0, blocks=False)
+    p.prop("fountain", 30.0, 42.5, w=6.0, d=6.0, h=0.6)
+    p.prop("taxi", -40.0, 41.0, w=4.6, d=1.9, h=1.5, rot=0.1)
+    p.prop("taxi", 40.0, 46.5, w=4.6, d=1.9, h=1.5, rot=math.pi - 0.15)
+    p.prop("plaza_tree", -25.0, 41.0, w=2.2, d=2.2, h=5.0, blocks=False)
+    p.prop("plaza_tree", 8.0, 44.0, w=2.2, d=2.2, h=5.0, blocks=False)
 
     # --------------------------------------------- navigation waypoints ----
     n = p.nodes
@@ -578,40 +583,40 @@ def build_floor_plan() -> FloorPlan:
     n["exit_inside"] = (EXIT_GATE_X, SOUTH_WALL_Z - 3.0)
     n["exit_gate"] = (EXIT_GATE_X, SOUTH_WALL_Z)
     n["exit_outside"] = (EXIT_GATE_X + 6.5, SOUTH_WALL_Z + 6.5)
-    n["lobby_center"] = (0.0, 16.0)
-    n["concourse_entry"] = (14.6, -6.0)
-    n["concourse_lobby"] = (14.6, 5.0)
-    n["pit_north_gate"] = (-8.4, -8.4)
+    n["lobby_center"] = (0.0, 19.0)
+    n["concourse_entry"] = (15.7, -7.2)
+    n["concourse_lobby"] = (15.7, 6.0)
+    n["pit_north_gate"] = (-10.0, -10.6)
     for i, d in enumerate(p.desks, start=1):
         n[f"desk_{i}_seat"] = (round(d.seat[0], 3), round(d.seat[1], 3))
         n[f"desk_{i}_stand"] = (round(d.stand[0], 3), round(d.stand[1], 3))
     for i, cx in enumerate(CABIN_CENTERS, start=1):
-        n[f"cabin_{i}_outside"] = (cx, CABIN_Z1 + 1.8)
+        n[f"cabin_{i}_outside"] = (cx, CABIN_Z1 + 2.0)
         n[f"cabin_{i}_door"] = (cx, CABIN_Z1)
-        n[f"cabin_{i}_hear"] = (cx, -18.5)
-        n[f"cabin_{i}_judge"] = (cx, -22.55)
-    n["exec_outside"] = (EXEC["x0"] - 1.8, -4.2)
-    n["exec_door"] = (EXEC["x0"], -4.2)
-    n["exec_stand"] = (exec_rect.cx, -2.5)
-    n["exec_ceo"] = (exec_rect.cx, -6.5)
-    n["debate_outside"] = (DEBATE["x0"] - 1.9, 17.6)
-    n["debate_door"] = (DEBATE["x0"], 17.6)
-    n["debate_stand"] = (round_cx - 3.6, round_cz)
+        n[f"cabin_{i}_hear"] = (cx, -20.6)
+        n[f"cabin_{i}_judge"] = (cx, -26.5)
+    n["exec_outside"] = (EXEC["x0"] - 2.0, -5.8)
+    n["exec_door"] = (EXEC["x0"], -5.8)
+    n["exec_stand"] = (exec_rect.cx, -3.6)
+    n["exec_ceo"] = (exec_rect.cx, -8.0)
+    n["debate_outside"] = (DEBATE["x0"] - 2.0, 21.5)
+    n["debate_door"] = (DEBATE["x0"], 21.5)
+    n["debate_stand"] = (round_cx - 3.8, round_cz)
     for a in range(6):
         ang = a * (2 * math.pi / 6) - math.pi / 2
         n[f"debate_seat_{a}"] = (round(round_cx + math.cos(ang) * 4.4, 3),
                                  round(round_cz + math.sin(ang) * 4.4, 3))
-    n["vault_door"] = (VAULT["x0"], 5.0)
-    n["vault_inside"] = (VAULT["x0"] + 2.0, 5.0)
-    n["fly_home"] = (0.0, 10.0)
+    n["vault_door"] = (VAULT["x0"], 6.6)
+    n["vault_inside"] = (VAULT["x0"] + 2.0, 6.6)
+    n["fly_home"] = (0.0, 12.0)
 
     # the fly's patrol loop (figure-of-eight over the desks, dipping into the wing)
     fly_loop = []
     for t in range(48):
         a = t / 48.0 * math.tau
-        fly_loop.append((round(18.0 * math.sin(a), 2),
-                         round(-1.0 + 9.0 * math.sin(2 * a), 2),
-                         round(4.6 + 1.4 * math.sin(3 * a), 2)))
+        fly_loop.append((round(24.0 * math.sin(a), 2),
+                         round(-1.0 + 12.5 * math.sin(2 * a), 2),
+                         round(5.4 + 1.6 * math.sin(3 * a), 2)))
     setattr(p, "fly_loop", fly_loop)
     return p
 
