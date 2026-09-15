@@ -965,6 +965,19 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
   const st = brain.state || {}
   const trace = brain.trace || { al: [], pn: [], kc: [], mbon: [] }
   const mbons = st.mbon || {}
+  const hostRef = useRef<HTMLDivElement>(null)
+  const vizRef = useRef<import('../three/flybrain3d').FlyBrainViz | null>(null)
+  useEffect(() => {
+    if (!hostRef.current) return
+    import('../three/flybrain3d').then(({ FlyBrainViz }) => {
+      if (!hostRef.current) return
+      vizRef.current = new FlyBrainViz(hostRef.current)
+      vizRef.current.setActivity(fly)
+    })
+    return () => { vizRef.current?.dispose(); vizRef.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => { vizRef.current?.setActivity(fly) }, [fly])
   return (
     <div className="panel-body">
       <div className="fly-head">
@@ -976,6 +989,11 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
             {((fly?.strike_flash || 0) * 100).toFixed(0)}%
           </div>
         </div>
+      </div>
+      <div className="brain3d-host" ref={hostRef} />
+      <div className="brain3d-caption">
+        <span className="brain3d-pulse" /> the connectome, live — one light line keeps passing
+        through the wires: the brain thinking. It races and flares when the fly strikes.
       </div>
       <div className="ticket-grid">
         <Stat label="Brain state" value={st.state || '—'} />
