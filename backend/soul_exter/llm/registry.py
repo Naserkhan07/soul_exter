@@ -49,10 +49,13 @@ class LLMSeat:
         return ""
 
     def live(self) -> bool:
-        return self.provider != "builtin" and bool(self.key() or self.provider == "ollama")
+        return self.provider != "builtin" and bool(
+            self.key() or self.provider in ("ollama", "free"))
 
     def key_source(self) -> str:
         """Where the key this seat is running with comes from."""
+        if self.provider == "free":
+            return "free-cloud"
         if self.api_key:
             return "seat"
         if self.api_key_env and os.environ.get(self.api_key_env):
@@ -132,6 +135,7 @@ DEFAULT_SEATS: List[LLMSeat] = [
 ]
 
 PROVIDER_BASE_URLS: Dict[str, str] = {
+    "free": "https://text.pollinations.ai/openai",
     "openrouter": "https://openrouter.ai/api/v1",
     "together": "https://api.together.xyz/v1",
     "groq": "https://api.groq.com/openai/v1",

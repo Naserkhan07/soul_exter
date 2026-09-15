@@ -47,6 +47,22 @@ class LLMClient:
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
         self.stats: Dict[str, Any] = dict(calls=0, failures=0, last_error="", last_latency_ms=0)
+        # circuit breaker for the keyless free endpoint: after 3 straight failures
+        # it rests for 10 minutes so an offline host never waits on a dead call
+        self.free_fails = 0
+        self.free_cooldown_until = 0.0
+
+    def free_ok(self) -> bool:
+        return time.time() >= self.free_cooldown_until
+
+    def _note_free(self, ok: bool) -> None:
+        if ok:
+            self.free_fails = 0
+            return
+        self.free_fails += 1
+        if self.free_fails >= 3:
+            self.free_cooldown_until = time.time() + 600.0
+            self.free_fails = 0
 
     async def _http(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -62,14 +78,22 @@ class LLMClient:
         return (seat.base_url or PROVIDER_BASE_URLS.get(seat.provider, "")).rstrip("/")
 
     async def chat(self, seat: LLMSeat, messages: List[Dict[str, str]],
-                   json_mode: bool = True) -> Optional[str]:
+                   json_mode: bool = True, timeout: Optional[float] = None
+                   ) -> Optional[str]:
         if not seat.live():
             return None
         base = self.base_url(seat)
         if not base:
             return None
-        url = f"{base}/chat/completions"
-        payload: Dict[str, Any] = dict(model=seat.model, messages=messages,
+        free = seat.provider == "free"
+        if free:
+            if not self.free_ok():
+                return None
+            url = base                                   # pollinations POST endpoint
+        else:
+            url = f"{base}/chat/completions"
+        model = seat.model or ("openai" if free else "")
+        payload: Dict[str, Any] = dict(model=model, messages=messages,
                                        temperature=seat.temperature, max_tokens=900)
         if json_mode and seat.provider in ("openai", "together", "groq", "deepseek", "mistral"):
             payload["response_format"] = {"type": "json_object"}
@@ -80,19 +104,27 @@ class LLMClient:
         t0 = time.time()
         try:
             client = await self._http()
-            r = await client.post(url, json=payload, headers=headers)
+            req = client.post(url, json=payload, headers=headers)
+            r = await (asyncio.wait_for(req, timeout or self.timeout) if timeout else req)
             self.stats["calls"] += 1
             self.stats["last_latency_ms"] = int((time.time() - t0) * 1000)
             if r.status_code >= 400:
                 self.stats["failures"] += 1
                 self.stats["last_error"] = f"{seat.provider} {r.status_code}: {r.text[:180]}"
+                if free:
+                    self._note_free(False)
                 return None
             data = r.json()
             msg = (data.get("choices") or [{}])[0].get("message", {})
-            return msg.get("content") or ""
+            text = msg.get("content") or ""
+            if free:
+                self._note_free(bool(text))
+            return text
         except Exception as exc:  # network, DNS, timeout…
             self.stats["failures"] += 1
             self.stats["last_error"] = f"{type(exc).__name__}: {exc}"
+            if free:
+                self._note_free(False)
             return None
 
     async def chat_json(self, seat: LLMSeat, messages: List[Dict[str, str]]) -> Optional[dict]:

@@ -137,6 +137,15 @@ it never silently pretends an order went to a venue.
 
 ## Every desk answers everything
 
+**Ask anything, get a ChatGPT-style answer.** For open questions the desks don't stay in a
+trading lane: every keyless desk answers through a **free keyless cloud GPT**
+(Pollinations' OpenAI-compatible endpoint — no account, no key), with the desk's persona as
+flavour and a ChatGPT-style contract — correct answer first, friendly human tone, general
+knowledge, science, tech, life, maths, markets, anything. If the host has no internet (or
+the endpoint is unreachable) a circuit breaker trips after three failures and the built-in
+analyst brain takes over instantly with zero lag. Paste a real provider key on any seat
+(Settings → LLM Council) and that desk upgrades to your hosted model instead.
+
 Open **ASK ANY DESK** in the right-hand rail and you are talking to all seven desks (five
 cabins, **NAVEED**, and the hunter). No ticket and no API key are required: each desk answers
 from the built-in analyst engine when no hosted model is configured, and the answer always

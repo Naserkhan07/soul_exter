@@ -370,13 +370,24 @@ class ChatRoom:
     async def _live_line(self, seat: LLMSeat, mode: str, ctx: Dict[str, Any],
                          extra_user: str = "") -> Optional[str]:
         if not seat.live():
-            return None
+            # keyless desk → the free cloud GPT speaks for it (ChatGPT-style),
+            # with the circuit-breaker so an offline host never waits
+            if not CLIENT.free_ok():
+                return None
+            free_seat = LLMSeat(id=seat.id, name=seat.name, role=seat.role,
+                                specialty=seat.specialty, model="openai",
+                                provider="free", temperature=0.6, enabled=True)
+        voice = free_seat if not seat.live() else seat
         roster = ", ".join(f"@{s.name}" for s in self._seats() if s.id != seat.id)
         sys = CHAT_SYSTEM.format(name=seat.name, role=seat.role, specialty=seat.specialty,
                                  mode_note=MODE_NOTES.get(mode, MODE_NOTES["remark"]))
-        if seat.id == "ceo":
+        if seat.live() and seat.id == "ceo":
             # the CEO chats from the advanced training the cabins do not hold
             sys += "\n" + ceo_brain.voice_note()
+        elif not seat.live():
+            sys += ("\nYou are a warm, correct general assistant — like ChatGPT with this "
+                    "desk's name. Answer ANY question on any topic accurately and "
+                    "friendly; floor context is only flavour.")
         transcript = "\n".join(
             f"{x['name']}: {x['text']}" for x in self.messages[-8:]) or "(room just opened)"
         payload = dict(tape=[dict(symbol=x["symbol"], change_pct=round(x.get("change_pct", 0), 3),
@@ -395,7 +406,10 @@ class ChatRoom:
                     f"Recent room transcript:\n{transcript}\n\n"
                     f"Live context JSON:\n{json.dumps(payload, default=str)[:3200]}\n\n"
                     f"{extra_user or 'Take the next turn in the chat.'}"))]
-        raw = await CLIENT.chat(seat, msgs, json_mode=False)
+        if voice.provider == "free":
+            raw = await CLIENT.chat(voice, msgs, json_mode=False, timeout=15.0)
+        else:
+            raw = await CLIENT.chat(voice, msgs, json_mode=False)
         if not raw:
             return None
         text = str(raw).strip().strip('"').replace("\n", " ")
@@ -520,7 +534,8 @@ class ChatRoom:
                                        f"Answer them directly, like a friendly colleague — "
                                        f"correct first, warm second.")
         if answer:
-            engine = f"{target.provider}:{target.model}"
+            engine = (f"{target.provider}:{target.model}" if target.live()
+                      else "free:gpt (keyless)")
         else:
             # the full built-in brain: real numbers, general knowledge, memory —
             # composed like a person, not a bank of canned replies
