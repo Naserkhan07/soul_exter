@@ -206,22 +206,29 @@ cleanest on the floor (vetoes land on the losers). The rule bands (efficiency < 
 ATR > 1.2% of price cuts, RSI < 35 pullbacks press) were calibrated on pooled settled tickets
 the same way the floor's other thresholds were (`council_study`, `CALIBRATION.md`).
 
-## The fly-brain connectome — grown neuron by neuron, one racing light
+## The fly-brain connectome — fluorescence atlas, one racing light
 
-The 3D brain in the **FLY BRAIN** tab is built like the single-neuron confocal
-preparations: it is *grown*, not decorated. Each of the ~70 neurons is a branching
-arbour (soma → trunk → recursive dendrites) planted in one region — the **left optic
-lobe runs pink/red**, the **right optic lobe green**, the **midbrain a red/green/blue
-mix** — plus long tract axons bridging optic→central. The veins are thin, dim and
-wispy (normal blending — they never shine), soma and tip beads punctuate the arbours,
-beaded cortex rings wrap both optic lobes, and a barely-there dark membrane gives the
-ghost silhouette on black.
+The 3D brain in the **FLY BRAIN** tab is a full fluorescence-microscopy recreation of
+the classic fly-brain connectome render, anatomy first:
 
-Exactly **one line of light** runs through the veins — fast, continuously, hopping
-arbour to arbor. When a desk on the floor **thinks or questions** (cabin hearing,
-verdict, CEO ruling, chat Q&A, operator ask), that one line takes the thinker's colour
-and sprints harder, then settles back to its quiet run. A fly strike flashes it amber
-at triple speed. No thought, no change — the light just keeps racing.
+* **two big rounded lateral lobes** — the far-left fanned entirely in **hot pink /
+  magenta**, the far-right in **neon green**, each growing out of its bright
+  optic-tract entry knot,
+* **the larger central brain** — two symmetrical hemispheres with a narrow midline
+  separation: **red / crimson / magenta / orange / yellow** upper-left, **green / cyan /
+  turquoise / electric-blue** upper-right, plus the dense top-centre knot,
+* **the lower region and its downward-pointing tract** in blue / cyan / green, with the
+  thick horizontal blue bow connecting the hemispheres (double-tube primary bundles:
+  bright core + halo),
+* **thousands of hair-fine branching fibres** with thicker primary pathways among them,
+  **luminous synapse dots** studding every arbor, and a whisper of translucent tissue —
+  pure black everywhere else. A real bloom pass gives each fibre the sharp-core +
+  soft-neon-halo fluorescence look without blurring the detail.
+
+Exactly **one line of light** races through the veins — fast, continuously, hopping
+arbor to arbor. When a desk on the floor **thinks or questions** (cabin hearing,
+verdict, CEO ruling, chat Q&A, operator ask), the line takes that desk's colour and
+sprints, then settles back. A fly strike flashes it amber at triple speed.
 
 ## Settings panel
 
