@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FloorScene } from '../three/scene'
 import { api, FloorSocket, type Snapshot } from '../net/api'
-import type { DebateMsg, FrameMsg, Layout, SeatFrame, TradeFrame } from '../three/types'
-import { AnalyticsPanel, CommsPanel, CouncilPanel, DebatePanel, EventTicker, FlyPanel, MarketsPanel,
-         OrdersPanel,
+import type { ChatRoomState, DebateMsg, FrameMsg, Layout, SeatFrame, TradeFrame } from '../three/types'
+import { AnalyticsPanel, ChatRoomPanel, CommsPanel, CouncilPanel, DebatePanel, EventTicker, FlyPanel,
+         MarketsPanel, OrdersPanel,
   SettingsPanel, TradeDetail, TradeDock } from './panels'
 import { CLASS_META, fmtPrice } from '../three/types'
 
-type Tab = 'orders' | 'comms' | 'council' | 'debate' | 'fly' | 'markets' | 'settings' | 'analytics'
+type Tab = 'orders' | 'chat' | 'comms' | 'council' | 'debate' | 'fly' | 'markets' | 'settings' | 'analytics'
 
 export function App() {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -35,6 +35,7 @@ export function App() {
   const [book, setBook] = useState<any>(null)
   const [model, setModel] = useState<any>(null)
   const [debate, setDebate] = useState<DebateMsg[]>([])
+  const [chatroom, setChatroom] = useState<ChatRoomState | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('council')
   const [connected, setConnected] = useState(false)
@@ -62,8 +63,9 @@ export function App() {
     let disposed = false
     ;(async () => {
       try {
-        const [layout, snap, seatData, uni, book, debateData] = await Promise.all([
-          api.layout(), api.state(), api.seatsFull(), api.universe(), api.playbook(), api.debate()
+        const [layout, snap, seatData, uni, book, debateData, chatData] = await Promise.all([
+          api.layout(), api.state(), api.seatsFull(), api.universe(), api.playbook(), api.debate(),
+          api.chatroom()
         ])
         if (disposed || !hostRef.current) return
         const scene = new FloorScene(hostRef.current, layout as Layout, {
@@ -88,6 +90,7 @@ export function App() {
         setStats(snap.stats)
         setUniverse(uni)
         setDebate(debateData.messages)
+        setChatroom(chatData)
         setPlaybook(book)
         setOutcomes(snap.outcomes)
         setSpeed(snap.speed ?? 1)
@@ -142,12 +145,14 @@ export function App() {
     }, 120)
     const slow = setInterval(async () => {
       try {
-        const [book, dbg, st, seatData, an, ob] = await Promise.all([
-          api.playbook(), api.debate(), api.state(), api.seatsFull(), api.analytics(), api.orders()
+        const [book, dbg, st, seatData, an, ob, chat] = await Promise.all([
+          api.playbook(), api.debate(), api.state(), api.seatsFull(), api.analytics(), api.orders(),
+          api.chatroom()
         ])
         setBookInfo(ob)
         setPlaybook(book)
         setDebate(dbg.messages)
+        setChatroom(chat)
         setOutcomes(st.outcomes)
         setLive(st.live)
         setSeats((seatData as any).seats || seatData)
@@ -327,7 +332,8 @@ export function App() {
 
           <aside className="right">
             <div className="right-tabs">
-              {([['orders', 'ORDERS'], ['comms', 'ASK ANY DESK'], ['council', 'COUNCIL'],
+              {([['orders', 'ORDERS'], ['chat', 'CHAT ROOM'], ['comms', 'ASK ANY DESK'],
+                 ['council', 'COUNCIL'],
                  ['debate', 'DEBATE'], ['fly', 'FLY BRAIN'], ['markets', 'MARKETS'],
                  ['analytics', 'ANALYTICS'], ['settings', 'SETTINGS']] as [Tab, string][])
                 .map(([k, label]) => (
@@ -338,6 +344,17 @@ export function App() {
               {tab === 'orders' && (
                 <OrdersPanel onPlace={placeTrade} onBook={bookTrade} onToast={showToast}
                              focusTicket={selected} />
+              )}
+              {tab === 'chat' && (
+                <ChatRoomPanel room={chatroom} seats={seats}
+                               onSay={async (text, seatId) => {
+                                 const res = await api.chatroomSay(text, seatId)
+                                 setChatroom((c) => c
+                                   ? { ...c, messages: [...c.messages, ...res.messages],
+                                       total_messages: c.total_messages + res.messages.length }
+                                   : c)
+                                 return res
+                               }} />
               )}
               {tab === 'comms' && (
                 <CommsPanel seats={seats} focusSeat={commsFocus}

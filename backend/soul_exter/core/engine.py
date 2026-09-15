@@ -20,6 +20,7 @@ from ..agents.schemas import (Direction, Outcome, Signal, Stage, Trade, TradeSta
                               new_id)
 from ..brain.flybrain import FlyBrain
 from ..brain.scanner import FlyScanner
+from ..llm.chatroom import ChatRoom
 from ..llm.engine import CouncilEngine
 from ..llm.playbook import Playbook
 from ..llm.registry import LLMSeat
@@ -123,6 +124,7 @@ class FloorEngine:
                                   per_tick=self.settings.scan_batch)
         self.playbook = Playbook()
         self.council = CouncilEngine(self.settings.to_seats(), self.playbook, self.rng)
+        self.chatroom = ChatRoom(self.council, self.playbook, self.rng)
         self.trades: Dict[str, Trade] = {}
         self.walkers: Dict[str, Walker] = {}
         self.events: List[dict] = []
@@ -604,7 +606,8 @@ class FloorEngine:
         self.last_error = ""
         self._tasks = [asyncio.create_task(self._tick_loop()),
                        asyncio.create_task(self._scan_loop()),
-                       asyncio.create_task(self._debate_loop())]
+                       asyncio.create_task(self._debate_loop()),
+                       asyncio.create_task(self._chat_loop())]
         if self.settings.live_venues:
             self._tasks.append(asyncio.create_task(self._live_loop()))
 
@@ -1259,6 +1262,37 @@ class FloorEngine:
             return f"{m['symbol']} moving {m['change_pct']:+.2f}%"
         return "positioning into the next session"
 
+    # ------------------------------------------------------------- chat room
+    def _chat_context(self) -> dict:
+        return dict(lessons=self.playbook.lessons[-6:],
+                    buckets=self.playbook.snapshot()["buckets"][:6],
+                    recent_trades=[t.dict() for t in list(self.trades.values())[-6:]],
+                    markets=self.feed.snapshot(self.settings.enabled_symbols[:10]))
+
+    async def _chat_loop(self) -> None:
+        """The desks keep a running chat going — questions, answers, training."""
+        await asyncio.sleep(4.0)
+        while self._running:
+            await asyncio.sleep(max(4.0, 11.0 / max(self.settings.speed, 0.15)))
+            if self.settings.paused:
+                continue
+            try:
+                await self._chat_once()
+            except Exception as exc:
+                self.loop_errors = getattr(self, "loop_errors", 0) + 1
+                self.last_error = f"chatroom: {type(exc).__name__}: {exc}"
+                continue
+
+    async def _chat_once(self) -> None:
+        for msg in await self.chatroom.turn(self._chat_context()):
+            self.emit("chatroom", message=msg)
+
+    async def chatroom_say(self, text: str, address: Optional[str] = None) -> List[dict]:
+        msgs = await self.chatroom.operator_say(text, self._chat_context(), address)
+        for m in msgs:
+            self.emit("chatroom", message=m)
+        return msgs
+
     async def _live_loop(self) -> None:
         """Merge real venue prices into the tape when the internet allows it."""
         from ..market.live import poll_symbols
@@ -1433,6 +1467,7 @@ class FloorEngine:
             trades=[t.dict() for t in trades[:60]],
             counts=counts,
             debate=self.council.debate_snapshot(48),
+            chatroom=self.chatroom.snapshot(60),
             playbook=self.playbook.snapshot(),
             outcomes=[o.dict() for o in self.outcomes[-24:]],
             seats=[s.dict() for s in self.council.seats],

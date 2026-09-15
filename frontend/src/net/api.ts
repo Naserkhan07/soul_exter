@@ -64,6 +64,10 @@ export const api = {
   playbook: () => jget<any>('/api/playbook'),
   debate: (limit = 90) => jget<{ messages: DebateMsg[]; lessons: any[] }>(`/api/debate?limit=${limit}`),
   debateAsk: (question: string, seatId = 'ceo') => jpost<DebateMsg>('/api/debate/ask', { question, seat_id: seatId }),
+  /** Council chat room — the desks talk trading and train each other. */
+  chatroom: (limit = 120) => jget<import('../three/types').ChatRoomState>(`/api/chatroom?limit=${limit}`),
+  chatroomSay: (text: string, seatId?: string) =>
+    jpost<{ messages: import('../three/types').ChatMsg[] }>('/api/chatroom/say', { text, seat_id: seatId }),
   settings: () => jget<any>('/api/settings'),
   saveSettings: (patch: Record<string, unknown>) => jpost<any>('/api/settings', patch),
   control: (action: string, extra: Record<string, unknown> = {}) =>

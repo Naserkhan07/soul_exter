@@ -205,6 +205,46 @@ export interface DebateMsg {
   topic: string
 }
 
+export interface ChatMsg {
+  id: string
+  ts: number
+  seat_id: string
+  name: string
+  role: string
+  kind: 'question' | 'answer' | 'remark' | 'agree' | 'pushback' | 'react' | 'lesson'
+  text: string
+  accent: string
+  target?: string | null
+  reply_to?: string | null
+  engine?: string
+  live?: boolean
+  lesson?: { id: string; text: string } | null
+}
+
+export interface ChatTrainingRow {
+  seat_id: string
+  name: string
+  accent: string
+  role: string
+  level: string
+  level_i: number
+  progress: number
+  xp: number
+  asked: number
+  answered: number
+  lessons: number
+  live: boolean
+}
+
+export interface ChatRoomState {
+  messages: ChatMsg[]
+  training: ChatTrainingRow[]
+  turn: number
+  pending: boolean
+  total_messages: number
+  lessons?: any[]
+}
+
 export const CLASS_META: Record<string, { label: string; icon: string; color: string }> = {
   forex: { label: 'Forex', icon: 'FX', color: '#38bdf8' },
   stocks: { label: 'Stocks', icon: 'EQ', color: '#34d399' },

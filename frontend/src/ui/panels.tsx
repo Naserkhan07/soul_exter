@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../net/api'
-import type { DebateMsg, DeskReply, FrameMsg, SeatFrame, TradeFrame } from '../three/types'
+import type { ChatMsg, ChatRoomState, DebateMsg, DeskReply, FrameMsg, SeatFrame, TradeFrame } from '../three/types'
 import { CLASS_META, STATE_LABEL, fmtPrice, pct } from '../three/types'
 
 /* ------------------------------------------------------------------ shared */
@@ -1083,6 +1083,101 @@ export function DebatePanel({ messages, lessons, seats, onAsk }: {
           <div className="dock-sub">RATIFIED LESSONS</div>
           {lessons.slice(-5).reverse().map((l) => (
             <div key={l.id} className="lesson"><b>{l.id}</b> {l.text}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* --------------------------------------------------------- council chat room */
+const CHAT_KIND_LABEL: Record<string, string> = {
+  question: '❓ asks', answer: '💬 answers', remark: 'observes',
+  agree: '🤝 agrees', pushback: '⚔️ pushes back', react: 'reacts', lesson: '🎓 trains the floor'
+}
+
+export function ChatRoomPanel({ room, seats, onSay }: {
+  room: ChatRoomState | null; seats: SeatFrame[]
+  onSay: (text: string, seatId?: string) => Promise<any>
+}) {
+  const [q, setQ] = useState('')
+  const [seatId, setSeatId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const msgs = room?.messages || []
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight
+  }, [msgs.length])
+  const byId = useMemo(() => Object.fromEntries(msgs.map((m) => [m.id, m])), [msgs])
+  const send = async () => {
+    if (!q.trim() || busy) return
+    setBusy(true)
+    await onSay(q.trim(), seatId || undefined).catch(() => {})
+    setQ('')
+    setBusy(false)
+  }
+  return (
+    <div className="panel-body chatroom">
+      <div className="chatroom-head">
+        <span><span className="chatroom-live" /> COUNCIL CHAT ROOM · the desks train each other</span>
+        <span className="muted small">turn {room?.turn ?? 0} · {room?.total_messages ?? 0} messages
+          {room?.pending ? ' · answering…' : ''}</span>
+      </div>
+      <div className="chatroom-scroll" ref={ref}>
+        {msgs.length === 0 && (
+          <div className="muted small" style={{ padding: 14 }}>
+            The desks are warming up — the first message lands within a few seconds…
+          </div>
+        )}
+        {msgs.map((m) => {
+          const replySrc = m.reply_to ? byId[m.reply_to] : null
+          const targetName = m.target ? seats.find((s) => s.id === m.target)?.name : null
+          const isOp = m.seat_id === 'operator'
+          return (
+            <div key={m.id} className={`chat-msg ${m.kind}${isOp ? ' op' : ''}`}
+                 style={{ ['--chip' as any]: m.accent }}>
+              <div className="cm-head">
+                <span className="cm-name">{m.name}</span>
+                <span className={`cm-kind ${m.kind}`}>{CHAT_KIND_LABEL[m.kind] || m.kind}</span>
+                {targetName && m.kind === 'question' && <span className="cm-target">@{targetName}</span>}
+                {m.live && <span className="cm-live">LIVE MODEL</span>}
+                <span className="muted small">{new Date(m.ts * 1000).toLocaleTimeString()}</span>
+              </div>
+              {replySrc && (
+                <div className="cm-reply">↳ answering <b>{replySrc.name}</b>:
+                  “{replySrc.text.slice(0, 72)}{replySrc.text.length > 72 ? '…' : ''}”</div>
+              )}
+              <div className="cm-text">{m.text}</div>
+              {m.kind === 'lesson' && (
+                <div className="cm-lesson">📘 ratified into the playbook
+                  {m.lesson ? ` · ${m.lesson.id}` : ''} — desks now consult this in hearings</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className="chat-input">
+        <select value={seatId} onChange={(e) => setSeatId(e.target.value)}>
+          <option value="">any desk answers</option>
+          {seats.map((s) => <option key={s.id} value={s.id}>@{s.name}</option>)}
+        </select>
+        <input value={q} placeholder="Join the room — ask the desks anything, they answer like colleagues"
+               onChange={(e) => setQ(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Enter') void send() }} />
+        <button disabled={busy} onClick={() => void send()}>{busy ? '…' : 'SAY'}</button>
+      </div>
+      {!!room?.training?.length && (
+        <div className="chatroom-training">
+          <div className="dock-sub">TRAINING RECORD — talk sharp, earn XP, level up</div>
+          {room.training.map((r) => (
+            <div className="train-row" key={r.seat_id}>
+              <span className="train-name" style={{ color: r.accent }}>{r.name}</span>
+              <span className="train-level">{r.level}</span>
+              <span className="train-bar"><span style={{ width: `${Math.round(r.progress * 100)}%`,
+                                                          background: r.accent }} /></span>
+              <span className="train-xp">{r.xp} xp</span>
+              <span className="muted small">❓{r.asked} · 💬{r.answered} · 🎓{r.lessons}</span>
+            </div>
           ))}
         </div>
       )}

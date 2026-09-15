@@ -308,6 +308,25 @@ async def debate_ask(payload: dict) -> dict:
     return msg
 
 
+@app.get("/api/chatroom")
+async def chatroom(limit: int = 120) -> dict:
+    """The running council chat room — messages + per-desk training record."""
+    snap = engine.chatroom.snapshot(limit)
+    snap["lessons"] = engine.playbook.lessons[-40:]
+    return snap
+
+
+@app.post("/api/chatroom/say")
+async def chatroom_say(payload: dict) -> dict:
+    """Join the room: the operator speaks, a desk answers like a colleague."""
+    text = str(payload.get("text") or payload.get("question") or "").strip()
+    address = payload.get("seat_id") or payload.get("address") or None
+    if not text:
+        raise HTTPException(400, "empty message")
+    msgs = await engine.chatroom_say(text, str(address) if address else None)
+    return dict(messages=msgs)
+
+
 @app.get("/api/settings")
 async def get_settings() -> dict:
     return dict(settings=engine.settings.dict(),
