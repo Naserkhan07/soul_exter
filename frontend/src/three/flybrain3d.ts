@@ -122,7 +122,7 @@ export class FlyBrainViz {
     /* fluorescence: sharp cores + soft neon halos, detail retained */
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.85, 0.5, 0.16)
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.35, 0.42, 0.32)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
 
@@ -197,8 +197,8 @@ export class FlyBrainViz {
 
     const emitBead = (p: THREE.Vector3, boost: number) => {
       beads.push(p.x, p.y, p.z)
-      beadCols.push(Math.min(1.5, color.r * boost), Math.min(1.5, color.g * boost),
-        Math.min(1.5, color.b * boost))
+      beadCols.push(Math.min(1.1, color.r * boost), Math.min(1.1, color.g * boost),
+        Math.min(1.1, color.b * boost))
     }
 
     const pushSeg = (a: THREE.Vector3, b: THREE.Vector3) => {
@@ -218,7 +218,7 @@ export class FlyBrainViz {
         pushSeg(p, q)
         p.copy(q)
       }
-      if (rng() < 0.6) emitBead(p, 1.25)
+      if (rng() < 0.6) emitBead(p, 1.0)
     }
 
     const roads: Road[] = []
@@ -240,7 +240,7 @@ export class FlyBrainViz {
         pushSeg(prev, q)
         prev = q
       }
-      if (rng() < beadProb) emitBead(prev, 1.1)
+      if (rng() < beadProb) emitBead(prev, 0.9)
       const childChain = chain.concat(pts)
       if (depth >= 3 || len < 0.17) {
         roads.push(this.makeRoad(childChain))
@@ -257,7 +257,7 @@ export class FlyBrainViz {
     }
 
     /* the soma itself is a bright knot */
-    emitBead(soma, 1.45)
+    emitBead(soma, 1.15)
     grow(soma, dir0, len0, 0, [soma])
     return { segs, cols, beads, beadCols, roads }
   }
@@ -329,7 +329,7 @@ export class FlyBrainViz {
     g.setAttribute('position', new THREE.Float32BufferAttribute(segs, 3))
     g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3))
     const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({
-      vertexColors: true, transparent: true, opacity: 0.85,
+      vertexColors: true, transparent: true, opacity: 0.72,
       blending: THREE.AdditiveBlending, depthWrite: false
     }))
     lines.renderOrder = 1
@@ -356,14 +356,14 @@ export class FlyBrainViz {
     const halo = new THREE.Mesh(
       new THREE.TubeGeometry(curve, 36, radius, 6, false),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(hex), transparent: true,
-        opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false }))
+        opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false }))
     halo.renderOrder = 1
     this.group.add(halo)
     const coreCol = new THREE.Color(hex).lerp(new THREE.Color('#ffffff'), 0.35)
     const core = new THREE.Mesh(
       new THREE.TubeGeometry(curve, 36, radius * 0.45, 6, false),
       new THREE.MeshBasicMaterial({ color: coreCol, transparent: true,
-        opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }))
+        opacity: 0.78, blending: THREE.AdditiveBlending, depthWrite: false }))
     core.renderOrder = 2
     this.group.add(core)
     this.roads.push(this.makeRoad(curve.getPoints(40)))
@@ -413,7 +413,7 @@ export class FlyBrainViz {
           .multiplyScalar(0.14)
         pos.push(entry.x + v.x, entry.y + v.y * 0.8, entry.z + v.z)
         const c = new THREE.Color(rngCols[Math.floor(rng() * rngCols.length)])
-        col.push(c.r * 1.3, c.g * 1.3, c.b * 1.3)
+        col.push(c.r * 0.95, c.g * 0.95, c.b * 0.95)
       }
     }
     const g = new THREE.BufferGeometry()
@@ -444,10 +444,10 @@ export class FlyBrainViz {
     this.group.add(this.beamLine)
     this.headTex = radialTexture('#ffffff')
     this.beamHead = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: this.headTex, transparent: true, opacity: 1,
+      map: this.headTex, transparent: true, opacity: 0.55,
       blending: THREE.AdditiveBlending, depthWrite: false
     }))
-    this.beamHead.scale.setScalar(0.36)
+    this.beamHead.scale.setScalar(0.22)
     this.beamHead.renderOrder = 6
     this.group.add(this.beamHead)
 
@@ -527,7 +527,7 @@ export class FlyBrainViz {
     if (road) {
       this.s += dt * this.speed
       if (this.s >= road.total) this.hop()
-      const boost = 1 + this.flare * 0.6
+      const boost = 1 + this.flare * 0.3
       for (let i = 0; i < this.TRAIL; i++) {
         const back = (this.TRAIL - 1 - i) * this.STEP
         this.pointAt(this.roads[this.roadIdx], this.s - back, !this.forward, this.tmpA)
@@ -536,17 +536,18 @@ export class FlyBrainViz {
         this.beamPos[i * 3 + 2] = this.tmpA.z
         const k = Math.pow(i / (this.TRAIL - 1), 1.7)
         const r = this.beamColor.r, g = this.beamColor.g, b = this.beamColor.b
-        /* white-hot head, tinted tail — bright enough to bloom */
-        this.beamCol[i * 3] = (r * (0.35 + 0.65 * k) + 0.9 * k * k) * boost
-        this.beamCol[i * 3 + 1] = (g * (0.35 + 0.65 * k) + 0.9 * k * k) * boost
-        this.beamCol[i * 3 + 2] = (b * (0.35 + 0.65 * k) + 1.0 * k * k) * boost
+        /* light line: tinted head, softly fading tail — visible, never blinding */
+        this.beamCol[i * 3] = (r * (0.4 + 0.6 * k) + 0.3 * k * k) * boost
+        this.beamCol[i * 3 + 1] = (g * (0.4 + 0.6 * k) + 0.3 * k * k) * boost
+        this.beamCol[i * 3 + 2] = (b * (0.4 + 0.6 * k) + 0.34 * k * k) * boost
       }
       ;(this.beamLine.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
       ;(this.beamLine.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true
       this.pointAt(this.roads[this.roadIdx], this.s, !this.forward, this.tmpB)
       this.beamHead.position.copy(this.tmpB)
-      this.beamHead.scale.setScalar(0.32 + 0.1 * Math.min(1, this.speed / 10) +
-        this.flare * 0.2 + Math.sin(this.t * 10) * 0.02)
+      this.beamHead.scale.setScalar(0.2 + 0.05 * Math.min(1, this.speed / 10) +
+        this.flare * 0.1 + Math.sin(this.t * 10) * 0.015)
+      ;(this.beamHead.material as THREE.SpriteMaterial).opacity = 0.45 + this.flare * 0.2
     }
     this.composer.render()
   }
