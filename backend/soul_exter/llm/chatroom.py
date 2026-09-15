@@ -29,6 +29,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .client import CLIENT
 from . import ceo_brain
+from . import qa as desk_qa
+from . import human as human_voice
 from .playbook import Playbook
 from .registry import LLMSeat
 
@@ -515,10 +517,19 @@ class ChatRoom:
         self.pending = q
         answer = await self._live_line(target, "answer", ctx,
                                        f"The OPERATOR (a human) just asked the room: “{text}” "
-                                       f"Answer them directly.")
-        engine = f"{target.provider}:{target.model}" if answer else "soul-exter-analyst"
-        if not answer:
-            answer = self._builtin_answer(target, q, ctx)
+                                       f"Answer them directly, like a friendly colleague — "
+                                       f"correct first, warm second.")
+        if answer:
+            engine = f"{target.provider}:{target.model}"
+        else:
+            # the full built-in brain: real numbers, general knowledge, memory —
+            # composed like a person, not a bank of canned replies
+            rich = desk_qa.reply(target, text, dict(ctx))
+            answer = rich["answer"]
+            engine = "soul-exter-analyst"
+            human_voice.remember_exchange(target.id, text, str(rich.get("topic") or "chat"),
+                                          str((ctx.get("markets") or [{}])[0].get("symbol", "")
+                                              if ctx.get("markets") else ""))
         a = self._post(target, "answer", answer, reply_to=q["id"], engine=engine)
         self._credit(target.id, "answer")
         self.pending = None

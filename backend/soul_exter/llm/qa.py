@@ -27,6 +27,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import ceo_brain
+from . import human
 from .registry import LLMSeat
 
 # --------------------------------------------------------------------------- #
@@ -39,6 +40,7 @@ LENS: Dict[str, str] = {
     "judge_vol": "volatility, the options surface and tail risk",
     "judge_exec": "execution, microstructure and slippage",
     "ceo": "the advanced trading doctrine and capital allocation",
+    "hunter": "tick-level pattern hunting and the fly's raw read of the tape",
 }
 
 OPENERS: Dict[str, List[str]] = {
@@ -458,9 +460,12 @@ def _greeting(seat: LLMSeat, ctx: Dict[str, Any]) -> Tuple[str, List[str], str]:
     h = time.gmtime().tm_hour
     part = "morning" if h < 12 else "afternoon" if h < 18 else "evening"
     line = _stats_line(ctx)
-    body = (f"Good {part} — {seat.name} at the {seat.role.split('·')[-1].strip()} desk. "
-            f"{line[:1].upper()}{line[1:]}. I am watching {_lens(seat)}; "
-            f"ask me about any ticket, any instrument, or anything else — I answer either way.")
+    who = human.operator_name(seat.id)
+    name_bit = f", {who}" if who else ""
+    body = (f"Hey{name_bit}, good {part} — {seat.name} here. "
+            f"{line[:1].upper()}{line[1:]}, so the floor's alive. "
+            f"Ask me about any ticket, any instrument, sizing, risk — or literally anything "
+            f"else on your mind; I'll give you a straight answer either way.")
     return body, [], "greeting"
 
 
@@ -619,7 +624,9 @@ def _market_view(seat: LLMSeat, ctx: Dict[str, Any], symbol: Optional[str]) -> T
     eff = f.get("efficiency")
     rsi_v = f.get("rsi")
     atr_rank = f.get("atr_rank")
-    bits = [f"{m.get('name', symbol)} ({symbol}) at {price}, {chg:+.2f}% on the last bar"]
+    _name = str(m.get("name") or symbol)
+    _label = _name if _name == symbol else f"{_name} ({symbol})"
+    bits = [f"{_label} at {price}, {chg:+.2f}% on the last bar"]
     if tc is not None:
         bits.append(f"trend composite {float(tc):+.2f}")
     if eff is not None:
@@ -731,6 +738,18 @@ def _offtopic(seat: LLMSeat, ctx: Dict[str, Any], question: str) -> Tuple[str, L
 
 def _arithmetic(question: str) -> Optional[Tuple[str, List[str], str]]:
     q = question.lower()
+    m = re.search(r"([\d.]+)\s*(?:%|percent)\s*of\s*([\d.,]+)", q)
+    if m and any(w in q for w in ("what is", "what's", "calculate", "how much is", "compute", "")):
+        try:
+            pct = float(m.group(1))
+            base = float(m.group(2).replace(",", ""))
+            val = pct / 100.0 * base
+            return (f"{pct:g}% of {base:,.6g} is {val:,.6g}. "
+                    f"Desk habit: percents compound, so I never round them in my head — "
+                    f"a 15% haircut twice is not 30%, it is 27.75%."), \
+                   [f"{pct:g}% × {base:,.6g} = {val:,.6g}"], "math"
+        except ValueError:
+            pass
     if not any(w in q for w in ("what is", "what's", "calculate", "how much is", "compute", "=")):
         return None
     expr = question.split("=", 1)[-1] if "=" not in question else question.split("=", 1)[1]
@@ -828,6 +847,52 @@ def reply(seat: LLMSeat, question: str, ctx: Optional[Dict[str, Any]] = None,
 
         if any(k in ql for k in ("what time", "today's date", "current date")) :
             text, evidence, topic = _time_answer()
+        elif any(k in ql for k in ("my name is", "call me ", "i am called", "remember my name",
+                                   "name's ", "names ")) :
+            got = human.remember_name(seat.id, q)
+            text = (f"Nice to meet you, {got} — noted for good. I'm {seat.name}; ask me "
+                    f"anything at all and I'll answer you straight."
+                    if got else
+                    "I couldn't quite catch the name — try me with 'my name is …' and I'll "
+                    "remember it from there.")
+            evidence, topic = [], "smalltalk"
+        elif any(k in ql for k in ("how are you", "how are we doing today", "how do you feel",
+                                   "how's it going", "hows it going", "you okay",
+                                   "whats up", "what's up")):
+            text, evidence, topic = human.how_are_you(seat, ctx)
+        elif any(k in ql for k in ("who made you", "who built you", "who created you",
+                                   "who programmed you", "are you human", "are you a bot",
+                                   "are you an ai", "are you real", "are you alive")):
+            text, evidence, topic = human.who_made_you(seat, ctx)
+        elif any(k in ql for k in ("what is my name", "what's my name", "whats my name",
+                                   "do you know my name", "remember my name", "who am i?")):
+            text, evidence, topic = human.whats_my_name(seat, ctx)
+        elif any(k in ql for k in ("frustrated", "frustrating", "i keep losing",
+                                   "i keep on losing", "losing trades", "losing money",
+                                   "losing streak", "stressed", "depressed", "sad",
+                                   "angry", "tilting", "tilt ", "scared", "worried",
+                                   "nervous", "anxious", "burnt out", "burned out",
+                                   "giving up", "feel terrible")):
+            text, evidence, topic = human.empathy(seat, ctx, q)
+        elif any(k in ql for k in ("how many trades", "how many tickets")) and \
+                any(k in ql for k in ("per day", "a day", "daily", "per week", "a week",
+                                      "should i do", "can i do", "should i take")):
+            text, evidence, topic = human.frequency_answer(seat, ctx, q)
+        elif any(k in ql for k in ("thank", "thanks", "cheers", "appreciate it",
+                                   "good luck", "well done", "nice work", "you rock")):
+            text, evidence, topic = human.thanks(seat, ctx)
+        elif any(k in ql for k in ("bye", "goodbye", "good night", "see you", "see ya",
+                                   "later", "take care")):
+            text, evidence, topic = human.bye(seat, ctx)
+        elif any(k in ql for k in ("sorry", "my bad", "apolog")):
+            text, evidence, topic = human.sorry(seat, ctx)
+        elif any(k in ql for k in ("joke", "make me laugh", "funny")):
+            text, evidence, topic = human.joke(seat, ctx)
+        elif any(k in ql for k in ("you're great", "youre great", "you are great",
+                                   "you're smart", "youre smart", "you are smart",
+                                   "good bot", "love you", "you're the best",
+                                   "youre the best", "amazing work")):
+            text, evidence, topic = human.compliment(seat, ctx)
         elif re.match(r"^(hi|hey|hello|yo|good (morning|afternoon|evening)|namaste)\b", ql):
             text, evidence, topic = _greeting(seat, ctx)
         elif any(k in ql for k in ("what can you do", "help me", "how do you work",
@@ -838,12 +903,17 @@ def reply(seat: LLMSeat, question: str, ctx: Optional[Dict[str, Any]] = None,
             text, evidence, topic = _roster(seat, ctx)
         elif any(k in ql for k in ("how are you doing", "how are we doing", "pnl", "profit",
                                     "how much have you made", "win rate", "how many trades",
-                                    "performance", "track record", "how is the book")):
+                                    "performance", "track record", "how is the book",
+                                    "how is the floor", "how's the floor", "hows the floor",
+                                    "floor performing", "floor doing", "how are things",
+                                    "how's the book", "hows the book", "how are we")):
             text, evidence, topic = _performance(seat, ctx)
         elif any(k in ql for k in ("risk per trade", "risk per ticket", "how much risk",
                                     "raise risk", "increase risk", "risk of ruin",
                                     "risk %", "risk percent", "position heat",
-                                    "portfolio heat", "account risk")):
+                                    "portfolio heat", "account risk", "% per trade",
+                                    "% per ticket", "percent per trade",
+                                    "percent per ticket", "% of my account")):
             text, evidence, topic = _risk_policy(seat, ctx, q)
         elif (any(k in ql for k in ("why", "reason", "explain your", "justify", "on what basis"))
               and (symbol or "last" in ql or "this" in ql or "latest" in ql)):
@@ -867,12 +937,15 @@ def reply(seat: LLMSeat, question: str, ctx: Optional[Dict[str, Any]] = None,
         else:
             math_ans = _arithmetic(q)
             topic_ans = _topic(seat, q)
+            gloss_ans = human.glossary_answer(q)
             if math_ans:
                 text, evidence, topic = math_ans
             elif any(k in ql for k in ("who is the ceo", "head of council", "naveed")):
                 text, evidence, topic = _roster(seat, ctx)
             elif topic_ans:
                 text, evidence, topic = topic_ans
+            elif gloss_ans:
+                text, evidence, topic = gloss_ans
             elif symbol and any(k in ql for k in ("gold", "oil", "euro", "dollar", "bitcoin",
                                                    "nasdaq", "spx", "vix", "eth", "yen", "pound",
                                                    "index", "crypto", "stock", "forex", "futures",
@@ -882,13 +955,13 @@ def reply(seat: LLMSeat, question: str, ctx: Optional[Dict[str, Any]] = None,
                 text, evidence, topic = _fallback(seat, ctx, q)
             else:
                 text, evidence, topic = (_small_talk(seat, ctx, q)
-                                         or _offtopic(seat, ctx, q))
+                                         or human.human_fallback(seat, ctx, q))
     except Exception as exc:      # the floor never goes silent
         text = (f"{seat.name} here — my structured answer failed ({exc}), but the short version "
                 f"stands: I rule on {_lens(seat)}, every ticket carries a written reason, and I "
                 f"size off a hard stop. Ask me again and I will answer from the numbers I have.")
         evidence, topic = [], "recovered"
-    if seat.id == "ceo" and topic not in ("greeting", "smalltalk", "time", "recovered"):
+    if seat.id == "ceo" and topic in ("market", "ticket", "sizing", "performance"):
         # the CEO is the one seat trained on the advanced curriculum — his answers
         # quote the doctrine his ruling or view actually rests on
         try:
@@ -897,6 +970,20 @@ def reply(seat: LLMSeat, question: str, ctx: Optional[Dict[str, Any]] = None,
             cite = ""
         if cite:
             text = f"{text}\n\n{cite}"
+    # ---- the human finish: occasional memory callback + a natural follow-up ----
+    try:
+        if topic not in ("greeting", "smalltalk", "time", "recovered"):
+            import random as _rng
+            rnd = _rng.Random()
+            if rnd.random() < 0.22:
+                back = human.memory_reference(seat.id, topic, str(symbol or ""))
+                if back and back not in text:
+                    text = f"{back}\n\n{text}"
+            if rnd.random() < 0.6 and not text.rstrip().endswith("?"):
+                text = f"{text}\n\n{human.followup(seat.id, 'market' if topic == 'market' else topic if topic in human.FOLLOWUPS else 'general')}"
+        human.remember_exchange(seat.id, q or question, topic, str(symbol or ""))
+    except Exception:
+        pass
     return dict(seat_id=seat.id, name=seat.name, role=seat.role, specialty=seat.specialty,
                 answer=text, evidence=evidence[:6], topic=topic, engine="soul-exter-analyst",
                 model=seat.model, live=seat.live(), ts=time.time())
