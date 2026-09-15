@@ -960,7 +960,7 @@ export function CouncilPanel({ seats, trades, selected, onSeatClick }: {
 }
 
 /* -------------------------------------------------------------- fly panel */
-export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
+export function FlyPanel({ fly, stats, thoughtTick }: { fly: any; stats: any; thoughtTick?: number }) {
   const brain = fly?.brain || {}
   const st = brain.state || {}
   const trace = brain.trace || { al: [], pn: [], kc: [], mbon: [] }
@@ -978,6 +978,9 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { vizRef.current?.setActivity(fly) }, [fly])
+  useEffect(() => {
+    if (thoughtTick) vizRef.current?.launchThought()
+  }, [thoughtTick])
   return (
     <div className="panel-body">
       <div className="fly-head">
@@ -992,8 +995,9 @@ export function FlyPanel({ fly, stats }: { fly: any; stats: any }) {
       </div>
       <div className="brain3d-host" ref={hostRef} />
       <div className="brain3d-caption">
-        <span className="brain3d-pulse" /> the connectome, live — one light line keeps passing
-        through the wires: the brain thinking. It races and flares when the fly strikes.
+        <span className="brain3d-pulse" /> the connectome, live — veins stay dark and coloured;
+        each question, verdict or debate on the floor sends one short line of light running
+        through them: the brain thinking.
       </div>
       <div className="ticket-grid">
         <Stat label="Brain state" value={st.state || '—'} />
@@ -1184,6 +1188,17 @@ export function ChatRoomPanel({ room, seats, onSay }: {
                onKeyDown={(e) => { if (e.key === 'Enter') void send() }} />
         <button disabled={busy} onClick={() => void send()}>{busy ? '…' : 'SAY'}</button>
       </div>
+      {!!room?.ceo?.learned && (
+        <div className="ceo-training">
+          <div className="dock-sub">🧠 NAVEED · HEAD OF COUNCIL — TRAINED BY THE FIVE DESKS</div>
+          <div className="ceo-line">
+            {room.ceo.per_desk.map((d) => (
+              <span className="ceo-chip" key={d.seat_id}>{d.name} {d.teachings}</span>
+            ))}
+            <span className="muted small">· {room.ceo.learned} teachings absorbed into the mandate</span>
+          </div>
+        </div>
+      )}
       {!!room?.training?.length && (
         <div className="chatroom-training">
           <div className="dock-sub">TRAINING RECORD — talk sharp, earn XP, level up</div>

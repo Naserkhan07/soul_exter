@@ -243,6 +243,7 @@ export interface ChatRoomState {
   pending: boolean
   total_messages: number
   lessons?: any[]
+  ceo?: { learned: number; per_desk: { seat_id: string; name: string; teachings: number }[] }
 }
 
 export const CLASS_META: Record<string, { label: string; icon: string; color: string }> = {

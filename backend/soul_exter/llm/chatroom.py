@@ -81,6 +81,9 @@ class ChatRoom:
         self.pending: Optional[dict] = None       # question awaiting an answer
         self.turn_no = 0
         self._speaker_i = 0
+        # CEO training: NAVEED absorbs what the five desks teach in the room
+        self.ceo_teachings: Dict[str, List[str]] = {}
+        self.ceo_learned = 0
 
     # ------------------------------------------------------------------ util
     def _seats(self) -> List[LLMSeat]:
@@ -108,6 +111,40 @@ class ChatRoom:
             st["lessons"] += 1
         else:
             st["remarks"] += 1
+
+    # ----------------------------------------------------- CEO apprenticeship
+    def _teach_ceo(self, teacher: LLMSeat, text: str) -> Optional[dict]:
+        """NAVEED absorbs every answer/lesson the five desks give — he gets
+        trained on all of them. Sometimes he acknowledges it in the room."""
+        if teacher.id == "ceo":
+            return None
+        shelf = self.ceo_teachings.setdefault(teacher.id, [])
+        shelf.append(text[:140])
+        self.ceo_teachings[teacher.id] = shelf[-8:]
+        self.ceo_learned += 1
+        self._credit("ceo", "react")
+        if self.rng.random() < 0.3:
+            ceo = self.seat("ceo")
+            if ceo is None:
+                return None
+            line = self.rng.choice([
+                f"@{teacher.name} noted — folded into the mandate. "
+                f"({self.ceo_learned} teachings absorbed from the five desks)",
+                f"@{teacher.name} good. That goes into how I rule split councils.",
+                f"@{teacher.name} I am training on your desk — the mandate gets sharper.",
+            ])
+            return self._post(ceo, "react", line, target=teacher.id)
+        return None
+
+    def ceo_synthesis(self, n: int = 2) -> str:
+        """A line showing NAVEED reasoning with what the desks taught him."""
+        taught = [(self.seat(sid), rows[-1]) for sid, rows in self.ceo_teachings.items() if rows]
+        taught = [(s, r) for s, r in taught if s]
+        if not taught:
+            return ""
+        picks = self.rng.sample(taught, min(n, len(taught)))
+        quotes = "; ".join(f"{s.name} taught me “{r[:70]}…”" for s, r in picks)
+        return f" I carry what my desks taught me — {quotes}. My ruling builds on all five."
 
     def _post(self, seat: LLMSeat, kind: str, text: str, target: Optional[str] = None,
               reply_to: Optional[str] = None, engine: str = "", lesson: Optional[dict] = None,
@@ -260,7 +297,7 @@ class ChatRoom:
                           f"the exit into volume and the book thanks you.",
             "ceo": f"on {mkt} my mandate is simple — capital follows discipline. {buc}. {les} "
                    f"Split councils get a reduced clip, unanimous ones get the full size. That is "
-                   f"the rule until the book rewrites it.",
+                   f"the rule until the book rewrites it." + self.ceo_synthesis(1),
             "hunter": f"on {mkt} the fly brain commits before the judges do — my MBON read leads "
                       f"the bar by roughly one tick in this regime. {buc}. {les} Veto me if you "
                       f"must, but watch the counterfactual.",
@@ -405,6 +442,9 @@ class ChatRoom:
                 text = self._builtin_answer(target, q, ctx)
             out.append(self._post(target, "answer", text, reply_to=q["id"], engine=engine))
             self._credit(target.id, "answer")
+            ack = self._teach_ceo(target, text)
+            if ack:
+                out.append(ack)
             # sometimes the asker reacts, sometimes the room crystallises a lesson
             roll = self.rng.random()
             if roll < 0.38:
@@ -418,7 +458,11 @@ class ChatRoom:
                     out.append(self._post(asker, "react", rtext, reply_to=q["id"]))
                     self._credit(asker.id, "react")
             elif roll < 0.55:
-                out.append(self._ratify_lesson(target, ctx))
+                lesson_msg = self._ratify_lesson(target, ctx)
+                out.append(lesson_msg)
+                ack2 = self._teach_ceo(target, lesson_msg["text"])
+                if ack2:
+                    out.append(ack2)
             return out
 
         # ---- phase 2: open floor — someone speaks next
@@ -505,8 +549,9 @@ class ChatRoom:
             answer = self._builtin_answer(target, q, ctx)
         a = self._post(target, "answer", answer, reply_to=q["id"], engine=engine)
         self._credit(target.id, "answer")
+        ack = self._teach_ceo(target, answer)
         self.pending = None
-        return [q, a]
+        return [q, a] + ([ack] if ack else [])
 
     # -------------------------------------------------------------- snapshot
     def snapshot(self, limit: int = 120) -> dict:
@@ -519,6 +564,11 @@ class ChatRoom:
                              xp=st["xp"], asked=st["asked"], answered=st["answered"],
                              lessons=st["lessons"], live=seat.live()))
         rows.sort(key=lambda r: -r["xp"])
-        return dict(messages=self.messages[-limit:], training=rows,
+        ceo = dict(learned=self.ceo_learned,
+                   per_desk=[dict(seat_id=sid,
+                                  name=(self.seat(sid).name if self.seat(sid) else sid),
+                                  teachings=len(rows_))
+                             for sid, rows_ in self.ceo_teachings.items()])
+        return dict(messages=self.messages[-limit:], training=rows, ceo=ceo,
                     turn=self.turn_no, pending=bool(self.pending),
                     total_messages=len(self.messages))

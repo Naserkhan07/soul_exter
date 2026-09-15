@@ -36,6 +36,7 @@ export function App() {
   const [model, setModel] = useState<any>(null)
   const [debate, setDebate] = useState<DebateMsg[]>([])
   const [chatroom, setChatroom] = useState<ChatRoomState | null>(null)
+  const [thoughtTick, setThoughtTick] = useState(0)
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('council')
   const [connected, setConnected] = useState(false)
@@ -120,7 +121,13 @@ export function App() {
       if (msg.type === 'frame') {
         frameRef.current = msg
         eventBuf.current.push(...(msg.events || []))
-        for (const ev of msg.events || []) sceneRef.current?.handleEvent(ev)
+        for (const ev of msg.events || []) {
+          sceneRef.current?.handleEvent(ev)
+          if (ev.kind === 'chatroom' || ev.kind === 'debate' || ev.kind === 'verdict' ||
+              ev.kind === 'trade_finalized' || ev.kind === 'desk_chat') {
+            setThoughtTick((x) => x + 1)      /* the fly brain lights a thought */
+          }
+        }
       }
       if (msg.type === 'chat_reply') {
         /* handled inside the detail panel */
@@ -371,7 +378,7 @@ export function App() {
                                                   setDebate((d) => [...d, msg])
                                                   return msg
                                                 }} />}
-              {tab === 'fly' && <FlyPanel fly={fly} stats={flyExtra || fly} />}
+              {tab === 'fly' && <FlyPanel fly={fly} stats={flyExtra || fly} thoughtTick={thoughtTick} />}
               {tab === 'markets' && (
                 <MarketsPanel markets={markets} counts={{}}
                               enabled={settings?.enabled_symbols || snapshot?.enabled || []} />
