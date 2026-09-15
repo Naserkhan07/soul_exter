@@ -595,6 +595,7 @@ export function buildSky(scene: THREE.Scene) {
       }`
   })
   const sky = new THREE.Mesh(geo, mat)
+  sky.userData.mat = mat
   scene.add(sky)
   return sky
 }

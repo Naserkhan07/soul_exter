@@ -96,9 +96,10 @@ export class FloorScene {
   private hemi: THREE.HemisphereLight | null = null
   private keyLight: THREE.DirectionalLight | null = null
   private fillLight: THREE.DirectionalLight | null = null
+  private sky: THREE.Mesh | null = null
   private rig: LightingRig | null = null
   private lightLevel = 1.0
-  private lightingMode: 'bright' | 'moody' = 'bright'
+  private lightingMode: 'bright' | 'moody' | 'day' | 'night' = 'night'
   readonly ready: Promise<void>
 
   constructor(private container: HTMLElement, private layout: Layout, private opts: SceneOptions = {}) {
@@ -134,7 +135,7 @@ export class FloorScene {
     this.scene.fog = new THREE.Fog(0x0a0f18, 90, 340)
 
     this.setupLights()
-    buildSky(this.scene)
+    this.sky = buildSky(this.scene)
     buildCity(this.scene)
     buildFloor(this.scene, layout)
     buildWalls(this.scene, layout)
@@ -265,10 +266,37 @@ export class FloorScene {
     }
   }
 
-  /** Bright (working floor) vs moody (cinematic) lighting. */
-  setLighting(mode: 'bright' | 'moody') {
+  /** DAY (full daylight over the city) / NIGHT (the classic neon floor) /
+   * bright (working night) / moody (cinematic night). */
+  setLighting(mode: 'bright' | 'moody' | 'day' | 'night') {
+    if (mode === 'bright') mode = 'night'
     this.lightingMode = mode
-    const bright = mode === 'bright'
+    const bright = mode !== 'moody'
+    this.applySky(mode)
+    if (mode === 'day') {
+      if (this.hemi) { this.hemi.intensity = 2.0; this.hemi.color.set(0xd9edff) }
+      if (this.keyLight) { this.keyLight.intensity = 2.3; this.keyLight.color.set(0xfff3de) }
+      if (this.fillLight) { this.fillLight.intensity = 0.95; this.fillLight.color.set(0xcfe2ff) }
+      this.renderer.toneMappingExposure = 1.5
+      this.scene.background = new THREE.Color(0x9cc4e8)
+      const fog = this.scene.fog as THREE.Fog | null
+      if (fog) fog.color.set(0xbcd7ef)
+      for (const l of this.hubLights) l.intensity = 8
+      for (const l of this.roomLights) l.intensity = 0.75 * (l.userData.base ?? l.intensity)
+    } else {
+      if (this.hemi) { this.hemi.intensity = bright ? 1.5 : 0.8; this.hemi.color.set(0xd7e6ff) }
+      if (this.keyLight) { this.keyLight.intensity = bright ? 1.75 : 1.05
+        this.keyLight.color.set(0xf2f7ff) }
+      if (this.fillLight) { this.fillLight.intensity = bright ? 0.6 : 0.22
+        this.fillLight.color.set(0x9dc0ff) }
+      this.renderer.toneMappingExposure = bright ? 1.32 : 1.05
+      this.scene.background = new THREE.Color(0x141d2e)
+      const fog = this.scene.fog as THREE.Fog | null
+      if (fog) fog.color.set(0x0a0f18)
+      for (const l of this.hubLights) l.intensity = (bright ? 26 : 17)
+      for (const l of this.roomLights) l.intensity = bright ? l.userData.base ?? l.intensity : 0.6 * (l.userData.base ?? l.intensity)
+    }
+    const day = mode === 'day'
     this.lightLevel = bright ? 1.0 : 0.62
     if (this.hemi) this.hemi.intensity = bright ? 1.5 : 0.8
     if (this.keyLight) this.keyLight.intensity = bright ? 1.75 : 1.05
@@ -277,26 +305,41 @@ export class FloorScene {
     for (const l of this.hubLights) l.intensity = (bright ? 26 : 17)
     for (const l of this.roomLights) l.intensity = bright ? l.userData.base ?? l.intensity : 0.6 * (l.userData.base ?? l.intensity)
     if (this.rig) {
-      const poolOpacity = bright ? 1.0 : 0.6
+      const poolOpacity = day ? 0.45 : bright ? 1.0 : 0.6
       for (const m of this.rig.pools) {
         const mat = m.material as THREE.MeshBasicMaterial
         mat.opacity = (mat.map === null ? 0.16 : 0.2) * poolOpacity
       }
       for (const halo of this.rig.halos) {
-        (halo.material as THREE.SpriteMaterial).opacity = bright ? 0.5 : 0.34
+        (halo.material as THREE.SpriteMaterial).opacity = day ? 0.16 : bright ? 0.5 : 0.34
       }
       for (const p of this.rig.panels) {
         const mat = p.material as THREE.MeshBasicMaterial
-        mat.color.setStyle(bright ? '#fff6e2' : '#c9bda6')
+        mat.color.setStyle(day ? '#ffffff' : bright ? '#fff6e2' : '#c9bda6')
       }
       for (const st of this.rig.strips) {
         const mat = st.material as THREE.MeshBasicMaterial
-        mat.color.setStyle(bright ? '#8fd8ff' : '#4b8ab5')
+        mat.color.setStyle(day ? '#bfe4ff' : bright ? '#8fd8ff' : '#4b8ab5')
       }
     }
   }
 
-  get lighting(): 'bright' | 'moody' {
+  /** retint the sky dome: daylight blue vs the night navy */
+  private applySky(mode: 'bright' | 'moody' | 'day' | 'night') {
+    const mat = this.sky?.userData.mat as THREE.ShaderMaterial | undefined
+    if (!mat) return
+    if (mode === 'day') {
+      ;(mat.uniforms.top.value as THREE.Color).set(0x2f6fc4)
+      ;(mat.uniforms.bottom.value as THREE.Color).set(0xa9d3f2)
+      ;(mat.uniforms.glow.value as THREE.Color).set(0xffe9c9)
+    } else {
+      ;(mat.uniforms.top.value as THREE.Color).set(0x05070d)
+      ;(mat.uniforms.bottom.value as THREE.Color).set(0x12202f)
+      ;(mat.uniforms.glow.value as THREE.Color).set(0x1b3b57)
+    }
+  }
+
+  get lighting(): 'bright' | 'moody' | 'day' | 'night' {
     return this.lightingMode
   }
 

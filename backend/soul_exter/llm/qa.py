@@ -805,7 +805,10 @@ def _topic(seat: LLMSeat, question: str) -> Optional[Tuple[str, List[str], str]]
     best: Optional[Tuple[Tuple[str, ...], str, str]] = None
     for entry in TOPICS:
         keys, _, _ = entry
-        if any(k in q for k in keys):
+        # whole-word match so 'capital' never trips short keys like 'api'/'atr'
+        hit = any(re.search(rf"(?<![a-z0-9]){re.escape(k.strip())}(?:s|es)?(?![a-z0-9])", q)
+                  for k in keys if k.strip())
+        if hit:
             if best is None or max(len(k) for k in keys) > max(len(k) for k in best[0]):
                 best = entry
     if best is None:
@@ -970,16 +973,12 @@ def reply(seat: LLMSeat, question: str, ctx: Optional[Dict[str, Any]] = None,
             cite = ""
         if cite:
             text = f"{text}\n\n{cite}"
-    # ---- the human finish: occasional memory callback + a natural follow-up ----
+    # ---- stay on the operator's question: no topic drift, rare natural follow-up ----
     try:
         if topic not in ("greeting", "smalltalk", "time", "recovered"):
             import random as _rng
             rnd = _rng.Random()
-            if rnd.random() < 0.22:
-                back = human.memory_reference(seat.id, topic, str(symbol or ""))
-                if back and back not in text:
-                    text = f"{back}\n\n{text}"
-            if rnd.random() < 0.6 and not text.rstrip().endswith("?"):
+            if rnd.random() < 0.18 and not text.rstrip().endswith("?"):
                 text = f"{text}\n\n{human.followup(seat.id, 'market' if topic == 'market' else topic if topic in human.FOLLOWUPS else 'general')}"
         human.remember_exchange(seat.id, q or question, topic, str(symbol or ""))
     except Exception:

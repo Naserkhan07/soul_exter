@@ -441,7 +441,9 @@ GLOSSARY: Tuple[Tuple[Tuple[str, ...], str], ...] = (
 
 
 def glossary_answer(question: str) -> Optional[Tuple[str, List[str], str]]:
-    """Look up a general-knowledge question ('what is X', 'explain X', 'how does X work')."""
+    """Look up a general-knowledge question ('what is X', 'explain X', 'how does X work').
+
+    Keys match as WHOLE WORDS only — 'capital' must never trip the 'API' entry."""
     q = question.lower().strip().rstrip("?").strip()
     if not any(k in q for k in ("what is", "what's", "explain", "how does", "how do",
                                 "tell me about", "define", "meaning of", "why is",
@@ -449,7 +451,7 @@ def glossary_answer(question: str) -> Optional[Tuple[str, List[str], str]]:
         return None
     for keys, title, body in GLOSSARY:
         for k in keys:
-            if k in q:
+            if re.search(rf"(?<![a-z0-9]){re.escape(k)}(?:s|es)?(?![a-z0-9])", q):
                 return body, [title], "knowledge"
     return None
 

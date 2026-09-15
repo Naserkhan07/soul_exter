@@ -46,7 +46,7 @@ export function App() {
   const [cinema, setCinema] = useState(false)
   const [fps, setFps] = useState(60)
   const [chatRequest, setChatRequest] = useState<{ seatId: string; tradeId: string } | null>(null)
-  const [lights, setLights] = useState<'bright' | 'moody'>('bright')
+  const [lights, setLights] = useState<'day' | 'night'>('night')
   const [orderBusy, setOrderBusy] = useState<Record<string, string>>({})
   const [commsFocus, setCommsFocus] = useState<string | null>(null)
   const [bookInfo, setBookInfo] = useState<any>(null)
@@ -338,12 +338,13 @@ export function App() {
             <button key={p} onClick={() => sceneRef.current?.setPreset(p)}>{p.toUpperCase()}</button>
           ))}
           <button className={`light-toggle ${lights}`}
+                  title="switch the whole city between day and night"
                   onClick={() => {
-                    const next = lights === 'bright' ? 'moody' : 'bright'
+                    const next = lights === 'night' ? 'day' : 'night'
                     setLights(next)
                     sceneRef.current?.setLighting(next)
                   }}>
-            {lights === 'bright' ? '☀ LIGHTS ON' : '☾ MOODY'}
+            {lights === 'night' ? '☀ DAY' : '☾ NIGHT'}
           </button>
         </div>
         {!!markets.length && (
