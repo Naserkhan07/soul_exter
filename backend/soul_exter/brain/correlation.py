@@ -33,9 +33,11 @@ from ..market.feed import MarketFeed
 WINDOW_SHORT = 150        # 1-bar returns used for the "current" correlation
 WINDOW_LONG = 380         # everything the tape remembers = the long-run regime
 HORIZONS = (1, 5, 15)     # bar multiples ~ 1m / 5m / 15m
-RHO_STRONG = 0.72         # peer must be this correlated to matter
+RHO_STRONG = 0.72         # peer must be this correlated to shape features
+RHO_TRADE = 0.90          # ONLY 0.90..0.99 (green +90..+99, red -90..-99) may trade
 Z_TRIGGER = 1.5           # residual z that flags a lagging pair
 BREAK_TRIGGER = 0.45      # |rho_short - rho_long| that flags a regime break
+MIN_INTERVAL_S = 4.0      # table refresh cadence: recomputed from live tape constantly
 MAJORS = ("EUR", "USD", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD",
           "SEK", "NOK", "MXN", "ZAR", "TRY", "SGD", "CNH")
 
@@ -103,7 +105,7 @@ class CorrelationMonitor:
     # ---------------------------------------------------------------- compute
     def update(self, symbols: List[str], now: Optional[float] = None) -> None:
         now = now or time.time()
-        if now - self.updated_at < 8.0:      # recompute at most every ~8 s
+        if now - self.updated_at < MIN_INTERVAL_S:   # refresh constantly, never stale
             return
         t0 = time.time()
         syms = [s for s in symbols if s in self.feed.tickers]

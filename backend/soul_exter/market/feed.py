@@ -116,8 +116,8 @@ class InstrumentState:
             self.price += (anchor - self.price) * pull * bar_frac
         share = self.momo_share
         phi = self.momo_phi
-        factor_part = base_sigma * 0.42 * factor_shock + base_sigma * 0.50 * ccy_shock
-        innov = base_sigma * math.sqrt(max(1.0 - share * share - 0.42 ** 2 - 0.50 ** 2,
+        factor_part = base_sigma * 0.62 * factor_shock + base_sigma * 0.70 * ccy_shock
+        innov = base_sigma * math.sqrt(max(1.0 - share * share - 0.62 ** 2 - 0.70 ** 2,
                                            0.05)) * self.rng.gauss(0, 1)
         self.momo = phi * self.momo + base_sigma * share * math.sqrt(max(1.0 - phi * phi, 0.0)) \
             * self.rng.gauss(0, 1)
@@ -142,6 +142,7 @@ class MarketFeed:
         # USDNOK still diverge on their own legs.
         self.factor_rng = random.Random(seed + 77)
         self.mkt = 0.0
+        self.riskf = 0.0
         self.ccy: Dict[str, float] = {}
         self._ccy_last = 0.0
         self.rng = random.Random(seed)
@@ -185,9 +186,9 @@ class MarketFeed:
             base, quote = fx_legs(inst.symbol)
             ccy_shock = (self.ccy.get(base, 0.0) - self.ccy.get(quote, 0.0)) \
                 if base else 0.0
-            ret = drift + share * st.momo + sig * 0.42 * self.mkt \
-                + sig * 0.50 * ccy_shock \
-                + sig * math.sqrt(max(1.0 - share * share - 0.42 ** 2 - 0.50 ** 2,
+            ret = drift + share * st.momo + sig * 0.62 * self.mkt \
+                + sig * 0.70 * ccy_shock \
+                + sig * math.sqrt(max(1.0 - share * share - 0.62 ** 2 - 0.70 ** 2,
                                       0.05)) \
                 * float(self.nprng.normal()) * 1.15
             op = price
@@ -203,21 +204,39 @@ class MarketFeed:
 
     def _seed_factor_step(self) -> None:
         """One OU update of the shared factors during history seeding."""
-        k, theta = 0.045, 1.2
-        self.mkt = (1.0 - k) * self.mkt + k * theta * self.factor_rng.gauss(0, 1)
-        for ccy in self.ccy:
-            self.ccy[ccy] = (1.0 - k) * self.ccy[ccy] + k * theta * self.factor_rng.gauss(0, 1)
+        self._update_factors(6.0)
 
     # ---------------------------------------------------------------- drive
+    CCY_BETA = {   # risk-sentiment beta per currency: + risk-on, - safe haven
+        "EUR": 0.50, "GBP": 0.50, "AUD": 0.70, "NZD": 0.60, "CAD": 0.40,
+        "SEK": 0.60, "NOK": 0.50, "MXN": 0.35, "ZAR": 0.45, "TRY": 0.25,
+        "SGD": 0.10, "CNH": 0.20, "USD": -0.40, "JPY": -0.50, "CHF": -0.50,
+    }
+
     def _update_factors(self, dt: float) -> None:
-        """OU dynamics for the shared macro factor and each currency leg."""
-        k, theta = 0.045, 1.2          # mean reversion speed / per-step shock scale
+        """OU dynamics: shared macro, risk sentiment, and each currency leg."""
+        k = 0.045
         n = max(1, int(dt / 6.0))
         for _ in range(n):
-            self.mkt = (1.0 - k) * self.mkt + k * theta * self.factor_rng.gauss(0, 1)
+            self.mkt = (1.0 - k) * self.mkt + k * 1.2 * self.factor_rng.gauss(0, 1)
+            self.riskf = (1.0 - k) * self.riskf + k * 1.8 * self.factor_rng.gauss(0, 1)
             for ccy in self.ccy:
-                self.ccy[ccy] = (1.0 - k) * self.ccy[ccy] + k * theta * self.factor_rng.gauss(0, 1)
+                self.ccy[ccy] = (1.0 - k) * self.ccy[ccy] + k * 0.5 * self.factor_rng.gauss(0, 1)
         self._ccy_last = self.factor_rng.random()
+
+    def _ccy_shock(self, symbol: str) -> float:
+        """Combined currency-leg shock for a pair, beta-weighted by risk sentiment.
+
+        Pairs sharing currency *groups* (EURUSD/GBPUSD, AUDUSD/NZDUSD, EURUSD vs
+        USDCHF...) therefore co-move strongly — the same bloc structure the real
+        correlation table shows."""
+        from .universe import fx_legs
+        base, quote = fx_legs(symbol)
+        if not base:
+            return 0.0
+        beta = self.CCY_BETA
+        br = beta.get(base, 0.0) - beta.get(quote, 0.0)
+        return br * self.riskf + (self.ccy.get(base, 0.0) - self.ccy.get(quote, 0.0))
 
     def ensure_currency(self, symbol: str) -> None:
         """Register the currency legs of an FX pair in the factor model."""
@@ -236,11 +255,7 @@ class MarketFeed:
         for sym in self.symbols:
             st = self.states[sym]
             t = self.tickers[sym]
-            from .universe import fx_legs
-            base, quote = fx_legs(sym)
-            ccy_shock = 0.0
-            if base and base in self.ccy:
-                ccy_shock = self.ccy.get(base, 0.0) - self.ccy.get(quote, 0.0)
+            ccy_shock = self._ccy_shock(sym)
             sub = dt / ticks
             for _ in range(ticks):
                 p = st.step(sub, hour, factor_shock=self.mkt, ccy_shock=ccy_shock)

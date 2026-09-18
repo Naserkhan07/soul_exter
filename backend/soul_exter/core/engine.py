@@ -1258,7 +1258,8 @@ class FloorEngine:
         self.scanner.use_correlation = self.settings.use_correlation
         self.scanner.corr_overlap_max = self.settings.corr_overlap_max
         enabled = self.settings.enabled_symbols
-        # refresh the correlation table from the live tape every scan cycle
+        # keep the correlation table always fresh: recomputed from the live
+        # tape every scan cycle (internally throttled to a few seconds)
         if self.settings.use_correlation:
             try:
                 self.correlation.update(enabled, now=self.clock)

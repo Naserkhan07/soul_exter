@@ -13,7 +13,8 @@ import numpy as np
 from ..agents.schemas import Signal
 from ..market.feed import MarketFeed
 from ..market.universe import UNIVERSE, horizon_for
-from .correlation import RHO_STRONG, Z_TRIGGER, BREAK_TRIGGER, CorrelationMonitor
+from .correlation import (RHO_STRONG, RHO_TRADE, Z_TRIGGER, BREAK_TRIGGER,
+                          CorrelationMonitor)
 from .features import (Ticker, build_signal_levels, compute_metrics, encode_glomeruli,
                        strategy_bias, trend_composite)
 from .flybrain import FlyAgent, FlyBrain
@@ -232,8 +233,12 @@ class FlyScanner:
         rho = float(feat.get("corr_bloc", 0.0))
         resid_z = float(feat.get("resid_z", 0.0))
         cbreak = float(feat.get("corr_break", 0.0))
-        if abs(rho) < RHO_STRONG:
+        # operator rule: correlation trades ONLY on strong pairs —
+        # green +90..+99 or red -90..-99. Anything weaker never trades here.
+        if abs(rho) < RHO_TRADE:
             return None
+        if self.corr.updated_at and now - self.corr.updated_at > 60.0:
+            return None                      # stale table -> no correlation trades
         self.funnel["corr_watch"] += 1
 
         direction, source, score, metrics = "", "", 0.0, None
