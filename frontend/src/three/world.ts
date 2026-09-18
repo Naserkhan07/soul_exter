@@ -7,10 +7,10 @@ import * as THREE from 'three'
 import type { Layout, PropDef, SignDef, WallDef } from './types'
 
 export const M = {
-  floor: new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.42, metalness: 0.22 }),
-  floorAlt: new THREE.MeshStandardMaterial({ color: 0x1b212b, roughness: 0.5, metalness: 0.16 }),
-  wall: new THREE.MeshStandardMaterial({ color: 0x2b3341, roughness: 0.85, metalness: 0.05 }),
-  wallTrim: new THREE.MeshStandardMaterial({ color: 0x3b4557, roughness: 0.6, metalness: 0.25 }),
+  floor: new THREE.MeshStandardMaterial({ color: 0xf2f4f8, roughness: 0.5, metalness: 0.06 }),
+  floorAlt: new THREE.MeshStandardMaterial({ color: 0xe8ecf2, roughness: 0.55, metalness: 0.05 }),
+  wall: new THREE.MeshStandardMaterial({ color: 0xf4f6f9, roughness: 0.92, metalness: 0.02 }),
+  wallTrim: new THREE.MeshStandardMaterial({ color: 0xdde3ec, roughness: 0.7, metalness: 0.12 }),
   glass: new THREE.MeshPhysicalMaterial({
     color: 0x9fd8ff, roughness: 0.08, metalness: 0, transmission: 0, transparent: true,
     opacity: 0.17, side: THREE.DoubleSide, envMapIntensity: 1.4
@@ -56,27 +56,27 @@ export function makeTextTexture(lines: { text: string; size?: number; color?: st
   return tex
 }
 
-/** Floor: dark polished stone with an inlaid pathway grid. */
+/** Floor: polished white stone with an inlaid pathway grid. */
 function makeFloorTexture(size = 2048): THREE.CanvasTexture {
   const c = document.createElement('canvas')
   c.width = size
   c.height = size
   const g = c.getContext('2d')!
   const grd = g.createLinearGradient(0, 0, size, size)
-  grd.addColorStop(0, '#151a22')
-  grd.addColorStop(0.5, '#1a2029')
-  grd.addColorStop(1, '#12161d')
+  grd.addColorStop(0, '#f5f7fa')
+  grd.addColorStop(0.5, '#eef1f5')
+  grd.addColorStop(1, '#e9edf3')
   g.fillStyle = grd
   g.fillRect(0, 0, size, size)
-  // fine grain
+  // fine mineral grain
   for (let i = 0; i < 9000; i++) {
     const x = Math.random() * size
     const y = Math.random() * size
-    g.fillStyle = `rgba(255,255,255,${Math.random() * 0.02})`
+    g.fillStyle = `rgba(160,175,195,${Math.random() * 0.05})`
     g.fillRect(x, y, 2, 2)
   }
   // panel grid
-  g.strokeStyle = 'rgba(120,160,210,0.06)'
+  g.strokeStyle = 'rgba(110,140,180,0.09)'
   g.lineWidth = 2
   const step = size / 32
   for (let i = 0; i <= 32; i++) {
@@ -100,8 +100,8 @@ export function buildFloor(scene: THREE.Scene, layout: Layout) {
   const { x0, z0, x1, z1 } = layout.hall
   const w = x1 - x0 + 40
   const d = z1 - z0 + 60
-  const mat = new THREE.MeshStandardMaterial({ map: makeFloorTexture(), roughness: 0.36,
-    metalness: 0.28, color: 0xffffff })
+  const mat = new THREE.MeshStandardMaterial({ map: makeFloorTexture(), roughness: 0.5,
+    metalness: 0.06, color: 0xffffff })
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat)
   floor.rotation.x = -Math.PI / 2
   floor.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2 + 8)
@@ -111,7 +111,7 @@ export function buildFloor(scene: THREE.Scene, layout: Layout) {
 
   // outer apron (plaza) — slightly lighter concrete
   const apron = new THREE.Mesh(new THREE.PlaneGeometry(w + 30, 40),
-    new THREE.MeshStandardMaterial({ color: 0x1a1f27, roughness: 0.9, metalness: 0.05 }))
+    new THREE.MeshStandardMaterial({ color: 0xd9dee6, roughness: 0.92, metalness: 0.03 }))
   apron.rotation.x = -Math.PI / 2
   apron.position.set((x0 + x1) / 2, -0.02, layout.hall.south + 22)
   apron.receiveShadow = true
@@ -125,8 +125,8 @@ export function buildFloor(scene: THREE.Scene, layout: Layout) {
     const isRoom = ['exec', 'vault', 'debate', 'cabin'].includes(z.kind)
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(zw, zd),
       isRoom
-        ? new THREE.MeshStandardMaterial({ color: 0x212a36, roughness: 0.3, metalness: 0.35 })
-        : new THREE.MeshStandardMaterial({ color: 0x232c38, roughness: 0.34, metalness: 0.3 }))
+        ? new THREE.MeshStandardMaterial({ color: 0xe9eef5, roughness: 0.42, metalness: 0.05 })
+        : new THREE.MeshStandardMaterial({ color: 0xe2e8f1, roughness: 0.46, metalness: 0.05 }))
     mesh.rotation.x = -Math.PI / 2
     mesh.position.set(a + zw / 2, 0.012, b + zd / 2)
     mesh.receiveShadow = true
