@@ -595,3 +595,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 .bc-title { font-size: 10px; letter-spacing: 0.1em; color: var(--accent); font-weight: 700; }
 .bridge-cmd code { font-family: var(--mono); font-size: 10px; line-height: 1.7; color: #d7e7ff;
   white-space: pre-wrap; word-break: break-all; }
+.cam360 { background: rgba(56, 189, 248, 0.14) !important; border-color: rgba(56,189,248,0.5) !important; }
+.cam360.active { background: rgba(56, 189, 248, 0.32) !important; border-color: #38bdf8 !important;
+  color: #e0f2fe; box-shadow: 0 0 12px rgba(56,189,248,0.45); }
+.free360-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  background: rgba(8, 13, 24, 0.86); border: 1px solid rgba(56,189,248,0.45); color: #cfe8f7;
+  border-radius: 10px; padding: 7px 14px; font-size: 12px; letter-spacing: 0.02em;
+  pointer-events: none; z-index: 30; display: none; backdrop-filter: blur(4px); }
+.free360-hint b { color: #7dd3fc; }

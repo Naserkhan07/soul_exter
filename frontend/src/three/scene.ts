@@ -70,6 +70,15 @@ export class FloorScene {
   private flyAnchor = new THREE.Sprite
   private selected: string | null = null
   private follow = true
+
+  // ---- 360 free-fly viewer (view anywhere and everywhere) ----
+  private camMode: 'orbit' | 'free' = 'orbit'
+  private freeYaw = 0
+  private freePitch = 0
+  private freeSpeed = 14
+  private keys = new Set<string>()
+  private lookDrag: { id: number; x: number; y: number } | null = null
+  private hintEl: HTMLDivElement | null = null
   private raf = 0
   private fps = 60
   private frames = 0
@@ -125,11 +134,18 @@ export class FloorScene {
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.06
     this.controls.maxPolarAngle = Math.PI * 0.495
-    this.controls.minDistance = 3
-    this.controls.maxDistance = 190
+    this.controls.minDistance = 1.6
+    this.controls.maxDistance = 340
     this.controls.zoomSpeed = 0.9
     this.controls.panSpeed = 0.8
     this.controls.screenSpacePanning = true
+    // 360 viewer: drag-look + WASD fly + wheel speed
+    this.renderer.domElement.addEventListener('pointerdown', this.onLookDown)
+    window.addEventListener('pointermove', this.onLookMove)
+    window.addEventListener('pointerup', this.onLookUp)
+    window.addEventListener('keydown', this.onKeyDown)
+    window.addEventListener('keyup', this.onKeyUp)
+    this.renderer.domElement.addEventListener('wheel', this.onWheelFree, { passive: false })
 
     this.scene.background = new THREE.Color(0x141d2e)
     this.scene.fog = new THREE.Fog(0x0a0f18, 90, 340)
@@ -631,11 +647,121 @@ export class FloorScene {
 
   // ------------------------------------------------------------------ camera
   setPreset(name: string) {
+    if (this.camMode === 'free') this.setCameraMode('orbit')
     const p = PRESETS[name] || PRESETS.overview
     this.camera.position.copy(p.pos)
     this.controls.target.copy(p.target)
     this.follow = false
     this.controls.update()
+  }
+
+  /** 'orbit' = classic orbit controls; 'free' = 360 viewer: drag to look,
+   * WASD/arrows to fly, Q/E down/up, Shift fast, wheel adjusts speed. */
+  setCameraMode(mode: 'orbit' | 'free') {
+    if (mode === this.camMode) return
+    if (mode === 'free') {
+      const dir = new THREE.Vector3()
+      this.camera.getWorldDirection(dir)
+      this.freePitch = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1))
+      this.freeYaw = Math.atan2(-dir.x, -dir.z)
+      this.controls.enabled = false
+      this.follow = false
+      this.keys.clear()
+      this.showHint(true)
+    } else {
+      // re-aim the orbit pivot at whatever the viewer was looking at
+      const dir = new THREE.Vector3()
+      this.camera.getWorldDirection(dir)
+      const target = this.camera.position.clone().add(dir.multiplyScalar(12))
+      target.y = Math.max(0.4, target.y)
+      this.controls.target.copy(target)
+      this.controls.enabled = true
+      this.controls.update()
+      this.showHint(false)
+    }
+    this.camMode = mode
+  }
+
+  get cameraMode(): string {
+    return this.camMode
+  }
+
+  private showHint(on: boolean) {
+    if (!this.hintEl) {
+      this.hintEl = document.createElement('div')
+      this.hintEl.className = 'free360-hint'
+      this.hintEl.innerHTML =
+        '<b>360&deg; viewer</b> &mdash; drag to look &middot; WASD / arrows fly &middot; ' +
+        'Q / E down &middot; up &middot; Shift fast &middot; scroll speed'
+      this.container.appendChild(this.hintEl)
+    }
+    this.hintEl.style.display = on ? 'block' : 'none'
+  }
+
+  private updateFreeCam(dt: number) {
+    const k = this.keys
+    const fast = k.has('shift') ? 2.6 : 1.0
+    const slow = k.has('alt') ? 0.35 : 1.0
+    const cp = Math.cos(this.freePitch)
+    const fwd = new THREE.Vector3(-Math.sin(this.freeYaw) * cp, Math.sin(this.freePitch),
+                                  -Math.cos(this.freeYaw) * cp)
+    const right = new THREE.Vector3(Math.cos(this.freeYaw), 0, -Math.sin(this.freeYaw))
+    const move = new THREE.Vector3()
+    if (k.has('w') || k.has('arrowup')) move.add(fwd)
+    if (k.has('s') || k.has('arrowdown')) move.sub(fwd)
+    if (k.has('d') || k.has('arrowright')) move.add(right)
+    if (k.has('a') || k.has('arrowleft')) move.sub(right)
+    if (k.has('e') || k.has(' ')) move.y += 1
+    if (k.has('q') || k.has('c')) move.y -= 1
+    if (move.lengthSq() > 0) {
+      move.normalize().multiplyScalar(this.freeSpeed * fast * slow * dt)
+      this.camera.position.add(move)
+    }
+    // anywhere and everywhere on the estate — just never underground or adrift
+    this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, -150, 150)
+    this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, -110, 130)
+    this.camera.position.y = THREE.MathUtils.clamp(this.camera.position.y, 0.7, 150)
+    this.camera.rotation.order = 'YXZ'
+    this.camera.rotation.set(this.freePitch, this.freeYaw, 0)
+  }
+
+  private onLookDown = (ev: PointerEvent) => {
+    if (this.camMode !== 'free' || ev.button !== 0) return
+    this.lookDrag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY }
+  }
+
+  private onLookMove = (ev: PointerEvent) => {
+    if (this.camMode !== 'free' || !this.lookDrag || ev.pointerId !== this.lookDrag.id) return
+    const dx = ev.clientX - this.lookDrag.x
+    const dy = ev.clientY - this.lookDrag.y
+    this.lookDrag.x = ev.clientX
+    this.lookDrag.y = ev.clientY
+    const s = 0.0032
+    this.freeYaw -= dx * s
+    this.freePitch = THREE.MathUtils.clamp(this.freePitch - dy * s, -1.45, 1.45)
+  }
+
+  private onLookUp = (ev: PointerEvent) => {
+    if (this.lookDrag && ev.pointerId === this.lookDrag.id) this.lookDrag = null
+  }
+
+  private onKeyDown = (ev: KeyboardEvent) => {
+    if (this.camMode !== 'free') return
+    const t = ev.target as HTMLElement | null
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    const key = ev.key.toLowerCase()
+    this.keys.add(key)
+    if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) ev.preventDefault()
+  }
+
+  private onKeyUp = (ev: KeyboardEvent) => {
+    this.keys.delete(ev.key.toLowerCase())
+  }
+
+  private onWheelFree = (ev: WheelEvent) => {
+    if (this.camMode !== 'free') return
+    ev.preventDefault()
+    this.freeSpeed = THREE.MathUtils.clamp(this.freeSpeed * (ev.deltaY > 0 ? 0.85 : 1.18), 1.5, 90)
   }
 
   select(id: string | null, flyTo = false) {
@@ -840,7 +966,11 @@ export class FloorScene {
       }
     }
 
-    this.controls.update()
+    if (this.camMode === 'free') {
+      this.updateFreeCam(dt)
+    } else {
+      this.controls.update()
+    }
     this.drawTicker()
     this.updateSeatPlates()
     this.updateLabels()
@@ -898,6 +1028,12 @@ export class FloorScene {
     cancelAnimationFrame(this.raf)
     window.removeEventListener('resize', this.onResize)
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointer)
+    this.renderer.domElement.removeEventListener('pointerdown', this.onLookDown)
+    window.removeEventListener('pointermove', this.onLookMove)
+    window.removeEventListener('pointerup', this.onLookUp)
+    window.removeEventListener('keydown', this.onKeyDown)
+    window.removeEventListener('keyup', this.onKeyUp)
+    this.renderer.domElement.removeEventListener('wheel', this.onWheelFree)
     this.labelHost.remove()
     this.controls.dispose()
     this.renderer.dispose()

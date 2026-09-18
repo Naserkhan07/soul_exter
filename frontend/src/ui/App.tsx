@@ -47,6 +47,7 @@ export function App() {
   const [fps, setFps] = useState(60)
   const [chatRequest, setChatRequest] = useState<{ seatId: string; tradeId: string } | null>(null)
   const [lights, setLights] = useState<'day' | 'night'>('night')
+  const [free360, setFree360] = useState(false)
   const [orderBusy, setOrderBusy] = useState<Record<string, string>>({})
   const [commsFocus, setCommsFocus] = useState<string | null>(null)
   const [bookInfo, setBookInfo] = useState<any>(null)
@@ -335,8 +336,17 @@ export function App() {
         {!ready && !bootError && <div className="boot">waking the floor…</div>}
         <div className="cam-presets">
           {['overview', 'pit', 'corridor', 'cabins', 'executive', 'debate', 'gates', 'tape'].map((p) => (
-            <button key={p} onClick={() => sceneRef.current?.setPreset(p)}>{p.toUpperCase()}</button>
+            <button key={p} onClick={() => { setFree360(false); sceneRef.current?.setPreset(p) }}>{p.toUpperCase()}</button>
           ))}
+          <button className={`cam360 ${free360 ? 'active' : ''}`}
+                  title="360 viewer — fly anywhere, look everywhere (drag to look, WASD to fly, Q/E down/up)"
+                  onClick={() => {
+                    const next = !free360
+                    setFree360(next)
+                    sceneRef.current?.setCameraMode(next ? 'free' : 'orbit')
+                  }}>
+            {free360 ? '◉ 360° ON' : '⟠ 360°'}
+          </button>
           <button className={`light-toggle ${lights}`}
                   title="switch the whole city between day and night"
                   onClick={() => {
