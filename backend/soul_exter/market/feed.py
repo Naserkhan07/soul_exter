@@ -18,7 +18,7 @@ import numpy as np
 
 from ..agents.schemas import Instrument
 from ..brain.features import Ticker
-from .universe import UNIVERSE, sigma_per_step
+from .universe import UNIVERSE, fx_legs, sigma_per_step
 
 SESSION_VOL = [  # (hour, multiplier) Asia / London / NY
     (0, 0.72), (3, 0.80), (6, 1.05), (8, 1.32), (12, 1.46), (15, 1.28), (18, 1.02),
@@ -91,8 +91,13 @@ class InstrumentState:
             self.drift = self.rng.uniform(-rd / 2, rd / 2)
         self.regime_left = self.rng.randint(*self.REGIME_BARS)
 
-    def step(self, dt: float, hour: float) -> float:
-        """Advance the mid price by `dt` seconds; returns the new price."""
+    def step(self, dt: float, hour: float, factor_shock: float = 0.0,
+             ccy_shock: float = 0.0) -> float:
+        """Advance the mid price by `dt` seconds; returns the new price.
+
+        `factor_shock` is the shared macro move and `ccy_shock` the combined
+        currency-leg shock (base leg minus quote leg) for this step — both
+        standard-deviation-scaled, so FX pairs co-move in realistic blocs."""
         base_sigma = sigma_per_step(self.inst, dt) * session_vol(hour)
         if self.regime == "squeeze":
             base_sigma *= 0.45
@@ -111,10 +116,13 @@ class InstrumentState:
             self.price += (anchor - self.price) * pull * bar_frac
         share = self.momo_share
         phi = self.momo_phi
-        innov = base_sigma * math.sqrt(max(1.0 - share * share, 0.0)) * self.rng.gauss(0, 1)
+        factor_part = base_sigma * 0.42 * factor_shock + base_sigma * 0.50 * ccy_shock
+        innov = base_sigma * math.sqrt(max(1.0 - share * share - 0.42 ** 2 - 0.50 ** 2,
+                                           0.05)) * self.rng.gauss(0, 1)
         self.momo = phi * self.momo + base_sigma * share * math.sqrt(max(1.0 - phi * phi, 0.0)) \
             * self.rng.gauss(0, 1)
-        self.price *= math.exp(self.drift * 0.0016 * bar_frac + share * self.momo + innov)
+        self.price *= math.exp(self.drift * 0.0016 * bar_frac + share * self.momo
+                               + factor_part + innov)
         # keep prices anchored to a realistic neighbourhood
         if self.price > self.inst.price * 1.6:
             self.price = self.inst.price * 1.5
@@ -128,6 +136,14 @@ class InstrumentState:
 
 class MarketFeed:
     def __init__(self, symbols: Sequence[str], seed: int = 20250914, history: int = 340) -> None:
+        # --- shared correlation factors -----------------------------------
+        # macro: one OU shock the whole market feels; ccy: one OU per currency,
+        # so EURUSD/GBPUSD co-move (shared EUR + USD legs) while USDSEK vs
+        # USDNOK still diverge on their own legs.
+        self.factor_rng = random.Random(seed + 77)
+        self.mkt = 0.0
+        self.ccy: Dict[str, float] = {}
+        self._ccy_last = 0.0
         self.rng = random.Random(seed)
         self.nprng = np.random.default_rng(seed)
         self.states: Dict[str, InstrumentState] = {}
@@ -136,6 +152,7 @@ class MarketFeed:
         self.sim_clock = time.time()
         for s in self.symbols:
             inst = UNIVERSE[s]
+            self.ensure_currency(s)
             self.states[s] = InstrumentState(inst, random.Random(self.rng.randint(0, 10**9)))
             t = Ticker(s)
             self._seed_history(inst, t, history)
@@ -163,7 +180,15 @@ class MarketFeed:
             share = st.momo_share
             st.momo = phi * st.momo + sig * share * math.sqrt(max(1.0 - phi * phi, 0.0)) \
                 * float(self.nprng.normal())
-            ret = drift + share * st.momo + sig * math.sqrt(max(1.0 - share * share, 0.0)) \
+            # shared macro + currency-leg factors, same weights as live stepping
+            self._seed_factor_step()
+            base, quote = fx_legs(inst.symbol)
+            ccy_shock = (self.ccy.get(base, 0.0) - self.ccy.get(quote, 0.0)) \
+                if base else 0.0
+            ret = drift + share * st.momo + sig * 0.42 * self.mkt \
+                + sig * 0.50 * ccy_shock \
+                + sig * math.sqrt(max(1.0 - share * share - 0.42 ** 2 - 0.50 ** 2,
+                                      0.05)) \
                 * float(self.nprng.normal()) * 1.15
             op = price
             price = op * math.exp(ret)
@@ -176,18 +201,49 @@ class MarketFeed:
         st.price = price
         t.seed(ts, o, h, l, c, v)
 
+    def _seed_factor_step(self) -> None:
+        """One OU update of the shared factors during history seeding."""
+        k, theta = 0.045, 1.2
+        self.mkt = (1.0 - k) * self.mkt + k * theta * self.factor_rng.gauss(0, 1)
+        for ccy in self.ccy:
+            self.ccy[ccy] = (1.0 - k) * self.ccy[ccy] + k * theta * self.factor_rng.gauss(0, 1)
+
     # ---------------------------------------------------------------- drive
+    def _update_factors(self, dt: float) -> None:
+        """OU dynamics for the shared macro factor and each currency leg."""
+        k, theta = 0.045, 1.2          # mean reversion speed / per-step shock scale
+        n = max(1, int(dt / 6.0))
+        for _ in range(n):
+            self.mkt = (1.0 - k) * self.mkt + k * theta * self.factor_rng.gauss(0, 1)
+            for ccy in self.ccy:
+                self.ccy[ccy] = (1.0 - k) * self.ccy[ccy] + k * theta * self.factor_rng.gauss(0, 1)
+        self._ccy_last = self.factor_rng.random()
+
+    def ensure_currency(self, symbol: str) -> None:
+        """Register the currency legs of an FX pair in the factor model."""
+        from .universe import fx_legs
+        base, quote = fx_legs(symbol)
+        for ccy in (base, quote):
+            if ccy and ccy not in self.ccy:
+                self.ccy[ccy] = 0.0
+
     def advance(self, dt: float) -> None:
         """Evolve every symbol by `dt` seconds of simulated market time."""
         self.sim_clock += dt
         hour = (self.sim_clock / 3600.0) % 24
         ticks = max(1, int(dt / 6.0))
+        self._update_factors(dt)
         for sym in self.symbols:
             st = self.states[sym]
             t = self.tickers[sym]
+            from .universe import fx_legs
+            base, quote = fx_legs(sym)
+            ccy_shock = 0.0
+            if base and base in self.ccy:
+                ccy_shock = self.ccy.get(base, 0.0) - self.ccy.get(quote, 0.0)
             sub = dt / ticks
             for _ in range(ticks):
-                p = st.step(sub, hour)
+                p = st.step(sub, hour, factor_shock=self.mkt, ccy_shock=ccy_shock)
             spread = st.inst.spread * (0.6 + 1.6 * self.nprng.random()) * session_vol(hour)
             size = abs(self.nprng.normal()) * 4.0 + 1.0
             t.push_tick(p, size, self.sim_clock)

@@ -135,6 +135,17 @@ If MT5 is configured but unreachable the Orders desk says so in amber, explains 
 (package missing / login refused / symbol not found) and keeps routing to the paper book —
 it never silently pretends an order went to a venue.
 
+## How trades are found — the deep-market brain
+
+The fly brain hunts on **29 sensory channels**, not just the tape:
+
+- **Tape senses (0–11):** trend, momentum, breakout proximity, volatility regime, participation, trendiness, session liquidity, spread cost, volatility burst
+- **Deep tape statistics (12–20):** range position, volatility expansion, candle conviction, persistence (variance ratio), return autocorrelation, skew, tail risk, VWAP distance, signed flow
+- **Order-book microstructure (21–24):** live L2 **book pressure**, **order-flow imbalance** (Cont–Kukanov–Stoikov), **aggressor imbalance** (taker flow), **liquidity quality** (Amihud lambda, Roll spread) — real Binance depth for crypto, trade-only estimators for FX
+- **Correlation brain (25–28):** bloc alignment, **correlation break**, **currency-strength spread** (EUR/USD/GBP/… composite built from every pair), lead-lag edge
+
+The correlation table is **computed live from the rolling tape every cycle** (same views as the correlation websites, never a cached page), and the synthetic fallback tape carries a shared macro + per-currency factor model, so FX pairs co-move in realistic blocs even offline. Two extra finders emit trades straight from correlation: **bloc-lag convergence** (a pair lagging its strongest peer by ≥1.5σ gets faded back to the bloc) and **correlation break** (a pair detaching from its long-run regime is traded in its new idiosyncratic direction). A **correlated-risk gate** refuses new tickets that are ≥0.85 correlated with an open ticket in the same direction — correlated tickets are one ticket in disguise. Calibrate it all with `python3 scripts/deep_study.py`.
+
 ## Every desk answers everything
 
 **Ask anything, get a ChatGPT-style answer.** For open questions the desks don't stay in a

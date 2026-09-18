@@ -18,7 +18,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..agents.schemas import (Direction, Outcome, Signal, Stage, Trade, TradeState, Verdict_,
                               new_id)
+from ..brain.correlation import CorrelationMonitor
 from ..brain.flybrain import FlyBrain
+from ..brain.microstructure import MicroMonitor
 from ..brain.scanner import FlyScanner
 from ..llm.chatroom import ChatRoom
 from ..llm.engine import CouncilEngine
@@ -118,10 +120,21 @@ class FloorEngine:
         self.rng = random.Random(20250914)
         self.brain = FlyBrain(seed=self.rng.randint(1, 10**6))
         self.feed = MarketFeed(self.settings.enabled_symbols or list(UNIVERSE)[:40])
+        self.correlation = CorrelationMonitor(self.feed)
+        self.micro = MicroMonitor(self.settings.enabled_symbols or list(UNIVERSE)[:40],
+                                  refresh_s=self.settings.micro_refresh_s) \
+            if self.settings.use_orderbook else None
         self.scanner = FlyScanner(self.feed, self.brain,
                                   strike_score=self.settings.strike_score,
                                   cooldown_s=self.settings.cooldown_s,
-                                  per_tick=self.settings.scan_batch)
+                                  per_tick=self.settings.scan_batch,
+                                  corr=self.correlation, micro=self.micro,
+                                  open_provider=lambda: [(t.symbol, t.direction) for t in
+                                                         self.trades.values()
+                                                         if t.state not in (TradeState.EXITED.value,
+                                                                            TradeState.REJECTED.value)],
+                                  corr_overlap_max=self.settings.corr_overlap_max,
+                                  use_correlation=self.settings.use_correlation)
         self.playbook = Playbook()
         self.council = CouncilEngine(self.settings.to_seats(), self.playbook, self.rng)
         self.chatroom = ChatRoom(self.council, self.playbook, self.rng)
@@ -673,10 +686,29 @@ class FloorEngine:
 
     def _fly_thesis(self, signal: Signal) -> str:
         f = signal.features
+        src = (signal.neural or {}).get("source")
+        if src == "bloc_lag":
+            return (f"Correlation setup on {signal.symbol}: it lagged its bloc peer "
+                    f"{(signal.neural or {}).get('peer','?')} (rho "
+                    f"{(signal.neural or {}).get('rho',0):.2f}) by "
+                    f"{abs((signal.neural or {}).get('resid_z',0)):.1f} sigmas — "
+                    f"the desk fades the gap back toward the bloc, conviction {signal.score:.2f}.")
+        if src == "corr_break":
+            return (f"Correlation break on {signal.symbol}: its link to "
+                    f"{(signal.neural or {}).get('peer','?')} (rho "
+                    f"{(signal.neural or {}).get('rho',0):.2f}) snapped "
+                    f"({(signal.neural or {}).get('corr_break',0):.2f} from regime) — the desk "
+                    f"trades the new idiosyncratic direction, conviction {signal.score:.2f}.")
+        extra = ""
+        if f.get("book_pressure"):
+            extra += f" Book pressure {f['book_pressure']:+.2f}, order-flow {f.get('ofi',0):+.2f}."
+        if f.get("resid_z"):
+            peer = (signal.neural or {}).get("peer", "peer")
+            extra += f" Bloc residual {f['resid_z']:+.1f} sigma vs {peer}."
         return (f"Fly-brain strike on {signal.symbol} ({signal.asset_class}) with conviction "
                 f"{signal.score:.2f}; ATR {signal.atr:.4g} ({f.get('atr_pct',0)*100:.2f}% of price), "
                 f"efficiency {f.get('efficiency',0):.2f}, vol percentile {f.get('atr_rank',0)*100:.0f}, "
-                f"session factor {f.get('session',1):.2f}.")
+                f"session factor {f.get('session',1):.2f}.{extra}")
 
     # ------------------------------------------------------------ path helper
     def _route(self, w: Walker, node: str) -> None:
@@ -1223,11 +1255,31 @@ class FloorEngine:
         self.scanner.min_trend = self.settings.min_trend
         self.scanner.sl_atr = self.settings.sl_atr
         self.scanner.tp_atr = self.settings.tp_atr
-        for signal in self.scanner.scan(self.settings.enabled_symbols, now=self.clock):
+        self.scanner.use_correlation = self.settings.use_correlation
+        self.scanner.corr_overlap_max = self.settings.corr_overlap_max
+        enabled = self.settings.enabled_symbols
+        # refresh the correlation table from the live tape every scan cycle
+        if self.settings.use_correlation:
+            try:
+                self.correlation.update(enabled, now=self.clock)
+            except Exception:
+                pass
+        for signal in self.scanner.scan(enabled, now=self.clock):
             if self.in_flight() >= self.settings.max_trades_in_pipe:
                 break
             if self._spawn_trade(signal) is None:
                 self.scanner.funnel["capped"] += 1
+        # correlation finders: bloc-lag convergence + correlation break
+        if self.settings.use_correlation:
+            for sym in enabled:
+                if self.in_flight() >= self.settings.max_trades_in_pipe:
+                    break
+                try:
+                    sig = self.scanner.evaluate_correlation(sym, now=self.clock)
+                except Exception:
+                    continue
+                if sig is not None and self._spawn_trade(sig) is None:
+                    self.scanner.funnel["capped"] += 1
 
     async def _debate_loop(self) -> None:
         while self._running:

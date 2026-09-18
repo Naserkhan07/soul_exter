@@ -25,7 +25,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-N_RECEPTORS = 12      # glomeruli fed by the market feature encoder
+N_RECEPTORS = 29      # glomeruli fed by the market feature encoder (tape + deep
+                       # statistics + order-book microstructure + correlation)
 N_PN = 26
 N_KC = 140
 KC_FANIN = 6
@@ -59,16 +60,35 @@ class FlyBrain:
         # innate glomerulus -> MBON preferences (the fly's hard-wired instincts:
         # approach what smells like opportunity, retreat from what smells like cost)
         #            trend_up dn  momo stretch brk_up brk_dn volReg volZ eff  sess cost burst
+        #            rngPos volExp conv pers autoc skew kurt vwap flow | bookP ofi aggr liq
+        #            bloc cbreak ccy leadlag
         instincts = [
-            [0.55, 0.55, 0.70, -0.25, 0.55, 0.55, 0.10, 0.45, 0.85, 0.45, 0.65, 0.30],  # attack
-            [0.00, 0.00, -0.25, 0.60, 0.15, 0.15, 0.55, 0.10, -0.65, 0.00, -0.25, 0.20],  # wait
-            [-0.25, -0.25, -0.35, 0.30, -0.25, -0.25, 0.45, -0.10, -0.55, -0.45, -0.65, -0.25],  # retreat
-            [0.20, 0.20, 0.55, 0.20, 0.30, 0.30, 0.30, 0.65, 0.45, 0.25, 0.30, 0.55],  # investigate
-            [0.25, 0.25, 0.25, -0.10, 0.10, 0.10, 0.00, 0.15, 0.75, 0.35, 0.55, 0.15],  # hold
-            [0.00, 0.00, 0.00, 0.45, 0.00, 0.00, 0.70, 0.30, -0.20, 0.00, -0.35, 0.25],  # hedge
-            [0.35, 0.35, 0.45, 0.00, 0.25, 0.25, 0.20, 0.40, 0.60, 0.55, 0.45, 0.35],  # scale
-            [-0.25, -0.25, -0.35, 0.20, -0.15, -0.15, 0.35, -0.10, -0.45, -0.55, -0.55, -0.20],  # abort
+            [0.55, 0.55, 0.70, -0.25, 0.55, 0.55, 0.10, 0.45, 0.85, 0.45, 0.65, 0.30,
+             0.30, 0.35, 0.35, 0.45, 0.30, 0.10, -0.10, 0.30, 0.45, 0.55, 0.50, 0.55,
+             0.25, 0.20, 0.15, 0.55, 0.35],                                        # attack
+            [0.00, 0.00, -0.25, 0.60, 0.15, 0.15, 0.55, 0.10, -0.65, 0.00, -0.25, 0.20,
+             0.00, -0.20, 0.00, 0.10, 0.20, 0.15, 0.30, 0.10, -0.15, -0.30, -0.25, -0.20,
+             0.10, 0.30, 0.45, 0.00, 0.10],                                        # wait
+            [-0.25, -0.25, -0.35, 0.30, -0.25, -0.25, 0.45, -0.10, -0.55, -0.45, -0.65, -0.25,
+             -0.20, -0.10, -0.15, -0.30, -0.20, -0.10, 0.35, -0.15, -0.35, -0.45, -0.40, -0.35,
+             -0.15, -0.10, 0.20, -0.30, -0.15],                                    # retreat
+            [0.20, 0.20, 0.55, 0.20, 0.30, 0.30, 0.30, 0.65, 0.45, 0.25, 0.30, 0.55,
+             0.20, 0.40, 0.20, 0.30, 0.25, 0.20, 0.25, 0.20, 0.35, 0.45, 0.40, 0.40,
+             0.20, 0.45, 0.50, 0.25, 0.45],                                        # investigate
+            [0.25, 0.25, 0.25, -0.10, 0.10, 0.10, 0.00, 0.15, 0.75, 0.35, 0.55, 0.15,
+             0.10, 0.05, 0.15, 0.20, 0.15, 0.05, 0.10, 0.10, 0.25, 0.30, 0.25, 0.30,
+             0.20, 0.15, -0.10, 0.25, 0.15],                                       # hold
+            [0.00, 0.00, 0.00, 0.45, 0.00, 0.00, 0.70, 0.30, -0.20, 0.00, -0.35, 0.25,
+             0.00, 0.20, 0.00, 0.00, 0.10, 0.10, 0.25, 0.05, -0.10, -0.35, -0.20, -0.25,
+             0.05, 0.35, 0.30, -0.20, 0.10],                                       # hedge
+            [0.35, 0.35, 0.45, 0.00, 0.25, 0.25, 0.20, 0.40, 0.60, 0.55, 0.45, 0.35,
+             0.20, 0.25, 0.20, 0.25, 0.20, 0.10, 0.00, 0.20, 0.30, 0.35, 0.30, 0.35,
+             0.15, 0.20, 0.10, 0.35, 0.25],                                        # scale
+            [-0.25, -0.25, -0.35, 0.20, -0.15, -0.15, 0.35, -0.10, -0.45, -0.55, -0.55, -0.20,
+             -0.15, -0.15, -0.10, -0.20, -0.15, -0.05, 0.30, -0.10, -0.25, -0.35, -0.30, -0.30,
+             -0.10, -0.05, 0.25, -0.25, -0.10],                                    # abort
         ]
+        assert len(instincts[0]) == N_RECEPTORS, "instincts must match receptor count"
         self.w_g_mbon = np.array(instincts, dtype=np.float32)
         # KC -> MBON (plastic)
         self.w_kc_mbon = self.rng.uniform(-0.25, 0.25, size=(N_MBON, N_KC)).astype(np.float32)
@@ -224,6 +244,8 @@ class FlyBrain:
             return False
         try:
             z = np.load(path, allow_pickle=False)
+            if z["w_al_pn"].shape != (N_PN, N_RECEPTORS):
+                return False      # brain anatomy changed -> learn fresh
             self.w_kc_mbon = z["w_kc_mbon"]
             self.w_al_pn = z["w_al_pn"]
             self.w_pn_inh = z["w_pn_inh"]

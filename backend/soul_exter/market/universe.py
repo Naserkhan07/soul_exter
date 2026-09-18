@@ -240,3 +240,15 @@ def sigma_per_step(inst: Instrument, seconds: float, bars_per_day: float = 288.0
     """Per-step sigma for the synthetic tape (business-day scaling)."""
     per_bar = inst.vol / math.sqrt(252.0 * bars_per_day)
     return per_bar * math.sqrt(max(0.05, seconds))
+
+
+def fx_legs(symbol: str):
+    """(base, quote) currency legs of an FX symbol, or ("", "") if not FX."""
+    majors = ("EUR", "USD", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD",
+              "SEK", "NOK", "MXN", "ZAR", "TRY", "SGD", "CNH")
+    for cc in sorted(majors, key=len, reverse=True):
+        if symbol.startswith(cc) and len(symbol) > len(cc):
+            rest = symbol[len(cc):]
+            if rest in majors:
+                return cc, rest
+    return "", ""

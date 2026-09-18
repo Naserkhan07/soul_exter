@@ -158,6 +158,44 @@ def compute_metrics(t: Ticker) -> Optional[Dict[str, float]]:
     net = float(abs(c[-1] - c[-21]))
     path = float(np.abs(np.diff(c[-21:])).sum() + 1e-12)
     efficiency = float(np.clip(net / path, 0.0, 1.0))
+    # ---- deep-market extensions (bar/tick derived, every symbol) ----------
+    win55r = max(win55h - win55l, 1e-12)
+    range_pos = float(np.clip((price - win55l) / win55r, 0.0, 1.0))
+    a_short = atr(h, l, c, 7)
+    atr_expand = float(np.clip(a_short / max(a, 1e-12), 0.0, 2.5))
+    body_win = 10
+    bodies = np.abs(c[-body_win:] - o[-body_win:])
+    ranges = np.maximum(h[-body_win:] - l[-body_win:], 1e-12)
+    body_conv = float(np.clip((bodies / ranges >= 0.6).mean(), 0.0, 1.0))
+    r60 = np.diff(c[-61:]) / np.maximum(c[-61:-1], 1e-12)
+    if len(r60) >= 20:
+        var1 = float(r60.var() + 1e-15)
+        nb = max(1, len(r60) // 5)
+        s5 = r60[:nb * 5].reshape(nb, 5).sum(axis=1)
+        hurst_vr = float(np.clip(s5.var() / max(5.0 * var1, 1e-15), 0.2, 2.5))
+    else:
+        hurst_vr = 1.0
+    r40 = np.diff(c[-41:]) / np.maximum(c[-41:-1], 1e-12)
+    if len(r40) >= 20:
+        autocorr1 = float(np.clip(np.corrcoef(r40[:-1], r40[1:])[0, 1], -0.9, 0.9))
+    else:
+        autocorr1 = 0.0
+    r30 = np.diff(c[-31:]) / np.maximum(c[-31:-1], 1e-12)
+    if len(r30) >= 12:
+        m2 = float((r30 ** 2).mean() + 1e-18)
+        m3 = float((r30 ** 3).mean())
+        m4 = float((r30 ** 4).mean())
+        ret_skew = float(np.clip(m3 / m2 ** 1.5, -3, 3))
+        ret_kurt = float(np.clip(m4 / m2 ** 2 - 3.0, -3, 12))
+    else:
+        ret_skew = ret_kurt = 0.0
+    vw = float((c[-40:] * v[-40:]).sum() / max(v[-40:].sum(), 1e-12))
+    vwap_dist = float(np.clip((price - vw) / max(a, 1e-12), -6, 6))
+    rr12 = np.diff(c[-13:]) / np.maximum(c[-13:-1], 1e-12)
+    vv13 = v[-13:]
+    flow_imb = float(np.clip(np.sum(np.sign(rr12) * vv13[1:]) / max(vv13[1:].sum(), 1e-12),
+                             -1, 1)) if len(rr12) >= 6 else 0.0
+
     vmean = float(v[-40:].mean() + 1e-9)
     vol_z = float(np.clip((v[-1] - vmean) / (float(v[-40:].std()) + 1e-9), -3, 6))
     slope9 = float((e9[-1] - e9[-6]) / max(price, 1e-9)) if len(e9) > 6 else 0.0
@@ -169,6 +207,9 @@ def compute_metrics(t: Ticker) -> Optional[Dict[str, float]]:
     session = 1.0 + 0.55 * math.exp(-((hour - 13.5) ** 2) / 9.0) + 0.5 * math.exp(-((hour - 9.0) ** 2) / 6.0)
     return dict(
         price=price, atr=a, atr_pct=atr_pct, atr_rank=atr_rank, rsi=r, bb_pos=bb_pos,
+        range_pos=range_pos, atr_expand=atr_expand, body_conv=body_conv,
+        hurst_vr=hurst_vr, autocorr1=autocorr1, ret_skew=ret_skew, ret_kurt=ret_kurt,
+        vwap_dist=vwap_dist, flow_imb=flow_imb,
         win20h=win20h, win20l=win20l, win55h=win55h, win55l=win55l,
         dist_hi=float((win20h - price) / max(a, 1e-9)), dist_lo=float((price - win20l) / max(a, 1e-9)),
         roc10=roc10, roc30=roc30, efficiency=efficiency, vol_z=vol_z, slope9=slope9,
@@ -179,7 +220,16 @@ def compute_metrics(t: Ticker) -> Optional[Dict[str, float]]:
 
 
 def encode_glomeruli(m: Dict[str, float], spread: float) -> np.ndarray:
-    """12 glomeruli in [0,1] — the fly's sensory input vector."""
+    """29 glomeruli in [0,1] — the fly's sensory input vector.
+
+    Channels 0-11 are the original tape senses. 12-19 are deep-tape statistics
+    (range position, volatility expansion, candle conviction, persistence
+    variance-ratio, return autocorrelation, skew/kurtosis, VWAP distance,
+    signed flow). 20-24 are microstructure (book pressure, order-flow
+    imbalance, aggressor imbalance, liquidity quality). 25-28 are the
+    correlation brain (bloc alignment, correlation break, currency-strength
+    spread, lead-lag edge).
+    """
     a = max(m["atr"], 1e-9)
     up_slope = (m["slope9"] * 260 + m["slope21"] * 120 + m["slope50"] * 55)
     dn_slope = -(m["slope9"] * 260 + m["slope21"] * 120 + m["slope50"] * 55)
@@ -198,6 +248,27 @@ def encode_glomeruli(m: Dict[str, float], spread: float) -> np.ndarray:
         float(np.clip((m["session"] - 0.9) / 1.1, 0, 1)),        # session liquidity
         float(np.clip(1.0 - m["spread_ratio"] * 26.0, 0, 1)),    # cost of entry
         float(np.clip(m["vol_ratio"] / 3.0, 0, 1)),              # micro volatility burst
+        # ---- deep tape statistics --------------------------------------
+        float(m.get("range_pos", 0.5)),                          # 12 range position
+        float(np.clip((m.get("atr_expand", 1.0) - 0.75) / 1.5, 0, 1)),   # 13 vol expansion
+        float(m.get("body_conv", 0.5)),                          # 14 candle conviction
+        float(np.clip((m.get("hurst_vr", 1.0) - 0.6) / 0.8, 0, 1)),      # 15 persistence
+        float(np.clip(m.get("autocorr1", 0.0) * 0.5 + 0.5, 0, 1)),       # 16 autocorrelation
+        float(np.clip(m.get("ret_skew", 0.0) / 2.0 + 0.5, 0, 1)),        # 17 return skew
+        float(np.clip(m.get("ret_kurt", 0.0) / 6.0 + 0.5, 0, 1)),        # 18 tail risk
+        float(np.clip(m.get("vwap_dist", 0.0) / 3.0 + 0.5, 0, 1)),       # 19 VWAP distance
+        float(np.clip(m.get("flow_imb", 0.0) / 0.8 + 0.5, 0, 1)),        # 20 signed flow
+        # ---- order book / microstructure -------------------------------
+        float(np.clip(m.get("book_pressure", 0.0) + 0.5, 0, 1)),          # 21 book pressure
+        float(np.clip(m.get("ofi", 0.0) / 0.6 + 0.5, 0, 1)),              # 22 order-flow imb
+        float(np.clip(m.get("aggressor", 0.0) / 0.7 + 0.5, 0, 1)),        # 23 aggressor imb
+        float(np.clip(1.0 / (1.0 + max(m.get("amihud", 0.0), 0.0) / 10.0), 0, 1)),  # 24 liq quality
+        # ---- correlation brain ------------------------------------------
+        float(np.clip(abs(m.get("corr_bloc", 0.0)), 0, 1)),               # 25 bloc alignment
+        float(np.clip(m.get("corr_break", 0.0) / 0.8, 0, 1)),             # 26 corr break
+        float(np.clip(m.get("ccy_spread", 0.0) / 2.0 + 0.5, 0, 1)),       # 27 ccy momentum
+        float(np.clip(0.6 * min(max(m.get("lead_edge", 0.0) * 3.0, 0.0), 1.0)
+                      + 0.4 * (m.get("peer_dir", 0.0) * 0.5 + 0.5), 0, 1)),  # 28 lead-lag
     ], dtype=np.float64)
     return np.clip(g, 0.0, 1.0)
 

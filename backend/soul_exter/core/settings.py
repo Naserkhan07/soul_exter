@@ -21,6 +21,10 @@ class Settings:
     cooldown_s: float = 40.0             # per-symbol strike cooldown
     min_efficiency: float = 0.32         # only trade efficient (directional) tape
     min_trend: float = 0.30              # only trade a real trend composite
+    use_correlation: bool = True         # correlation-brain finder (bloc-lag, corr-break)
+    use_orderbook: bool = True           # live L2 book + microstructure channels (crypto)
+    corr_overlap_max: float = 0.85       # refuse new tickets too correlated with open ones
+    micro_refresh_s: float = 12.0        # seconds between L2 book refreshes per symbol
     sl_atr: float = 1.00                 # stop distance in ATR
     tp_atr: float = 2.20                 # target distance in ATR
     outcome_horizon_s: float = 600.0     # paper-evaluation window
